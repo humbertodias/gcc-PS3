@@ -20,7 +20,7 @@
 
 bool
 Parse::Enclosing_var_comparison::operator()(const Enclosing_var& v1,
-					    const Enclosing_var& v2)
+					    const Enclosing_var& v2) const
 {
   if (v1.var() == v2.var())
     return false;
@@ -50,7 +50,6 @@ Parse::Parse(Lex* lex, Gogo* gogo)
     gogo_(gogo),
     break_stack_(NULL),
     continue_stack_(NULL),
-    iota_(0),
     enclosing_vars_()
 {
 }
@@ -192,7 +191,11 @@ Parse::qualified_ident(std::string* pname, Named_object** ppackage)
   Named_object* package = this->gogo_->lookup(name, NULL);
   if (package == NULL || !package->is_package())
     {
-      go_error_at(this->location(), "expected package");
+      if (package == NULL)
+	go_error_at(this->location(), "reference to undefined name %qs",
+		    Gogo::message_name(name).c_str());
+      else
+	go_error_at(this->location(), "expected package");
       // We expect . IDENTIFIER; skip both.
       if (this->advance_token()->is_identifier())
 	this->advance_token();
@@ -837,7 +840,7 @@ Parse::parameter_list(bool* is_varargs)
     {
       std::string name = token->identifier();
       bool is_exported = token->is_identifier_exported();
-      Location location = token->location();
+      Location id_location = token->location();
       token = this->advance_token();
       if (!token->is_op(OPERATOR_COMMA))
 	{
@@ -862,7 +865,7 @@ Parse::parameter_list(bool* is_varargs)
 	    }
 
 	  this->unget_token(Token::make_identifier_token(name, is_exported,
-							 location));
+							 id_location));
 	}
       else
 	{
@@ -873,15 +876,15 @@ Parse::parameter_list(bool* is_varargs)
 	  // commas as we can.
 	  std::string id_name = this->gogo_->pack_hidden_name(name,
 							      is_exported);
-	  ret->push_back(Typed_identifier(id_name, NULL, location));
+	  ret->push_back(Typed_identifier(id_name, NULL, id_location));
 	  bool just_saw_comma = true;
 	  while (this->advance_token()->is_identifier())
 	    {
 	      name = this->peek_token()->identifier();
 	      is_exported = this->peek_token()->is_identifier_exported();
-	      location = this->peek_token()->location();
+	      id_location = this->peek_token()->location();
 	      id_name = this->gogo_->pack_hidden_name(name, is_exported);
-	      ret->push_back(Typed_identifier(id_name, NULL, location));
+	      ret->push_back(Typed_identifier(id_name, NULL, id_location));
 	      if (!this->advance_token()->is_op(OPERATOR_COMMA))
 		{
 		  just_saw_comma = false;
@@ -910,7 +913,7 @@ Parse::parameter_list(bool* is_varargs)
 	      // names.
 	      parameters_have_names = false;
 	      this->unget_token(Token::make_identifier_token(name, is_exported,
-							     location));
+							     id_location));
 	      ret->pop_back();
 	      just_saw_comma = true;
 	    }
@@ -996,7 +999,7 @@ Parse::parameter_list(bool* is_varargs)
     }
   if (mix_error)
     {
-      go_error_at(location, "invalid named/anonymous mix");
+      go_error_at(location, "mixed named and unnamed function parameters");
       saw_error = true;
     }
   if (saw_error)
@@ -1308,12 +1311,6 @@ void
 Parse::declaration()
 {
   const Token* token = this->peek_token();
-
-  unsigned int pragmas = this->lex_->get_and_clear_pragmas();
-  if (pragmas != 0 && !token->is_keyword(KEYWORD_FUNC))
-    go_warning_at(token->location(), 0,
-		  "ignoring magic comment before non-function");
-
   if (token->is_keyword(KEYWORD_CONST))
     this->const_decl();
   else if (token->is_keyword(KEYWORD_TYPE))
@@ -1321,7 +1318,7 @@ Parse::declaration()
   else if (token->is_keyword(KEYWORD_VAR))
     this->var_decl();
   else if (token->is_keyword(KEYWORD_FUNC))
-    this->function_decl(pragmas);
+    this->function_decl();
   else
     {
       go_error_at(this->location(), "expected declaration");
@@ -1342,7 +1339,7 @@ Parse::declaration_may_start_here()
 // Decl<P> = P | "(" [ List<P> ] ")" .
 
 void
-Parse::decl(void (Parse::*pfn)(void*), void* varg)
+Parse::decl(void (Parse::*pfn)())
 {
   if (this->peek_token()->is_eof())
     {
@@ -1352,12 +1349,21 @@ Parse::decl(void (Parse::*pfn)(void*), void* varg)
     }
 
   if (!this->peek_token()->is_op(OPERATOR_LPAREN))
-    (this->*pfn)(varg);
+    (this->*pfn)();
   else
     {
+      if (this->lex_->get_and_clear_pragmas() != 0)
+	go_error_at(this->location(),
+		    "ignoring compiler directive before group");
+      if (this->lex_->has_embeds())
+	{
+	  this->lex_->clear_embeds();
+	  go_error_at(this->location(),
+		      "ignoring %<//go:embed%> comment before group");
+	}
       if (!this->advance_token()->is_op(OPERATOR_RPAREN))
 	{
-	  this->list(pfn, varg, true);
+	  this->list(pfn, true);
 	  if (!this->peek_token()->is_op(OPERATOR_RPAREN))
 	    {
 	      go_error_at(this->location(), "missing %<)%>");
@@ -1378,9 +1384,9 @@ Parse::decl(void (Parse::*pfn)(void*), void* varg)
 // might follow.  This is either a '}' or a ')'.
 
 void
-Parse::list(void (Parse::*pfn)(void*), void* varg, bool follow_is_paren)
+Parse::list(void (Parse::*pfn)(), bool follow_is_paren)
 {
-  (this->*pfn)(varg);
+  (this->*pfn)();
   Operator follow = follow_is_paren ? OPERATOR_RPAREN : OPERATOR_RCURLY;
   while (this->peek_token()->is_op(OPERATOR_SEMICOLON)
 	 || this->peek_token()->is_op(OPERATOR_COMMA))
@@ -1389,7 +1395,7 @@ Parse::list(void (Parse::*pfn)(void*), void* varg, bool follow_is_paren)
 	go_error_at(this->location(), "unexpected comma");
       if (this->advance_token()->is_op(follow))
 	break;
-      (this->*pfn)(varg);
+      (this->*pfn)();
     }
 }
 
@@ -1400,19 +1406,20 @@ Parse::const_decl()
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_CONST));
   this->advance_token();
-  this->reset_iota();
 
+  int iota = 0;
   Type* last_type = NULL;
   Expression_list* last_expr_list = NULL;
 
   if (!this->peek_token()->is_op(OPERATOR_LPAREN))
-    this->const_spec(&last_type, &last_expr_list);
+    this->const_spec(iota, &last_type, &last_expr_list);
   else
     {
       this->advance_token();
       while (!this->peek_token()->is_op(OPERATOR_RPAREN))
 	{
-	  this->const_spec(&last_type, &last_expr_list);
+	  this->const_spec(iota, &last_type, &last_expr_list);
+	  ++iota;
 	  if (this->peek_token()->is_op(OPERATOR_SEMICOLON))
 	    this->advance_token();
 	  else if (!this->peek_token()->is_op(OPERATOR_RPAREN))
@@ -1433,8 +1440,11 @@ Parse::const_decl()
 // ConstSpec = IdentifierList [ [ CompleteType ] "=" ExpressionList ] .
 
 void
-Parse::const_spec(Type** last_type, Expression_list** last_expr_list)
+Parse::const_spec(int iota, Type** last_type, Expression_list** last_expr_list)
 {
+  this->check_directives();
+
+  Location loc = this->location();
   Typed_identifier_list til;
   this->identifier_list(&til);
 
@@ -1459,7 +1469,12 @@ Parse::const_spec(Type** last_type, Expression_list** last_expr_list)
       for (Expression_list::const_iterator p = (*last_expr_list)->begin();
 	   p != (*last_expr_list)->end();
 	   ++p)
-	expr_list->push_back((*p)->copy());
+	{
+	  Expression* copy = (*p)->copy();
+	  copy->set_location(loc);
+	  this->update_references(&copy);
+	  expr_list->push_back(copy);
+	}
     }
   else
     {
@@ -1485,7 +1500,7 @@ Parse::const_spec(Type** last_type, Expression_list** last_expr_list)
 	pi->set_type(type);
 
       if (!Gogo::is_sink_name(pi->name()))
-	this->gogo_->add_constant(*pi, *pe, this->iota_value());
+	this->gogo_->add_constant(*pi, *pe, iota);
       else
 	{
 	  static int count;
@@ -1493,16 +1508,102 @@ Parse::const_spec(Type** last_type, Expression_list** last_expr_list)
 	  snprintf(buf, sizeof buf, ".$sinkconst%d", count);
 	  ++count;
 	  Typed_identifier ti(std::string(buf), type, pi->location());
-	  Named_object* no = this->gogo_->add_constant(ti, *pe, this->iota_value());
+	  Named_object* no = this->gogo_->add_constant(ti, *pe, iota);
 	  no->const_value()->set_is_sink();
 	}
     }
   if (pe != expr_list->end())
     go_error_at(this->location(), "too many initializers");
 
-  this->increment_iota();
-
   return;
+}
+
+// Update any references to names to refer to the current names,
+// for weird cases like
+//
+// const X = 1
+// func F() {
+// 	const (
+// 		X = X + X
+//		Y
+// 	)
+// }
+//
+// where the X + X for the first X is the outer X, but the X + X
+// copied for Y is the inner X.
+
+class Update_references : public Traverse
+{
+ public:
+  Update_references(Gogo* gogo)
+    : Traverse(traverse_expressions),
+      gogo_(gogo)
+  { }
+
+  int
+  expression(Expression**);
+
+ private:
+  Gogo* gogo_;
+};
+
+int
+Update_references::expression(Expression** pexpr)
+{
+  Named_object* old_no;
+  switch ((*pexpr)->classification())
+    {
+    case Expression::EXPRESSION_CONST_REFERENCE:
+      old_no = (*pexpr)->const_expression()->named_object();
+      break;
+    case Expression::EXPRESSION_VAR_REFERENCE:
+      old_no = (*pexpr)->var_expression()->named_object();
+      break;
+    case Expression::EXPRESSION_ENCLOSED_VAR_REFERENCE:
+      old_no = (*pexpr)->enclosed_var_expression()->variable();
+      break;
+    case Expression::EXPRESSION_FUNC_REFERENCE:
+      old_no = (*pexpr)->func_expression()->named_object();
+      break;
+    case Expression::EXPRESSION_UNKNOWN_REFERENCE:
+      old_no = (*pexpr)->unknown_expression()->named_object();
+      break;
+    default:
+      return TRAVERSE_CONTINUE;
+    }
+
+  if (old_no->package() != NULL)
+    {
+      // This is a qualified reference, so it can't have changed in
+      // scope.  FIXME: This probably doesn't handle dot imports
+      // correctly.
+      return TRAVERSE_CONTINUE;
+    }
+
+  Named_object* in_function;
+  Named_object* new_no = this->gogo_->lookup(old_no->name(), &in_function);
+  if (new_no == old_no)
+    return TRAVERSE_CONTINUE;
+
+  // The new name must be a constant, since that is all we have
+  // introduced into scope.
+  if (!new_no->is_const())
+    {
+      go_assert(saw_errors());
+      return TRAVERSE_CONTINUE;
+    }
+
+  *pexpr = Expression::make_const_reference(new_no, (*pexpr)->location());
+
+  return TRAVERSE_CONTINUE;
+}
+
+void
+Parse::update_references(Expression** pexpr)
+{
+  Update_references ur(this->gogo_);
+  ur.expression(pexpr);
+  (*pexpr)->traverse_subexpressions(&ur);
 }
 
 // TypeDecl = "type" Decl<TypeSpec> .
@@ -1512,14 +1613,17 @@ Parse::type_decl()
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_TYPE));
   this->advance_token();
-  this->decl(&Parse::type_spec, NULL);
+  this->decl(&Parse::type_spec);
 }
 
 // TypeSpec = identifier ["="] Type .
 
 void
-Parse::type_spec(void*)
+Parse::type_spec()
 {
+  unsigned int pragmas = this->lex_->get_and_clear_pragmas();
+  this->check_directives();
+
   const Token* token = this->peek_token();
   if (!token->is_identifier())
     {
@@ -1562,7 +1666,6 @@ Parse::type_spec(void*)
       go_error_at(this->location(),
 		  "unexpected semicolon or newline in type declaration");
       type = Type::make_error_type();
-      this->advance_token();
     }
 
   if (type->is_error_type())
@@ -1592,6 +1695,15 @@ Parse::type_spec(void*)
 
 	  this->gogo_->define_type(named_type, nt);
 	  go_assert(named_type->package() == NULL);
+
+	  if ((pragmas & GOPRAGMA_NOTINHEAP) != 0)
+	    {
+	      nt->set_not_in_heap();
+	      pragmas &= ~GOPRAGMA_NOTINHEAP;
+	    }
+	  if (pragmas != 0)
+	    go_warning_at(location, 0,
+			  "ignoring magic %<//go:...%> comment before type");
 	}
       else
 	{
@@ -1608,18 +1720,48 @@ Parse::var_decl()
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_VAR));
   this->advance_token();
-  this->decl(&Parse::var_spec, NULL);
+  this->decl(&Parse::var_spec);
 }
 
 // VarSpec = IdentifierList
 //             ( CompleteType [ "=" ExpressionList ] | "=" ExpressionList ) .
 
 void
-Parse::var_spec(void*)
+Parse::var_spec()
 {
+  Location loc = this->location();
+
+  std::vector<std::string>* embeds = NULL;
+  if (this->lex_->has_embeds())
+    {
+      if (!this->gogo_->current_file_imported_embed())
+	go_error_at(loc, "invalid go:embed: missing import %<embed%>");
+      else
+	{
+	  embeds = new(std::vector<std::string>);
+	  this->lex_->get_and_clear_embeds(embeds);
+	}
+    }
+
+  this->check_directives();
+
   // Get the variable names.
   Typed_identifier_list til;
   this->identifier_list(&til);
+
+  if (embeds != NULL)
+    {
+      if (!this->gogo_->in_global_scope())
+	{
+	  go_error_at(loc, "go:embed only permitted at package scope");
+	  embeds = NULL;
+	}
+      if (til.size() > 1)
+	{
+	  go_error_at(loc, "go:embed cannot apply to multiple vars");
+	  embeds = NULL;
+	}
+    }
 
   Location location = this->location();
 
@@ -1648,7 +1790,13 @@ Parse::var_spec(void*)
       init = this->expression_list(NULL, false, true);
     }
 
-  this->init_vars(&til, type, init, false, location);
+  if (embeds != NULL && init != NULL)
+    {
+      go_error_at(loc, "go:embed cannot apply to var with initializer");
+      embeds = NULL;
+    }
+
+  this->init_vars(&til, type, init, false, embeds, location);
 
   if (init != NULL)
     delete init;
@@ -1661,11 +1809,12 @@ Parse::var_spec(void*)
 void
 Parse::init_vars(const Typed_identifier_list* til, Type* type,
 		 Expression_list* init, bool is_coloneq,
-		 Location location)
+		 std::vector<std::string>* embeds, Location location)
 {
   // Check for an initialization which can yield multiple values.
   if (init != NULL && init->size() == 1 && til->size() > 1)
     {
+      go_assert(embeds == NULL);
       if (this->init_vars_from_call(til, type, *init->begin(), is_coloneq,
 				    location))
 	return;
@@ -1707,8 +1856,12 @@ Parse::init_vars(const Typed_identifier_list* til, Type* type,
     {
       if (init != NULL)
 	go_assert(pexpr != init->end());
-      this->init_var(*p, type, init == NULL ? NULL : *pexpr, is_coloneq,
-		     false, &any_new, vars, vals);
+      Named_object* no = this->init_var(*p, type,
+					init == NULL ? NULL : *pexpr,
+					is_coloneq, false, &any_new,
+					vars, vals);
+      if (embeds != NULL && no->is_variable())
+	no->var_value()->set_embeds(embeds);
       if (init != NULL)
 	++pexpr;
     }
@@ -1828,7 +1981,11 @@ Parse::init_vars_from_map(const Typed_identifier_list* vars, Type* type,
   else if (!val_no->is_sink())
     {
       if (val_no->is_variable())
-	val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	{
+	  val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	  if (no->is_variable())
+	    this->gogo_->record_var_depends_on(no->var_value(), val_no);
+	}
     }
   else if (!no->is_sink())
     {
@@ -1895,7 +2052,11 @@ Parse::init_vars_from_receive(const Typed_identifier_list* vars, Type* type,
   else if (!val_no->is_sink())
     {
       if (val_no->is_variable())
-	val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	{
+	  val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	  if (no->is_variable())
+	    this->gogo_->record_var_depends_on(no->var_value(), val_no);
+	}
     }
   else if (!no->is_sink())
     {
@@ -1961,7 +2122,11 @@ Parse::init_vars_from_type_guard(const Typed_identifier_list* vars,
   else if (!val_no->is_sink())
     {
       if (val_no->is_variable())
-	val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	{
+	  val_no->var_value()->add_preinit_statement(this->gogo_, s);
+	  if (no->is_variable())
+	    this->gogo_->record_var_depends_on(no->var_value(), val_no);
+	}
     }
   else if (!no->is_sink())
     {
@@ -2053,6 +2218,7 @@ Parse::create_dummy_global(Type* type, Expression* init,
   if (type == NULL && init == NULL)
     type = Type::lookup_bool_type();
   Variable* var = new Variable(type, init, true, false, false, location);
+  var->set_is_global_sink();
   static int count;
   char buf[30];
   snprintf(buf, sizeof buf, "_.%d", count);
@@ -2147,8 +2313,12 @@ Parse::simple_var_decl_or_assignment(const std::string& name,
 		  id = this->gogo_->pack_hidden_name(id, is_id_exported);
 		  ins = uniq_idents.insert(id);
 		  if (!ins.second && !Gogo::is_sink_name(id))
-		    go_error_at(id_location, "multiple assignments to %s",
-				Gogo::message_name(id).c_str());
+		    {
+		      // Use %s to print := to avoid -Wformat-diag warning.
+		      go_error_at(id_location,
+				  "%qs repeated on left side of %s",
+				  Gogo::message_name(id).c_str(), ":=");
+		    }
 		  til.push_back(Typed_identifier(id, NULL, location));
 		}
 	      else
@@ -2182,7 +2352,7 @@ Parse::simple_var_decl_or_assignment(const std::string& name,
 	       p != til.end();
 	       ++p)
 	    exprs->push_back(this->id_to_expression(p->name(), p->location(),
-						    true));
+						    true, false));
 
 	  Expression_list* more_exprs =
 	    this->expression_list(NULL, true, may_be_composite_lit);
@@ -2201,7 +2371,11 @@ Parse::simple_var_decl_or_assignment(const std::string& name,
   const Token* token = this->advance_token();
 
   if (!dup_name.empty())
-    go_error_at(dup_loc, "multiple assignments to %s", dup_name.c_str());
+    {
+      // Use %s to print := to avoid -Wformat-diag warning.
+      go_error_at(dup_loc, "%qs repeated on left side of %s",
+		  dup_name.c_str(), ":=");
+    }
 
   if (p_range_clause != NULL && token->is_keyword(KEYWORD_RANGE))
     {
@@ -2239,7 +2413,7 @@ Parse::simple_var_decl_or_assignment(const std::string& name,
 	}
     }
 
-  this->init_vars(&til, NULL, init, true, location);
+  this->init_vars(&til, NULL, init, true, NULL, location);
 }
 
 // FunctionDecl = "func" identifier Signature [ Block ] .
@@ -2255,9 +2429,13 @@ Parse::simple_var_decl_or_assignment(const std::string& name,
 // PRAGMAS is a bitset of magic comments.
 
 void
-Parse::function_decl(unsigned int pragmas)
+Parse::function_decl()
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_FUNC));
+
+  unsigned int pragmas = this->lex_->get_and_clear_pragmas();
+  this->check_directives();
+
   Location location = this->location();
   std::string extern_name = this->lex_->extern_name();
   const Token* token = this->advance_token();
@@ -2342,7 +2520,10 @@ Parse::function_decl(unsigned int pragmas)
 	{ GOPRAGMA_NOINLINE, "noinline", false, true, true },
 	{ GOPRAGMA_SYSTEMSTACK, "systemstack", false, true, true },
 	{ GOPRAGMA_NOWRITEBARRIER, "nowritebarrier", false, true, true },
-	{ GOPRAGMA_NOWRITEBARRIERREC, "nowritebarrierrec", false, true, true },
+	{ GOPRAGMA_NOWRITEBARRIERREC, "nowritebarrierrec", false, true,
+	  true },
+	{ GOPRAGMA_YESWRITEBARRIERREC, "yeswritebarrierrec", false, true,
+	  true },
 	{ GOPRAGMA_CGOUNSAFEARGS, "cgo_unsafe_args", false, true, true },
 	{ GOPRAGMA_UINTPTRESCAPES, "uintptrescapes", true, true, true },
       };
@@ -2362,7 +2543,7 @@ Parse::function_decl(unsigned int pragmas)
 	      if (pragma_check[i].decl_ok)
 		continue;
 	      go_warning_at(location, 0,
-			    ("ignoring magic //go:%s comment "
+			    ("ignoring magic %<//go:%s%> comment "
 			     "before declaration"),
 			    pragma_check[i].name);
 	    }
@@ -2371,7 +2552,7 @@ Parse::function_decl(unsigned int pragmas)
 	      if (pragma_check[i].func_ok)
 		continue;
 	      go_warning_at(location, 0,
-			    ("ignoring magic //go:%s comment "
+			    ("ignoring magic %<//go:%s%> comment "
 			     "before function definition"),
 			    pragma_check[i].name);
 	    }
@@ -2380,7 +2561,7 @@ Parse::function_decl(unsigned int pragmas)
 	      if (pragma_check[i].method_ok)
 		continue;
 	      go_warning_at(location, 0,
-			    ("ignoring magic //go:%s comment "
+			    ("ignoring magic %<//go:%s%> comment "
 			     "before method definition"),
 			    pragma_check[i].name);
 	    }
@@ -2581,7 +2762,7 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	      return Expression::make_sink(location);
 	    else
 	      {
-		go_error_at(location, "cannot use _ as value");
+		go_error_at(location, "cannot use %<_%> as value");
 		return Expression::make_error(location);
 	      }
 	  case Named_object::NAMED_OBJECT_FUNC:
@@ -2630,7 +2811,7 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
     case Token::TOKEN_IMAGINARY:
       {
 	mpfr_t zero;
-	mpfr_init_set_ui(zero, 0, GMP_RNDN);
+	mpfr_init_set_ui(zero, 0, MPFR_RNDN);
 	mpc_t val;
 	mpc_init2(val, mpc_precision);
 	mpc_set_fr_fr(val, zero, *token->imaginary_value(), MPC_RNDNN);
@@ -2725,14 +2906,18 @@ Parse::enclosing_var_reference(Named_object* in_function, Named_object* var,
 
   Expression* closure_ref = Expression::make_var_reference(closure,
 							   location);
-  closure_ref = Expression::make_unary(OPERATOR_MULT, closure_ref, location);
+  closure_ref =
+      Expression::make_dereference(closure_ref,
+                                   Expression::NIL_CHECK_NOT_NEEDED,
+                                   location);
 
   // The closure structure holds pointers to the variables, so we need
   // to introduce an indirection.
   Expression* e = Expression::make_field_reference(closure_ref,
 						   ins.first->index(),
 						   location);
-  e = Expression::make_unary(OPERATOR_MULT, e, location);
+  e = Expression::make_dereference(e, Expression::NIL_CHECK_NOT_NEEDED,
+                                   location);
   return Expression::make_enclosing_var_reference(e, var, location);
 }
 
@@ -2783,7 +2968,7 @@ Parse::composite_lit(Type* type, int depth, Location location)
 	{
 	  std::string identifier = token->identifier();
 	  bool is_exported = token->is_identifier_exported();
-	  Location location = token->location();
+	  Location id_location = token->location();
 
 	  if (this->advance_token()->is_op(OPERATOR_COLON))
 	    {
@@ -2795,14 +2980,14 @@ Parse::composite_lit(Type* type, int depth, Location location)
 	      Gogo* gogo = this->gogo_;
 	      val = this->id_to_expression(gogo->pack_hidden_name(identifier,
 								  is_exported),
-					   location, false);
+					   id_location, false, true);
 	      is_name = true;
 	    }
 	  else
 	    {
 	      this->unget_token(Token::make_identifier_token(identifier,
 							     is_exported,
-							     location));
+							     id_location));
 	      val = this->expression(PRECEDENCE_NORMAL, false, true, NULL,
 				     NULL);
 	    }
@@ -2852,9 +3037,6 @@ Parse::composite_lit(Type* type, int depth, Location location)
 	    }
 	  has_keys = true;
 
-	  if (val->unknown_expression() != NULL)
-	    val->unknown_expression()->set_is_composite_literal_key();
-
 	  vals->push_back(val);
 
 	  if (!token->is_op(OPERATOR_LCURLY))
@@ -2898,14 +3080,14 @@ Parse::composite_lit(Type* type, int depth, Location location)
 	    go_error_at(this->location(), "expected %<,%> or %<}%>");
 
 	  this->gogo_->mark_locals_used();
-	  int depth = 0;
+	  int edepth = 0;
 	  while (!token->is_eof()
-		 && (depth > 0 || !token->is_op(OPERATOR_RCURLY)))
+		 && (edepth > 0 || !token->is_op(OPERATOR_RCURLY)))
 	    {
 	      if (token->is_op(OPERATOR_LCURLY))
-		++depth;
+		++edepth;
 	      else if (token->is_op(OPERATOR_RCURLY))
-		--depth;
+		--edepth;
 	      token = this->advance_token();
 	    }
 	  if (token->is_op(OPERATOR_RCURLY))
@@ -3035,21 +3217,6 @@ Parse::create_closure(Named_object* function, Enclosing_vars* enclosing_vars,
   Struct_type* st = closure_var->var_value()->type()->deref()->struct_type();
   Expression* cv = Expression::make_struct_composite_literal(st, initializer,
 							     location);
-
-  // When compiling the runtime, closures do not escape.  When escape
-  // analysis becomes the default, and applies to closures, this
-  // should be changed to make it an error if a closure escapes.
-  if (this->gogo_->compiling_runtime()
-      && this->gogo_->package_name() == "runtime")
-    {
-      Temporary_statement* ctemp = Statement::make_temporary(st, cv, location);
-      this->gogo_->add_statement(ctemp);
-      Expression* ref = Expression::make_temporary_reference(ctemp, location);
-      Expression* addr = Expression::make_unary(OPERATOR_AND, ref, location);
-      addr->unary_expression()->set_does_not_escape();
-      return addr;
-    }
-
   return Expression::make_heap_expression(cv, location);
 }
 
@@ -3335,12 +3502,22 @@ Parse::call(Expression* func)
 
 Expression*
 Parse::id_to_expression(const std::string& name, Location location,
-			bool is_lhs)
+			bool is_lhs, bool is_composite_literal_key)
 {
   Named_object* in_function;
   Named_object* named_object = this->gogo_->lookup(name, &in_function);
   if (named_object == NULL)
-    named_object = this->gogo_->add_unknown_name(name, location);
+    {
+      if (is_composite_literal_key)
+	{
+	  // This is a composite literal key, which means that it
+	  // could just be a struct field name, so avoid confusiong by
+	  // not adding it to the bindings.  We'll look up the name
+	  // later during the lowering phase if necessary.
+	  return Expression::make_composite_literal_key(name, location);
+	}
+      named_object = this->gogo_->add_unknown_name(name, location);
+    }
 
   if (in_function != NULL
       && in_function != this->gogo_->current_function()
@@ -3473,7 +3650,7 @@ Parse::expression(Precedence precedence, bool may_be_sink,
 
       if (is_parenthesized != NULL)
 	*is_parenthesized = false;
-      
+
       Operator op = token->op();
       Location binop_location = token->location();
 
@@ -3566,7 +3743,7 @@ Parse::unary_expr(bool may_be_sink, bool may_be_composite_lit,
 
   // There is a complex parse for <- chan.  The choices are
   // Convert x to type <- chan int:
-  //   (<- chan int)(x)         
+  //   (<- chan int)(x)
   // Receive from (x converted to type chan <- chan int):
   //   (<- chan <- chan int (x))
   // Convert x to type <- chan (<- chan int).
@@ -4168,7 +4345,7 @@ Parse::tuple_assignment(Expression_list* lhs, bool may_be_composite_lit,
       if ((*pe)->is_error_expression())
 	return;
       if (op != OPERATOR_EQ && (*pe)->is_sink_expression())
-	go_error_at((*pe)->location(), "cannot use _ as value");
+	go_error_at((*pe)->location(), "cannot use %<_%> as value");
     }
   for (Expression_list::const_iterator pe = vals->begin();
        pe != vals->end();
@@ -4294,9 +4471,15 @@ Parse::go_or_defer_stat()
   this->gogo_->start_block(stat_location);
   Statement* stat;
   if (is_go)
-    stat = Statement::make_go_statement(call_expr, stat_location);
+    {
+      stat = Statement::make_go_statement(call_expr, stat_location);
+      call_expr->set_is_concurrent();
+    }
   else
-    stat = Statement::make_defer_statement(call_expr, stat_location);
+    {
+      stat = Statement::make_defer_statement(call_expr, stat_location);
+      call_expr->set_is_deferred();
+    }
   this->gogo_->add_statement(stat);
   this->gogo_->add_block(this->gogo_->finish_block(stat_location),
 			 stat_location);
@@ -4391,7 +4574,7 @@ Parse::if_stat()
     {
       Location semi_loc = this->location();
       if (this->advance_token()->is_op(OPERATOR_LCURLY))
-	go_error_at(semi_loc, "missing %<{%> after if clause");
+	go_error_at(semi_loc, "unexpected semicolon or newline, expecting %<{%> after if clause");
       // Otherwise we will get an error when we call this->block
       // below.
     }
@@ -4455,7 +4638,7 @@ Parse::switch_stat(Label* label)
 
   bool saw_simple_stat = false;
   Expression* switch_val = NULL;
-  bool saw_send_stmt;
+  bool saw_send_stmt = false;
   Type_switch type_switch;
   bool have_type_switch_block = false;
   if (this->simple_stat_may_start_here())
@@ -4658,11 +4841,26 @@ Parse::expr_case_clause(Case_clauses* clauses, bool* saw_default)
     {
       Location fallthrough_loc = this->location();
       is_fallthrough = true;
-      if (this->advance_token()->is_op(OPERATOR_SEMICOLON))
-	this->advance_token();
+      while (this->advance_token()->is_op(OPERATOR_SEMICOLON))
+	;
       if (this->peek_token()->is_op(OPERATOR_RCURLY))
 	go_error_at(fallthrough_loc,
 		    _("cannot fallthrough final case in switch"));
+      else if (!this->peek_token()->is_keyword(KEYWORD_CASE)
+	       && !this->peek_token()->is_keyword(KEYWORD_DEFAULT))
+	{
+	  go_error_at(fallthrough_loc, "fallthrough statement out of place");
+	  while (!this->peek_token()->is_keyword(KEYWORD_CASE)
+		 && !this->peek_token()->is_keyword(KEYWORD_DEFAULT)
+		 && !this->peek_token()->is_op(OPERATOR_RCURLY)
+		 && !this->peek_token()->is_eof())
+	    {
+	      if (this->statement_may_start_here())
+		this->statement_list();
+	      else
+		this->advance_token();
+	    }
+	}
     }
 
   if (is_default)
@@ -4772,7 +4970,7 @@ Parse::type_switch_body(Label* label, const Type_switch& type_switch,
 	    }
 	}
       if (!used)
-	go_error_at(type_switch.location, "%qs declared and not used",
+	go_error_at(type_switch.location, "%qs declared but not used",
 		    Gogo::message_name(var_name).c_str());
     }
   return statement;
@@ -5136,7 +5334,7 @@ Parse::send_or_recv_stmt(bool* is_send, Expression** channel, Expression** val,
 
 	  *val = this->id_to_expression(gogo->pack_hidden_name(recv_var,
 							       is_rv_exported),
-					recv_var_loc, true);
+					recv_var_loc, true, false);
 	  saw_comma = true;
 	}
       else
@@ -5151,7 +5349,18 @@ Parse::send_or_recv_stmt(bool* is_send, Expression** channel, Expression** val,
 
   Expression* e;
   if (saw_comma || !this->peek_token()->is_op(OPERATOR_CHANOP))
-    e = this->expression(PRECEDENCE_NORMAL, true, true, NULL, NULL);
+    {
+      e = this->expression(PRECEDENCE_NORMAL, true, true, NULL, NULL);
+      if (e->receive_expression() != NULL)
+	{
+	  *is_send = false;
+	  *channel = e->receive_expression()->channel();
+	  // This is 'case (<-c):'.  We now expect ':'.  If we see
+	  // '<-', then we have case (<-c)<-v:
+	  if (!this->peek_token()->is_op(OPERATOR_CHANOP))
+	    return true;
+	}
+    }
   else
     {
       // case <-c:
@@ -5180,14 +5389,17 @@ Parse::send_or_recv_stmt(bool* is_send, Expression** channel, Expression** val,
 
   if (this->peek_token()->is_op(OPERATOR_EQ))
     {
-      if (!this->advance_token()->is_op(OPERATOR_CHANOP))
-	{
-	  go_error_at(this->location(), "missing %<<-%>");
-	  return false;
-	}
       *is_send = false;
       this->advance_token();
-      *channel = this->expression(PRECEDENCE_NORMAL, false, true, NULL, NULL);
+      Location recvloc = this->location();
+      Expression* recvexpr = this->expression(PRECEDENCE_NORMAL, false,
+					      true, NULL, NULL);
+      if (recvexpr->receive_expression() == NULL)
+	{
+	  go_error_at(recvloc, "missing %<<-%>");
+	  return false;
+	}
+      *channel = recvexpr->receive_expression()->channel();
       if (saw_comma)
 	{
 	  // case v, e = <-c:
@@ -5261,7 +5473,7 @@ Parse::for_stat(Label* label)
 	{
 	  // We might be looking at a Condition, an InitStat, or a
 	  // RangeClause.
-	  bool saw_send_stmt;
+	  bool saw_send_stmt = false;
 	  cond = this->simple_stat(false, &saw_send_stmt, &range_clause, NULL);
 	  if (!this->peek_token()->is_op(OPERATOR_SEMICOLON))
 	    {
@@ -5299,7 +5511,7 @@ Parse::for_stat(Label* label)
     {
       Location semi_loc = this->location();
       if (this->advance_token()->is_op(OPERATOR_LCURLY))
-	go_error_at(semi_loc, "missing %<{%> after for clause");
+	go_error_at(semi_loc, "unexpected semicolon or newline, expecting %<{%> after for clause");
       // Otherwise we will get an error when we call this->block
       // below.
     }
@@ -5370,7 +5582,7 @@ Parse::for_clause(Expression** cond, Block** post)
     *cond = NULL;
   else if (this->peek_token()->is_op(OPERATOR_LCURLY))
     {
-      go_error_at(this->location(), "missing %<{%> after for clause");
+      go_error_at(this->location(), "unexpected semicolon or newline, expecting %<{%> after for clause");
       *cond = NULL;
       *post = NULL;
       return;
@@ -5436,8 +5648,7 @@ Parse::range_clause_decl(const Typed_identifier_list* til,
 	no->var_value()->set_type_from_range_value();
       if (is_new)
 	any_new = true;
-      if (!Gogo::is_sink_name(pti->name()))
-        p_range_clause->value = Expression::make_var_reference(no, location);
+      p_range_clause->value = Expression::make_var_reference(no, location);
     }
 
   if (!any_new)
@@ -5677,7 +5888,7 @@ Parse::package_clause()
 	  name = token->identifier();
 	  if (name == "_")
 	    {
-	      go_error_at(this->location(), "invalid package name _");
+	      go_error_at(this->location(), "invalid package name %<_%>");
 	      name = Gogo::erroneous_name();
 	    }
 	  this->advance_token();
@@ -5698,14 +5909,16 @@ Parse::import_decl()
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_IMPORT));
   this->advance_token();
-  this->decl(&Parse::import_spec, NULL);
+  this->decl(&Parse::import_spec);
 }
 
 // ImportSpec = [ "." | PackageName ] PackageFileName .
 
 void
-Parse::import_spec(void*)
+Parse::import_spec()
 {
+  this->check_directives();
+
   const Token* token = this->peek_token();
   Location location = token->location();
 
@@ -5725,7 +5938,7 @@ Parse::import_spec(void*)
 
   if (!token->is_string())
     {
-      go_error_at(this->location(), "import statement not a string");
+      go_error_at(this->location(), "import path must be a string");
       this->advance_token();
       return;
     }
@@ -5795,30 +6008,23 @@ Parse::program()
 	  this->skip_past_error(OPERATOR_INVALID);
 	}
     }
+
+  this->check_directives();
 }
 
-// Reset the current iota value.
+// If there are any pending compiler directives, clear them and give
+// an error.  This is called when directives are not permitted.
 
 void
-Parse::reset_iota()
+Parse::check_directives()
 {
-  this->iota_ = 0;
-}
-
-// Return the current iota value.
-
-int
-Parse::iota_value()
-{
-  return this->iota_;
-}
-
-// Increment the current iota value.
-
-void
-Parse::increment_iota()
-{
-  ++this->iota_;
+  if (this->lex_->get_and_clear_pragmas() != 0)
+    go_error_at(this->location(), "misplaced compiler directive");
+  if (this->lex_->has_embeds())
+    {
+      this->lex_->clear_embeds();
+      go_error_at(this->location(), "misplaced go:embed directive");
+    }
 }
 
 // Skip forward to a semicolon or OP.  OP will normally be
@@ -5852,7 +6058,7 @@ Parse::verify_not_sink(Expression* expr)
 {
   if (expr->is_sink_expression())
     {
-      go_error_at(expr->location(), "cannot use _ as value");
+      go_error_at(expr->location(), "cannot use %<_%> as value");
       expr = Expression::make_error(expr->location());
     }
 

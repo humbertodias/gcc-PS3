@@ -1,5 +1,6 @@
 /* { dg-do run { target openacc_nvidia_accel_selected } } */
 /* { dg-additional-options "-lcuda" } */
+/* { dg-require-effective-target openacc_cuda } */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,6 +104,8 @@ main (int argc, char **argv)
     }
 
   acc_wait (0);
+  /* Test unseen async-argument.  */
+  acc_wait (1);
 
   atime = stop_timer (0);
 
@@ -115,6 +118,8 @@ main (int argc, char **argv)
   start_timer (0);
 
   acc_wait (0);
+  /* Test unseen async-argument.  */
+  acc_wait (1);
 
   atime = stop_timer (0);
 

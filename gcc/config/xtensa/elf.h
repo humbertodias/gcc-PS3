@@ -1,6 +1,6 @@
 /* Xtensa/Elf configuration.
    Derived from the configuration for GCC for Intel i386 running Linux.
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -19,9 +19,6 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #define TARGET_SECTION_TYPE_FLAGS xtensa_multibss_section_type_flags
-
-/* Don't assume anything about the header files.  */
-#define NO_IMPLICIT_EXTERN_C
 
 #undef ASM_APP_ON
 #define ASM_APP_ON "#APP\n"
@@ -50,7 +47,9 @@ along with GCC; see the file COPYING3.  If not see
   %{mlongcalls:--longcalls} \
   %{mno-longcalls:--no-longcalls} \
   %{mauto-litpools:--auto-litpools} \
-  %{mno-auto-litpools:--no-auto-litpools}"
+  %{mno-auto-litpools:--no-auto-litpools} \
+  %{mabi=windowed:--abi-windowed} \
+  %{mabi=call0:--abi-call0}"
 
 #undef LIB_SPEC
 #define LIB_SPEC "-lc -lsim -lc -lhandlers-sim -lhal"
@@ -60,7 +59,7 @@ along with GCC; see the file COPYING3.  If not see
   "crt1-sim%O%s crt0%O%s crti%O%s crtbegin%O%s _vectors%O%s"
 
 #undef ENDFILE_SPEC
-#define ENDFILE_SPEC "crtend%O%s crtn%O%s"  
+#define ENDFILE_SPEC "crtend%O%s crtn%O%s"
 
 #undef LINK_SPEC
 #define LINK_SPEC \
@@ -68,7 +67,9 @@ along with GCC; see the file COPYING3.  If not see
   %{!shared: \
     %{!static: \
       %{rdynamic:-export-dynamic} \
-    %{static:-static}}}"
+    %{static:-static}}} \
+  %{mabi=windowed:--abi-windowed} \
+  %{mabi=call0:--abi-call0}"
 
 #undef LOCAL_LABEL_PREFIX
 #define LOCAL_LABEL_PREFIX	"."
@@ -80,24 +81,22 @@ along with GCC; see the file COPYING3.  If not see
 /* Do not force "-fpic" for this target.  */
 #define XTENSA_ALWAYS_PIC 0
 
-#undef DBX_REGISTER_NUMBER
+#undef DEBUGGER_REGNO
 
 /* Search for headers in $tooldir/arch/include and for libraries and
    startfiles in $tooldir/arch/lib.  */
 #define GCC_DRIVER_HOST_INITIALIZATION \
-do \
-{ \
-  char *tooldir, *archdir; \
-  tooldir = concat (tooldir_base_prefix, spec_machine, \
-		    dir_separator_str, NULL); \
-  if (!IS_ABSOLUTE_PATH (tooldir)) \
-    tooldir = concat (standard_exec_prefix, spec_machine, dir_separator_str, \
-		      spec_version, dir_separator_str, tooldir, NULL); \
-  archdir = concat (tooldir, "arch", dir_separator_str, NULL); \
-  add_prefix (&startfile_prefixes, \
-	      concat (archdir, "lib", dir_separator_str, NULL), \
-	      "GCC", PREFIX_PRIORITY_LAST, 0, 1); \
-  add_prefix (&include_prefixes, archdir, \
-	      "GCC", PREFIX_PRIORITY_LAST, 0, 0); \
-  } \
-while (0)
+  do { \
+    char *tooldir, *archdir; \
+    tooldir = concat (tooldir_base_prefix, spec_machine, \
+		      dir_separator_str, NULL); \
+    if (!IS_ABSOLUTE_PATH (tooldir)) \
+      tooldir = concat (standard_exec_prefix, spec_machine, dir_separator_str, \
+			spec_version, dir_separator_str, tooldir, NULL); \
+    archdir = concat (tooldir, "arch", dir_separator_str, NULL); \
+    add_prefix (&startfile_prefixes, \
+		concat (archdir, "lib", dir_separator_str, NULL), \
+		"GCC", PREFIX_PRIORITY_LAST, 0, 1); \
+    add_prefix (&include_prefixes, archdir, \
+		"GCC", PREFIX_PRIORITY_LAST, 0, 0); \
+  } while (0)

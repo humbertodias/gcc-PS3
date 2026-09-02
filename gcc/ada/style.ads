@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2014, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -125,6 +125,9 @@ package Style is
    --  Called with Scan_Ptr pointing to the first minus sign of a comment.
    --  Intended for checking any specific rules for comment placement/format.
 
+   procedure Check_Defining_Identifier_Casing
+     renames Style_Inst.Check_Defining_Identifier_Casing;
+
    procedure Check_Dot_Dot
      renames Style_Inst.Check_Dot_Dot;
    --  Called after scanning out dot dot to check spacing
@@ -144,9 +147,10 @@ package Style is
    --  is that the starting column is appropriate to the indentation rules if
    --  Token_Ptr is the first token on the line.
 
-   procedure Check_Left_Paren
-     renames Style_Inst.Check_Left_Paren;
-   --  Called after scanning out a left parenthesis to check spacing
+   procedure Check_Left_Paren_Square_Bracket
+     renames Style_Inst.Check_Left_Paren_Square_Bracket;
+   --  Called after scanning out a left parenthesis to check spacing. If
+   --  Ada_Version >= Ada_2022 then called similarly for a left square bracket.
 
    procedure Check_Line_Terminator (Len : Int)
      renames Style_Inst.Check_Line_Terminator;
@@ -219,4 +223,5 @@ package Style is
    --  lower case letters. On entry Token_Ptr points to the keyword token.
    --  This is not used for keywords appearing as attribute designators,
    --  where instead Check_Attribute_Name (True) is called.
+
 end Style;

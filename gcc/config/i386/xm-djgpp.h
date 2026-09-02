@@ -1,5 +1,5 @@
 /* Configuration for GCC for Intel 80386 running DJGPP.
-   Copyright (C) 1988-2017 Free Software Foundation, Inc.
+   Copyright (C) 1988-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -39,7 +39,7 @@ along with GCC; see the file COPYING3.  If not see
 #define STANDARD_STARTFILE_PREFIX_1 "/dev/env/DJDIR/lib/"
 
 /* Define STANDARD_STARTFILE_PREFIX_2 equal to STANDARD_STARTFILE_PREFIX_1
-   to avoid gcc.c redefining it to /usr/lib */
+   to avoid gcc.cc redefining it to /usr/lib */
 #undef STANDARD_STARTFILE_PREFIX_2
 #define STANDARD_STARTFILE_PREFIX_1 "/dev/env/DJDIR/lib/"
 
@@ -84,15 +84,15 @@ along with GCC; see the file COPYING3.  If not see
         if (djgpp == NULL) \
           fatal_error (UNKNOWN_LOCATION, "environment variable DJGPP not defined"); \
         else if (access (djgpp, R_OK) == 0) \
-          fatal_error (UNKNOWN_LOCATION, "environment variable DJGPP points to missing file '%s'", \
+          fatal_error (UNKNOWN_LOCATION, "environment variable DJGPP points to missing file %qs", \
                  djgpp); \
         else \
-          fatal_error (UNKNOWN_LOCATION, "environment variable DJGPP points to corrupt file '%s'", \
+          fatal_error (UNKNOWN_LOCATION, "environment variable DJGPP points to corrupt file %qs", \
                   djgpp); \
       } \
   } while (0)
 
-/* Canonicalize paths containing '/dev/env/'; used in prefix.c.
+/* Canonicalize paths containing '/dev/env/'; used in prefix.cc.
    _fixpath is a djgpp-specific function to canonicalize a path.
    "/dev/env/DJDIR" evaluates to "c:/djgpp" if DJDIR is "c:/djgpp" for
    example.  It removes any trailing '/', so add it back.  */

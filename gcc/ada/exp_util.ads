@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -25,12 +25,13 @@
 
 --  Package containing utility procedures used throughout the expander
 
-with Exp_Tss; use Exp_Tss;
-with Namet;   use Namet;
-with Rtsfind; use Rtsfind;
-with Sinfo;   use Sinfo;
-with Types;   use Types;
-with Uintp;   use Uintp;
+with Exp_Tss;        use Exp_Tss;
+with Namet;          use Namet;
+with Rtsfind;        use Rtsfind;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Types;          use Types;
+with Uintp;          use Uintp;
 
 package Exp_Util is
 
@@ -50,9 +51,11 @@ package Exp_Util is
    --    of statements, the actions are simply inserted into the list before
    --    the associated statement.
 
-   --    For an expression occurring in a declaration (declarations always
-   --    appear in lists), the actions are similarly inserted into the list
-   --    just before the associated declaration.
+   --    For an expression occurring in a declaration the actions are similarly
+   --    inserted into the list just before the associated declaration. (But
+   --    note that although declarations usually appear in lists, they don't
+   --    always; in particular, a library unit declaration does not appear in
+   --    a list, and Insert_Action will crash in that case.)
 
    --  The following special cases arise:
 
@@ -87,39 +90,54 @@ package Exp_Util is
    --  calls, and this guarantee is preserved for the special cases above.
 
    procedure Insert_Action
-     (Assoc_Node : Node_Id;
-      Ins_Action : Node_Id);
+     (Assoc_Node   : Node_Id;
+      Ins_Action   : Node_Id;
+      Spec_Expr_OK : Boolean := False);
    --  Insert the action Ins_Action at the appropriate point as described
    --  above. The action is analyzed using the default checks after it is
    --  inserted. Assoc_Node is the node with which the action is associated.
+   --  When flag Spec_Expr_OK is set, insertions triggered in the context of
+   --  spec expressions are honored, even though they contradict "Handling
+   --  of Default and Per-Object Expressions".
 
    procedure Insert_Action
-     (Assoc_Node : Node_Id;
-      Ins_Action : Node_Id;
-      Suppress   : Check_Id);
+     (Assoc_Node   : Node_Id;
+      Ins_Action   : Node_Id;
+      Suppress     : Check_Id;
+      Spec_Expr_OK : Boolean := False);
    --  Insert the action Ins_Action at the appropriate point as described
    --  above. The action is analyzed using the default checks as modified
    --  by the given Suppress argument after it is inserted. Assoc_Node is
-   --  the node with which the action is associated.
+   --  the node with which the action is associated. When flag Spec_Expr_OK
+   --  is set, insertions triggered in the context of spec expressions are
+   --  honored, even though they contradict "Handling of Default and Per-
+   --  Object Expressions".
 
    procedure Insert_Actions
-     (Assoc_Node  : Node_Id;
-      Ins_Actions : List_Id);
+     (Assoc_Node   : Node_Id;
+      Ins_Actions  : List_Id;
+      Spec_Expr_OK : Boolean := False);
    --  Insert the list of action Ins_Actions at the appropriate point as
    --  described above. The actions are analyzed using the default checks
    --  after they are inserted. Assoc_Node is the node with which the actions
    --  are associated. Ins_Actions may be No_List, in which case the call has
-   --  no effect.
+   --  no effect. When flag Spec_Expr_OK is set, insertions triggered in the
+   --  context of spec expressions are honored, even though they contradict
+   --  "Handling of Default and Per-Object Expressions".
 
    procedure Insert_Actions
-     (Assoc_Node  : Node_Id;
-      Ins_Actions : List_Id;
-      Suppress    : Check_Id);
+     (Assoc_Node   : Node_Id;
+      Ins_Actions  : List_Id;
+      Suppress     : Check_Id;
+      Spec_Expr_OK : Boolean := False);
    --  Insert the list of action Ins_Actions at the appropriate point as
    --  described above. The actions are analyzed using the default checks
    --  as modified by the given Suppress argument after they are inserted.
-   --  Assoc_Node is the node with which the actions are associated.
+   --  Assoc_Node is the node with which the actions are associated. List
    --  Ins_Actions may be No_List, in which case the call has no effect.
+   --  When flag Spec_Expr_OK is set, insertions triggered in the context of
+   --  spec expressions are honored, even though they contradict "Handling
+   --  of Default and Per-Object Expressions".
 
    procedure Insert_Action_After
      (Assoc_Node : Node_Id;
@@ -144,19 +162,7 @@ package Exp_Util is
    --
    --  Implementation limitation: Assoc_Node must be a statement. We can
    --  generalize to expressions if there is a need but this is tricky to
-   --  implement because of short-circuits (among other things).???
-
-   procedure Insert_Declaration (N : Node_Id; Decl : Node_Id);
-   --  N must be a subexpression (Nkind in N_Subexpr). This is similar to
-   --  Insert_Action (N, Decl), but inserts Decl outside the expression in
-   --  which N appears. This is called Insert_Declaration because the intended
-   --  use is for declarations that have no associated code. We can't go
-   --  moving other kinds of things out of the current expression, since they
-   --  could be executed conditionally (e.g. right operand of short circuit,
-   --  or THEN/ELSE of if expression). This is currently used only in
-   --  Modify_Tree_For_C mode, where it is needed because in C we have no
-   --  way of having declarations within an expression (a really annoying
-   --  limitation).
+   --  implement because of short-circuits (among other things).
 
    procedure Insert_Library_Level_Action (N : Node_Id);
    --  This procedure inserts and analyzes the node N as an action at the
@@ -223,6 +229,10 @@ package Exp_Util is
    --  Note that the added nodes are not analyzed. The analyze call is found in
    --  Exp_Ch13.Expand_N_Freeze_Entity.
 
+   function Attribute_Constrained_Static_Value (Pref : Node_Id) return Boolean;
+   --  Return the static value of a statically known attribute reference
+   --  Pref'Constrained.
+
    procedure Build_Allocate_Deallocate_Proc
      (N           : Node_Id;
       Is_Allocate : Boolean);
@@ -248,37 +258,56 @@ package Exp_Util is
    --  not install a call to Abort_Defer.
 
    procedure Build_Class_Wide_Expression
-     (Prag        : Node_Id;
-      Subp        : Entity_Id;
-      Par_Subp    : Entity_Id;
-      Adjust_Sloc : Boolean);
-   --  Build the expression for an inherited class-wide condition. Prag is
-   --  the pragma constructed from the corresponding aspect of the parent
-   --  subprogram, and Subp is the overriding operation, and Par_Subp is
-   --  the overridden operation that has the condition. Adjust_Sloc is True
-   --  when the sloc of nodes traversed should be adjusted for the inherited
-   --  pragma. The routine is also called to check whether an inherited
-   --  operation that is not overridden but has inherited conditions needs
-   --  a wrapper, because the inherited condition includes calls to other
-   --  primitives that have been overridden. In that case the first argument
-   --  is the expression of the original class-wide aspect. In SPARK_Mode, such
-   --  operation which are just inherited but have modified pre/postconditions
-   --  are illegal.
+     (Pragma_Or_Expr : Node_Id;
+      Subp           : Entity_Id;
+      Par_Subp       : Entity_Id;
+      Adjust_Sloc    : Boolean);
+   --  Build the expression for an inherited class-wide condition. Pragma_Or_
+   --  _Expr is either the pragma constructed from the corresponding aspect of
+   --  the parent subprogram or the class-wide pre/postcondition built from the
+   --  parent, Subp is the overriding operation, and Par_Subp is the overridden
+   --  operation that has the condition. Adjust_Sloc is True when the sloc of
+   --  nodes traversed should be adjusted for the inherited pragma.
 
    function Build_DIC_Call
-     (Loc    : Source_Ptr;
-      Obj_Id : Entity_Id;
-      Typ    : Entity_Id) return Node_Id;
-   --  Build a call to the DIC procedure of type Typ with Obj_Id as the actual
+     (Loc      : Source_Ptr;
+      Obj_Name : Node_Id;
+      Typ      : Entity_Id) return Node_Id;
+   --  Build a call to the DIC procedure for Typ with Obj_Name as the actual
    --  parameter.
 
-   procedure Build_DIC_Procedure_Body (Typ : Entity_Id);
+   procedure Build_DIC_Procedure_Body
+     (Typ         : Entity_Id;
+      Partial_DIC : Boolean := False);
    --  Create the body of the procedure which verifies the assertion expression
-   --  of pragma Default_Initial_Condition at run time.
+   --  of pragma Default_Initial_Condition at run time. Partial_DIC indicates
+   --  that a partial DIC-checking procedure body should be built, for checking
+   --  a DIC associated with the type's partial view, and which will be called
+   --  by the main DIC procedure.
 
-   procedure Build_DIC_Procedure_Declaration (Typ : Entity_Id);
+   procedure Build_DIC_Procedure_Declaration
+     (Typ         : Entity_Id;
+      Partial_DIC : Boolean := False);
    --  Create the declaration of the procedure which verifies the assertion
-   --  expression of pragma Default_Initial_Condition at run time.
+   --  expression of pragma Default_Initial_Condition at run time. Partial_DIC
+   --  indicates that a partial DIC-checking procedure should be declared,
+   --  for checking a DIC associated with the type's partial view, and which
+   --  will be called by the main DIC procedure.
+
+   procedure Build_Invariant_Procedure_Body
+     (Typ               : Entity_Id;
+      Partial_Invariant : Boolean := False);
+   --  Create the body of the procedure which verifies the invariants of type
+   --  Typ at runtime. Flag Partial_Invariant should be set when Typ denotes a
+   --  private type, otherwise it is assumed that Typ denotes the full view of
+   --  a private type.
+
+   procedure Build_Invariant_Procedure_Declaration
+     (Typ               : Entity_Id;
+      Partial_Invariant : Boolean := False);
+   --  Create the declaration of the procedure which verifies the invariants of
+   --  type Typ at runtime. Flag Partial_Invariant should be set when building
+   --  the invariant procedure for a private type.
 
    procedure Build_Procedure_Form (N : Node_Id);
    --  Create a procedure declaration which emulates the behavior of a function
@@ -359,37 +388,27 @@ package Exp_Util is
    --  case overflow.
 
    function Component_May_Be_Bit_Aligned (Comp : Entity_Id) return Boolean;
-   --  This function is in charge of detecting record components that may
-   --  cause trouble in the back end if an attempt is made to assign the
-   --  component. The back end can handle such assignments with no problem if
-   --  the components involved are small (64-bits or less) records or scalar
-   --  items (including bit-packed arrays represented with modular types) or
-   --  are both aligned on a byte boundary (starting on a byte boundary, and
-   --  occupying an integral number of bytes).
+   --  This function is in charge of detecting record components that may cause
+   --  trouble for the back end if an attempt is made to access the component
+   --  as a whole. The back end can handle such accesses with no problem if the
+   --  components involved are small (64 bits or less) records or scalar items
+   --  (including bit-packed arrays represented with a modular type), or else
+   --  if they are aligned on byte boundaries (i.e. starting on a byte boundary
+   --  and occupying an integral number of bytes).
    --
    --  However, problems arise for records larger than 64 bits, or for arrays
    --  (other than bit-packed arrays represented with a modular type) if the
-   --  component starts on a non-byte boundary, or does not occupy an integral
-   --  number of bytes (i.e. there are some bits possibly shared with fields
-   --  at the start or beginning of the component). The back end cannot handle
-   --  loading and storing such components in a single operation.
+   --  component either does not start on a byte boundary or does not occupy an
+   --  integral number of bytes (i.e. there are some bits possibly shared with
+   --  other components at the start or the end of the component). The back end
+   --  cannot handle loading from or storing to such components as a whole.
    --
-   --  This function is used to detect the troublesome situation. it is
-   --  conservative in the sense that it produces True unless it knows for
-   --  sure that the component is safe (as outlined in the first paragraph
-   --  above). The code generation for record and array assignment checks for
-   --  trouble using this function, and if so the assignment is generated
+   --  This function is used to detect the troublesome situation. It is meant
+   --  to be conservative in the sense that it produces True unless it knows
+   --  for sure that the component is safe (as outlined in the first paragraph
+   --  above). The processing for record and array assignment indirectly checks
+   --  for trouble using this function and, if so, the assignment is expanded
    --  component-wise, which the back end is required to handle correctly.
-   --
-   --  Note that in GNAT 3, the back end will reject such components anyway,
-   --  so the hard work in checking for this case is wasted in GNAT 3, but
-   --  it is harmless, so it is easier to do it in all cases, rather than
-   --  conditionalize it in GNAT 5 or beyond.
-
-   function Containing_Package_With_Ext_Axioms
-     (E : Entity_Id) return Entity_Id;
-   --  Returns the package entity with an external axiomatization containing E,
-   --  if any, or Empty if none.
 
    procedure Convert_To_Actual_Subtype (Exp : Node_Id);
    --  The Etype of an expression is the nominal type of the expression,
@@ -435,7 +454,7 @@ package Exp_Util is
    --
    --  The Name_Req flag is set to ensure that the result is suitable for use
    --  in a context requiring a name (for example, the prefix of an attribute
-   --  reference) (can't this just be a qualification in Ada 2012???).
+   --  reference).
    --
    --  The Renaming_Req flag is set to produce an object renaming declaration
    --  rather than an object declaration. This is valid only if the expression
@@ -478,6 +497,10 @@ package Exp_Util is
    --  elaborated before the original expression Exp, so that there is no need
    --  to repeat the checks.
 
+   function Enclosing_Init_Proc return Entity_Id;
+   --  Obtain the entity of the type initialization procedure which encloses
+   --  the current scope. Return Empty if no such procedure exists.
+
    procedure Ensure_Defined (Typ : Entity_Id; N : Node_Id);
    --  This procedure ensures that type referenced by Typ is defined. For the
    --  case of a type other than an Itype, nothing needs to be done, since
@@ -486,15 +509,13 @@ package Exp_Util is
    --  used to ensure that an Itype is properly defined outside a conditional
    --  construct when it is referenced in more than one branch.
 
-   function Entry_Names_OK return Boolean;
-   --  Determine whether it is appropriate to dynamically allocate strings
-   --  which represent entry [family member] names. These strings are created
-   --  by the compiler and used by GDB.
-
    procedure Evaluate_Name (Nam : Node_Id);
    --  Remove all side effects from a name which appears as part of an object
-   --  renaming declaration. More comments are needed here that explain how
-   --  this differs from Force_Evaluation and Remove_Side_Effects ???
+   --  renaming declaration. Similarly to Force_Evaluation, it removes the
+   --  side effects and captures the values of the variables, except for the
+   --  variable being renamed. Hence this differs from Force_Evaluation and
+   --  Remove_Side_Effects (but it calls Force_Evaluation on subexpressions
+   --  whose value needs to be fixed).
 
    procedure Evolve_And_Then (Cond : in out Node_Id; Cond1 : Node_Id);
    --  Rewrites Cond with the expression: Cond and then Cond1. If Cond is
@@ -509,6 +530,12 @@ package Exp_Util is
    --  series of checks evolved by this routine, with a final result of Empty
    --  indicating that no checks were required). The Sloc field of the
    --  constructed N_Or_Else node is copied from Cond1.
+
+   procedure Expand_Sliding_Conversion (N : Node_Id; Arr_Typ : Entity_Id);
+   --  When sliding is needed for an array object N in the context of an
+   --  unconstrained array type Arr_Typ with fixed lower bound (FLB), create
+   --  a subtype with appropriate index constraint (FLB .. N'Length + FLB - 1)
+   --  and apply a conversion from N to that subtype.
 
    procedure Expand_Static_Predicates_In_Choices (N : Node_Id);
    --  N is either a case alternative or a variant. The Discrete_Choices field
@@ -527,6 +554,12 @@ package Exp_Util is
    --  class-wide). Set Related_Id to request an external name for the subtype
    --  rather than an internal temporary.
 
+   function Expression_Contains_Primitives_Calls_Of
+     (Expr : Node_Id;
+      Typ  : Entity_Id) return Boolean;
+   --  Return True if the expression Expr contains a nondispatching call to a
+   --  function which is a primitive of the tagged type Typ.
+
    function Finalize_Address (Typ : Entity_Id) return Entity_Id;
    --  Locate TSS primitive Finalize_Address in type Typ. Return Empty if the
    --  subprogram is not available.
@@ -541,24 +574,25 @@ package Exp_Util is
    function Find_Interface_Tag
      (T     : Entity_Id;
       Iface : Entity_Id) return Entity_Id;
-   --  Ada 2005 (AI-251): Given a type T implementing the interface Iface,
-   --  return the record component containing the tag of Iface.
+   --  Ada 2005 (AI-251): Given a type T and an interface Iface, return the
+   --  record component containing the tag of Iface if T implements Iface or
+   --  Empty if it does not.
+
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
 
    function Find_Prim_Op (T : Entity_Id; Name : Name_Id) return Entity_Id;
    --  Find the first primitive operation of a tagged type T with name Name.
    --  This function allows the use of a primitive operation which is not
-   --  directly visible. If T is a class wide type, then the reference is to an
+   --  directly visible. If T is a class-wide type, then the reference is to an
    --  operation of the corresponding root type. It is an error if no primitive
    --  operation with the given name is found.
 
    function Find_Prim_Op
      (T    : Entity_Id;
       Name : TSS_Name_Type) return Entity_Id;
-   --  Find the first primitive operation of type T whose name has the form
-   --  indicated by the name parameter (i.e. is a type support subprogram
-   --  with the indicated suffix). This function allows use of a primitive
-   --  operation which is not directly visible. If T is a class wide type,
-   --  then the reference is to an operation of the corresponding root type.
+   --  Same as Find_Prim_Op above, except we're searching for an op that has
+   --  the form indicated by Name (i.e. is a type support subprogram with the
+   --  indicated suffix).
 
    function Find_Optional_Prim_Op
      (T : Entity_Id; Name : Name_Id) return Entity_Id;
@@ -576,6 +610,18 @@ package Exp_Util is
    function Find_Protection_Type (Conc_Typ : Entity_Id) return Entity_Id;
    --  Given a protected type or its corresponding record, find the type of
    --  field _object.
+
+   function Find_Storage_Op
+     (Typ : Entity_Id;
+      Nam : Name_Id) return Entity_Id;
+   --  Given type Typ that's either a descendant of Root_Storage_Pool or else
+   --  specifies aspect Storage_Model_Type, returns the Entity_Id of the
+   --  subprogram associated with Nam, which must either be a primitive op of
+   --  the type in the case of a storage pool, or the operation corresponding
+   --  to Nam as specified in the aspect Storage_Model_Type. In the case of
+   --  aspect Storage_Model_Type, returns Empty when no operation is found,
+   --  indicating that the operation is defaulted in the aspect (can occur in
+   --  the case where the storage-model address type is System.Address).
 
    function Find_Hook_Context (N : Node_Id) return Node_Id;
    --  Determine a suitable node on which to attach actions related to N that
@@ -605,6 +651,7 @@ package Exp_Util is
       Related_Id    : Entity_Id := Empty;
       Is_Low_Bound  : Boolean   := False;
       Is_High_Bound : Boolean   := False;
+      Discr_Number  : Int       := 0;
       Mode          : Force_Evaluation_Mode := Relaxed);
    --  Force the evaluation of the expression right away. Similar behavior
    --  to Remove_Side_Effects when Variable_Ref is set to TRUE. That is to
@@ -625,6 +672,12 @@ package Exp_Util is
    --  of the Is_xxx_Bound flags must be set. For use of these parameters see
    --  the warning in the body of Sem_Ch3.Process_Range_Expr_In_Decl.
 
+   --  Discr_Number is positive when the expression is a discriminant value
+   --  in an object or component declaration. In that case Discr_Number is
+   --  the position of the corresponding discriminant in the corresponding
+   --  type declaration, and the name for the evaluated expression is built
+   --  out of the Related_Id and the Discr_Number.
+
    function Fully_Qualified_Name_String
      (E          : Entity_Id;
       Append_NUL : Boolean := True) return String_Id;
@@ -632,14 +685,10 @@ package Exp_Util is
    --  of entity E, in all upper case, with an ASCII.NUL appended at the end
    --  of the name if Append_NUL is True.
 
-   procedure Generate_Poll_Call (N : Node_Id);
-   --  If polling is active, then a call to the Poll routine is built,
-   --  and then inserted before the given node N and analyzed.
-
    procedure Get_Current_Value_Condition
      (Var : Node_Id;
       Op  : out Node_Kind;
-      Val : out Node_Id);
+      Val : out Node_Id) with Post => Val /= Var;
    --  This routine processes the Current_Value field of the variable Var. If
    --  the Current_Value field is null or if it represents a known value, then
    --  on return Cond is set to N_Empty, and Val is set to Empty.
@@ -669,19 +718,25 @@ package Exp_Util is
    --  N_Op_Eq), or to determine the result of some other test in other cases
    --  (e.g. no access check required if N_Op_Ne Null).
 
+   function Get_Index_Subtype (N : Node_Id) return Entity_Id;
+   --  Used for First, Last, and Length, when the prefix is an array type.
+   --  Obtains the corresponding index subtype.
+
+   function Get_Mapped_Entity (E : Entity_Id) return Entity_Id;
+   --  Return the mapped entity of E; used to check inherited class-wide
+   --  pre/postconditions.
+
    function Get_Stream_Size (E : Entity_Id) return Uint;
    --  Return the stream size value of the subtype E
 
    function Has_Access_Constraint (E : Entity_Id) return Boolean;
    --  Given object or type E, determine if a discriminant is of an access type
 
-   function Has_Annotate_Pragma_For_External_Axiomatization
-     (E : Entity_Id) return Boolean;
-   --  Returns whether E is a package entity, for which the initial list of
-   --  pragmas at the start of the package declaration contains
-   --    pragma Annotate (GNATprove, External_Axiomatization);
+   function Has_Tag_Of_Type (Exp : Node_Id) return Boolean;
+   --  Return True if expression Exp of a tagged type is known to statically
+   --  have the tag of this tagged type as specified by RM 3.9(19-25).
 
-   function Homonym_Number (Subp : Entity_Id) return Nat;
+   function Homonym_Number (Subp : Entity_Id) return Pos;
    --  Here subp is the entity for a subprogram. This routine returns the
    --  homonym number used to disambiguate overloaded subprograms in the same
    --  scope (the number is used as part of constructed names to make sure that
@@ -702,17 +757,17 @@ package Exp_Util is
    --  unconditionally executed, i.e. it is not within a loop or a conditional
    --  or a case statement etc.
 
-   function Is_All_Null_Statements (L : List_Id) return Boolean;
-   --  Return True if all the items of the list are N_Null_Statement nodes.
-   --  False otherwise. True for an empty list. It is an error to call this
-   --  routine with No_List as the argument.
+   function Integer_Type_For (S : Uint; Uns : Boolean) return Entity_Id;
+   --  Return a suitable standard integer type containing at least S bits and
+   --  of the signedness given by Uns. See also Small_Integer_Type_For.
 
-   function Is_Displacement_Of_Object_Or_Function_Result
-     (Obj_Id : Entity_Id) return Boolean;
-   --  Determine whether Obj_Id is a source entity that has been initialized by
-   --  either a controlled function call or the assignment of another source
-   --  object. In both cases the initialization expression is rewritten as a
-   --  class-wide conversion of Ada.Tags.Displace.
+   function Is_Captured_Function_Call (N : Node_Id) return Boolean;
+   --  Return True if N is a captured function call, i.e. the result of calling
+   --  Remove_Side_Effects on an N_Function_Call node:
+
+   --    type Ann is access all Typ;
+   --    Rnn : constant Ann := Func (...)'reference;
+   --    Rnn.all
 
    function Is_Finalizable_Transient
      (Decl     : Node_Id;
@@ -731,18 +786,14 @@ package Exp_Util is
    --  routine is useful for the case of a discriminated type, and testing for
    --  component overlap would be a pain.
 
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
+
    function Is_Library_Level_Tagged_Type (Typ : Entity_Id) return Boolean;
    --  Return True if Typ is a library level tagged type. Currently we use
    --  this information to build statically allocated dispatch tables.
 
    function Is_Non_BIP_Func_Call (Expr : Node_Id) return Boolean;
    --  Determine whether node Expr denotes a non build-in-place function call
-
-   function Is_Object_Access_BIP_Func_Call
-      (Expr   : Node_Id;
-       Obj_Id : Entity_Id) return Boolean;
-   --  Determine if Expr denotes a build-in-place function which stores its
-   --  result in the BIPaccess actual parameter whose prefix must match Obj_Id.
 
    function Is_Possibly_Unaligned_Object (N : Node_Id) return Boolean;
    --  Node N is an object reference. This function returns True if it is
@@ -771,6 +822,12 @@ package Exp_Util is
    --  Determine whether object Id is related to an expanded return statement.
    --  The case concerned is "return Id.all;".
 
+   --  This is effectively used to determine which temporaries generated for
+   --  return statements must be finalized because they are regular temporaries
+   --  and which ones must not be since they are allocated on the return stack.
+
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
+
    function Is_Renamed_Object (N : Node_Id) return Boolean;
    --  Returns True if the node N is a renamed object. An expression is
    --  considered to be a renamed object if either it is the Name of an object
@@ -786,14 +843,20 @@ package Exp_Util is
    --  Determine whether Expr denotes a build-in-place function which returns
    --  its result on the secondary stack.
 
-   function Is_Tag_To_Class_Wide_Conversion
-     (Obj_Id : Entity_Id) return Boolean;
-   --  Determine whether object Obj_Id is the result of a tag-to-class-wide
-   --  type conversion.
+   function Is_Secondary_Stack_Thunk (Id : Entity_Id) return Boolean;
+   --  Determine whether Id denotes a secondary stack thunk
+
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
 
    function Is_Untagged_Derivation (T : Entity_Id) return Boolean;
    --  Returns true if type T is not tagged and is a derived type,
    --  or is a private type whose completion is such a type.
+
+   function Is_Untagged_Private_Derivation
+     (Priv_Typ : Entity_Id;
+      Full_Typ : Entity_Id) return Boolean;
+   --  Determine whether private type Priv_Typ and its full view Full_Typ
+   --  represent an untagged derivation from a private parent.
 
    function Is_Volatile_Reference (N : Node_Id) return Boolean;
    --  Checks if the node N represents a volatile reference, which can be
@@ -814,38 +877,24 @@ package Exp_Util is
    --  list. If Warn is True, a warning will be output at the start of N
    --  indicating the deletion of the code.
 
-   function Known_Non_Negative (Opnd : Node_Id) return Boolean;
-   --  Given a node for a subexpression, determines if it represents a value
-   --  that cannot possibly be negative, and if so returns True. A value of
-   --  False means that it is not known if the value is positive or negative.
-
-   function Known_Non_Null (N : Node_Id) return Boolean;
-   --  Given a node N for a subexpression of an access type, determines if
-   --  this subexpression yields a value that is known at compile time to
-   --  be non-null and returns True if so. Returns False otherwise. It is
-   --  an error to call this function if N is not of an access type.
-
-   function Known_Null (N : Node_Id) return Boolean;
-   --  Given a node N for a subexpression of an access type, determines if this
-   --  subexpression yields a value that is known at compile time to be null
-   --  and returns True if so. Returns False otherwise. It is an error to call
-   --  this function if N is not of an access type.
-
    function Make_Invariant_Call (Expr : Node_Id) return Node_Id;
-   --  Expr is an object of a type which Has_Invariants set (and which thus
-   --  also has an Invariant_Procedure set). If invariants are enabled, this
-   --  function returns a call to the Invariant procedure passing Expr as the
-   --  argument, and returns it unanalyzed. If invariants are not enabled,
-   --  returns a null statement.
+   --  Generate a call to the Invariant_Procedure associated with the type of
+   --  expression Expr. Expr is passed as an actual parameter in the call.
 
    function Make_Predicate_Call
-     (Typ  : Entity_Id;
-      Expr : Node_Id;
-      Mem  : Boolean := False) return Node_Id;
+     (Typ         : Entity_Id;
+      Expr        : Node_Id;
+      Static_Mem  : Boolean := False;
+      Dynamic_Mem : Node_Id := Empty) return Node_Id;
    --  Typ is a type with Predicate_Function set. This routine builds a call to
    --  this function passing Expr as the argument, and returns it unanalyzed.
-   --  If Mem is set True, this is the special call for the membership case,
-   --  and the function called is the Predicate_Function_M if present.
+   --  If the callee takes a second parameter (as determined by
+   --  Sem_Util.Predicate_Function_Needs_Membership_Parameter), then the
+   --  actual parameter is determined by the two Mem parameters.
+   --  If Dynamic_Mem is nonempty, then Dynamic_Mem is the actual parameter.
+   --  Otherwise, the value of the Static_Mem parameter is passed in as
+   --  a Boolean literal. It is an error if Dynamic_Mem is nonempty but
+   --  the callee does not take a second parameter.
 
    function Make_Predicate_Check
      (Typ  : Entity_Id;
@@ -864,6 +913,39 @@ package Exp_Util is
    --  wide type. Set Related_Id to request an external name for the subtype
    --  rather than an internal temporary.
 
+   function Make_Variant_Comparison
+     (Loc      : Source_Ptr;
+      Typ      : Entity_Id;
+      Mode     : Name_Id;
+      Curr_Val : Node_Id;
+      Old_Val  : Node_Id) return Node_Id;
+   --  Subsidiary to the expansion of pragmas Loop_Variant and
+   --  Subprogram_Variant. Generate a comparison between Curr_Val and Old_Val
+   --  depending on the variant mode (Increases / Decreases) using less or
+   --  greater operator for Typ.
+
+   procedure Map_Formals
+     (Parent_Subp  : Entity_Id;
+      Derived_Subp : Entity_Id;
+      Force_Update : Boolean := False);
+   --  Establish the mapping from the formals of Parent_Subp to the formals
+   --  of Derived_Subp; if Force_Update is True then mapping of Parent_Subp to
+   --  Derived_Subp is also updated; used to update mapping of late-overriding
+   --  primitives of a tagged type.
+
+   procedure Map_Types (Parent_Type : Entity_Id; Derived_Type : Entity_Id);
+   --  Establish the following mapping between the attributes of tagged parent
+   --  type Parent_Type and tagged derived type Derived_Type.
+   --
+   --    * Map each discriminant of Parent_Type to either the corresponding
+   --      discriminant of Derived_Type or come constraint.
+
+   --    * Map each primitive operation of Parent_Type to the corresponding
+   --      primitive of Derived_Type.
+   --
+   --  The mapping Parent_Type -> Derived_Type is also added to the table in
+   --  order to prevent subsequent attempts of the same mapping.
+
    function Matching_Standard_Type (Typ : Entity_Id) return Entity_Id;
    --  Given a scalar subtype Typ, returns a matching type in standard that
    --  has the same object size value. For example, a 16 bit signed type will
@@ -880,23 +962,17 @@ package Exp_Util is
    --  caller has to check whether stack checking is actually enabled in order
    --  to guide the expansion (typically of a function call).
 
+   function Needs_Conditional_Null_Excluding_Check
+     (Typ : Entity_Id) return Boolean;
+   --  Check if a type meets certain properties that require it to have a
+   --  conditional null-excluding check within its Init_Proc.
+
    function Needs_Constant_Address
      (Decl : Node_Id;
       Typ  : Entity_Id) return Boolean;
    --  Check whether the expression in an address clause is restricted to
    --  consist of constants, when the object has a nontrivial initialization
    --  or is controlled.
-
-   function Needs_Finalization (T : Entity_Id) return Boolean;
-   --  True if type T is controlled, or has controlled subcomponents. Also
-   --  True if T is a class-wide type, because some type extension might add
-   --  controlled subcomponents, except that if pragma Restrictions
-   --  (No_Finalization) applies, this is False for class-wide types.
-
-   function Non_Limited_Designated_Type (T : Entity_Id) return Entity_Id;
-   --  An anonymous access type may designate a limited view. Check whether
-   --  non-limited view is available during expansion, to examine components
-   --  or other characteristics of the full type.
 
    function OK_To_Do_Constant_Replacement (E : Entity_Id) return Boolean;
    --  This function is used when testing whether or not to replace a reference
@@ -911,18 +987,23 @@ package Exp_Util is
    --  returned only if the replacement is safe.
 
    function Possible_Bit_Aligned_Component (N : Node_Id) return Boolean;
-   --  This function is used during processing the assignment of a record or
-   --  indexed component. The argument N is either the left hand or right hand
-   --  side of an assignment, and this function determines if there is a record
-   --  component reference where the record may be bit aligned in a manner that
-   --  causes trouble for the back end (see Component_May_Be_Bit_Aligned for
-   --  further details).
+   --  This function is used during processing the assignment of a record or an
+   --  array, or the construction of an aggregate. The argument N is either the
+   --  left or the right hand side of an assignment and the function determines
+   --  whether there is a record component reference where the component may be
+   --  bit aligned in a manner that causes trouble for the back end (see also
+   --  Component_May_Be_Bit_Aligned for further details).
 
    function Power_Of_Two (N : Node_Id) return Nat;
    --  Determines if N is a known at compile time value which  is of the form
    --  2**K, where K is in the range 1 .. M, where the Esize of N is 2**(M+1).
    --  If so, returns the value K, otherwise returns zero. The caller checks
    --  that N is of an integer type.
+
+   function Predicate_Check_In_Scope (N : Node_Id) return Boolean;
+   --  Return True if predicate checks should be generated in the current
+   --  scope on the given node. Will return False for example when the current
+   --  scope is a predefined primitive operation.
 
    procedure Process_Statements_For_Controlled_Objects (N : Node_Id);
    --  N is a node which contains a non-handled statement list. Inspect the
@@ -945,6 +1026,7 @@ package Exp_Util is
       Related_Id         : Entity_Id := Empty;
       Is_Low_Bound       : Boolean   := False;
       Is_High_Bound      : Boolean   := False;
+      Discr_Number       : Int       := 0;
       Check_Side_Effects : Boolean   := True);
    --  Given the node for a subexpression, this function replaces the node if
    --  necessary by an equivalent subexpression that is guaranteed to be side
@@ -969,6 +1051,9 @@ package Exp_Util is
    --  of the Is_xxx_Bound flags must be set. For use of these parameters see
    --  the warning in the body of Sem_Ch3.Process_Range_Expr_In_Decl.
    --
+   --  If Discr_Number is positive, the expression denotes a discrimant value
+   --  in a constraint, the suffix DISCR is used to create the external name.
+
    --  The side effects are captured using one of the following methods:
    --
    --    1) a constant initialized with the value of the subexpression
@@ -989,6 +1074,37 @@ package Exp_Util is
    --  renaming cannot be elaborated without evaluating the subexpression, so
    --  gigi would resort to method 1) or 3) under the hood for them.
 
+   procedure Replace_References
+     (Expr      : Node_Id;
+      Par_Typ   : Entity_Id;
+      Deriv_Typ : Entity_Id;
+      Par_Obj   : Entity_Id := Empty;
+      Deriv_Obj : Entity_Id := Empty);
+   --  Expr denotes an arbitrary expression. Par_Typ is a tagged parent type
+   --  in a type hierarchy. Deriv_Typ is a tagged type derived from Par_Typ
+   --  with optional ancestors in between. Par_Obj is a formal parameter
+   --  which emulates the current instance of Par_Typ. Deriv_Obj is a formal
+   --  parameter which emulates the current instance of Deriv_Typ. Perform the
+   --  following substitutions in Expr:
+   --
+   --    * Replace a reference to Par_Obj with a reference to Deriv_Obj
+   --
+   --    * Replace a reference to a discriminant of Par_Typ with a suitable
+   --      value from the point of view of Deriv_Typ.
+   --
+   --    * Replace a call to an overridden primitive of Par_Typ with a call to
+   --      an overriding primitive of Deriv_Typ.
+   --
+   --    * Replace a call to an inherited primitive of Par_Type with a call to
+   --      the internally-generated inherited primitive of Deriv_Typ.
+
+   procedure Replace_Type_References
+     (Expr   : Node_Id;
+      Typ    : Entity_Id;
+      Obj_Id : Entity_Id);
+   --  Substitute all references of the current instance of type Typ with
+   --  references to formal parameter Obj_Id within expression Expr.
+
    function Represented_As_Scalar (T : Entity_Id) return Boolean;
    --  Returns True iff the implementation of this type in code generation
    --  terms is scalar. This is true for scalars in the Ada sense, and for
@@ -1003,8 +1119,8 @@ package Exp_Util is
    --    1) controlled objects
    --    2) library-level tagged types
    --
-   --  These cases require special actions on scope exit. The flag Lib_Level
-   --  is set True if the construct is at library level, and False otherwise.
+   --  These cases require special actions on scope exit. Lib_Level is True if
+   --  the construct is at library level, and False otherwise.
 
    function Safe_Unchecked_Type_Conversion (Exp : Node_Id) return Boolean;
    --  Given the node for an N_Unchecked_Type_Conversion, return True if this
@@ -1065,26 +1181,33 @@ package Exp_Util is
    --  the boolean array is False..False or True..True, where it is required
    --  that a Constraint_Error exception be raised (RM 4.5.6(6)).
 
-   procedure Silly_Boolean_Array_Xor_Test (N : Node_Id; T : Entity_Id);
-   --  N is the node for a boolean array XOR operation, and T is the type of
-   --  the array. This routine deals with the silly case where the subtype of
-   --  the boolean array is True..True, where a raise of a Constraint_Error
-   --  exception is required (RM 4.5.6(6)).
+   procedure Silly_Boolean_Array_Xor_Test
+     (N : Node_Id;
+      R : Node_Id;
+      T : Entity_Id);
+   --  N is the node for a boolean array XOR operation, T is the type of the
+   --  array, and R is a copy of the right operand of N, required to prevent
+   --  scope anomalies when unnesting is in effect. This routine deals with
+   --  the admitedly silly case where the subtype of the boolean array is
+   --  True..True, where a raise of a Constraint_Error exception is required
+   --  (RM 4.5.6(6)) and ACATS-tested.
 
-   function Target_Has_Fixed_Ops
-     (Left_Typ   : Entity_Id;
-      Right_Typ  : Entity_Id;
-      Result_Typ : Entity_Id) return Boolean;
-   --  Returns True if and only if the target machine has direct support
-   --  for fixed-by-fixed multiplications and divisions for the given
-   --  operand and result types. This is called in package Exp_Fixd to
-   --  determine whether to expand such operations.
+   function Small_Integer_Type_For (S : Uint; Uns : Boolean) return Entity_Id;
+   --  Return the smallest standard integer type containing at least S bits and
+   --  of the signedness given by Uns. See also Integer_Type_For.
+
+   function Thunk_Target (Thunk : Entity_Id) return Entity_Id;
+   --  Return the entity ultimately called by the thunk, that is to say return
+   --  the Thunk_Entity of the last member on the thunk chain.
+
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
 
    function Type_May_Have_Bit_Aligned_Components
      (Typ : Entity_Id) return Boolean;
    --  Determines if Typ is a composite type that has within it (looking down
-   --  recursively at any subcomponents), a record type which has component
-   --  that may be bit aligned (see Possible_Bit_Aligned_Component). The result
+   --  recursively at subcomponents) a record which contains a component that
+   --  may be bit aligned in a manner that causes trouble for the back end
+   --  (see also Component_May_Be_Bit_Aligned for further details). The result
    --  is conservative, in that a result of False is decisive. A result of True
    --  means that such a component may or may not be present.
 
@@ -1097,22 +1220,14 @@ package Exp_Util is
    --  when elaborating a contract for a subprogram, and when freezing a type
    --  extension to verify legality rules on inherited conditions.
 
-   procedure Update_Primitives_Mapping_Of_Types
-     (Par_Typ   : Entity_Id;
-      Deriv_Typ : Entity_Id);
-   --  Map the primitive operations of parent type Par_Typ to the corresponding
-   --  primitives of derived type Deriv_Typ.
-
    function Within_Case_Or_If_Expression (N : Node_Id) return Boolean;
    --  Determine whether arbitrary node N is within a case or an if expression
-
-   function Within_Internal_Subprogram return Boolean;
-   --  Indicates that some expansion is taking place within the body of a
-   --  predefined primitive operation. Some expansion activity (e.g. predicate
-   --  checks) is disabled in such.
 
 private
    pragma Inline (Duplicate_Subexpr);
    pragma Inline (Force_Evaluation);
+   pragma Inline (Get_Mapped_Entity);
    pragma Inline (Is_Library_Level_Tagged_Type);
+   pragma Inline (Is_Secondary_Stack_Thunk);
+   pragma Inline (Thunk_Target);
 end Exp_Util;

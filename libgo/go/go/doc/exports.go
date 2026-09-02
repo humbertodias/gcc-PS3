@@ -17,12 +17,55 @@ import (
 func filterIdentList(list []*ast.Ident) []*ast.Ident {
 	j := 0
 	for _, x := range list {
-		if ast.IsExported(x.Name) {
+		if token.IsExported(x.Name) {
 			list[j] = x
 			j++
 		}
 	}
 	return list[0:j]
+}
+
+var underscore = ast.NewIdent("_")
+
+func filterCompositeLit(lit *ast.CompositeLit, filter Filter, export bool) {
+	n := len(lit.Elts)
+	lit.Elts = filterExprList(lit.Elts, filter, export)
+	if len(lit.Elts) < n {
+		lit.Incomplete = true
+	}
+}
+
+func filterExprList(list []ast.Expr, filter Filter, export bool) []ast.Expr {
+	j := 0
+	for _, exp := range list {
+		switch x := exp.(type) {
+		case *ast.CompositeLit:
+			filterCompositeLit(x, filter, export)
+		case *ast.KeyValueExpr:
+			if x, ok := x.Key.(*ast.Ident); ok && !filter(x.Name) {
+				continue
+			}
+			if x, ok := x.Value.(*ast.CompositeLit); ok {
+				filterCompositeLit(x, filter, export)
+			}
+		}
+		list[j] = exp
+		j++
+	}
+	return list[0:j]
+}
+
+// updateIdentList replaces all unexported identifiers with underscore
+// and reports whether at least one exported name exists.
+func updateIdentList(list []*ast.Ident) (hasExported bool) {
+	for i, x := range list {
+		if token.IsExported(x.Name) {
+			hasExported = true
+		} else {
+			list[i] = underscore
+		}
+	}
+	return hasExported
 }
 
 // hasExportedName reports whether list contains any exported names.
@@ -36,18 +79,15 @@ func hasExportedName(list []*ast.Ident) bool {
 	return false
 }
 
-// removeErrorField removes anonymous fields named "error" from an interface.
-// This is called when "error" has been determined to be a local name,
-// not the predeclared type.
-//
-func removeErrorField(ityp *ast.InterfaceType) {
+// removeAnonymousField removes anonymous fields named name from an interface.
+func removeAnonymousField(name string, ityp *ast.InterfaceType) {
 	list := ityp.Methods.List // we know that ityp.Methods != nil
 	j := 0
 	for _, field := range list {
 		keepField := true
 		if n := len(field.Names); n == 0 {
 			// anonymous field
-			if fname, _ := baseTypeName(field.Type); fname == "error" {
+			if fname, _ := baseTypeName(field.Type); fname == name {
 				keepField = false
 			}
 		}
@@ -76,16 +116,25 @@ func (r *reader) filterFieldList(parent *namedType, fields *ast.FieldList, ityp 
 	for _, field := range list {
 		keepField := false
 		if n := len(field.Names); n == 0 {
-			// anonymous field
+			// anonymous field or embedded type or union element
 			fname := r.recordAnonymousField(parent, field.Type)
-			if ast.IsExported(fname) {
-				keepField = true
-			} else if ityp != nil && fname == "error" {
-				// possibly the predeclared error interface; keep
-				// it for now but remember this interface so that
-				// it can be fixed if error is also defined locally
-				keepField = true
-				r.remember(ityp)
+			if fname != "" {
+				if token.IsExported(fname) {
+					keepField = true
+				} else if ityp != nil && predeclaredTypes[fname] {
+					// possibly an embedded predeclared type; keep it for now but
+					// remember this interface so that it can be fixed if name is also
+					// defined locally
+					keepField = true
+					r.remember(fname, ityp)
+				}
+			} else {
+				// If we're operating on an interface, assume that this is an embedded
+				// type or union element.
+				//
+				// TODO(rfindley): consider traversing into approximation/unions
+				// elements to see if they are entirely unexported.
+				keepField = ityp != nil
 			}
 		} else {
 			field.Names = filterIdentList(field.Names)
@@ -129,6 +178,17 @@ func (r *reader) filterType(parent *namedType, typ ast.Expr) {
 		// nothing to do
 	case *ast.ParenExpr:
 		r.filterType(nil, t.X)
+	case *ast.StarExpr: // possibly an embedded type literal
+		r.filterType(nil, t.X)
+	case *ast.UnaryExpr:
+		if t.Op == token.TILDE { // approximation element
+			r.filterType(nil, t.X)
+		}
+	case *ast.BinaryExpr:
+		if t.Op == token.OR { // union
+			r.filterType(nil, t.X)
+			r.filterType(nil, t.Y)
+		}
 	case *ast.ArrayType:
 		r.filterType(nil, t.Elt)
 	case *ast.StructType:
@@ -136,6 +196,7 @@ func (r *reader) filterType(parent *namedType, typ ast.Expr) {
 			t.Incomplete = true
 		}
 	case *ast.FuncType:
+		r.filterParamList(t.TypeParams)
 		r.filterParamList(t.Params)
 		r.filterParamList(t.Results)
 	case *ast.InterfaceType:
@@ -150,24 +211,42 @@ func (r *reader) filterType(parent *namedType, typ ast.Expr) {
 	}
 }
 
-func (r *reader) filterSpec(spec ast.Spec, tok token.Token) bool {
+func (r *reader) filterSpec(spec ast.Spec) bool {
 	switch s := spec.(type) {
 	case *ast.ImportSpec:
 		// always keep imports so we can collect them
 		return true
 	case *ast.ValueSpec:
-		s.Names = filterIdentList(s.Names)
-		if len(s.Names) > 0 {
-			r.filterType(nil, s.Type)
-			return true
+		s.Values = filterExprList(s.Values, token.IsExported, true)
+		if len(s.Values) > 0 || s.Type == nil && len(s.Values) == 0 {
+			// If there are values declared on RHS, just replace the unexported
+			// identifiers on the LHS with underscore, so that it matches
+			// the sequence of expression on the RHS.
+			//
+			// Similarly, if there are no type and values, then this expression
+			// must be following an iota expression, where order matters.
+			if updateIdentList(s.Names) {
+				r.filterType(nil, s.Type)
+				return true
+			}
+		} else {
+			s.Names = filterIdentList(s.Names)
+			if len(s.Names) > 0 {
+				r.filterType(nil, s.Type)
+				return true
+			}
 		}
 	case *ast.TypeSpec:
-		if name := s.Name.Name; ast.IsExported(name) {
+		// Don't filter type parameters here, by analogy with function parameters
+		// which are not filtered for top-level function declarations.
+		if name := s.Name.Name; token.IsExported(name) {
 			r.filterType(r.lookupType(s.Name.Name), s.Type)
 			return true
-		} else if name == "error" {
-			// special case: remember that error is declared locally
-			r.errorDecl = true
+		} else if IsPredeclared(name) {
+			if r.shadowedPredecl == nil {
+				r.shadowedPredecl = make(map[string]bool)
+			}
+			r.shadowedPredecl[name] = true
 		}
 	}
 	return false
@@ -200,7 +279,7 @@ func (r *reader) filterSpecList(list []ast.Spec, tok token.Token) []ast.Spec {
 		var prevType ast.Expr
 		for _, spec := range list {
 			spec := spec.(*ast.ValueSpec)
-			if spec.Type == nil && prevType != nil {
+			if spec.Type == nil && len(spec.Values) == 0 && prevType != nil {
 				// provide current spec with an explicit type
 				spec.Type = copyConstType(prevType, spec.Pos())
 			}
@@ -215,7 +294,7 @@ func (r *reader) filterSpecList(list []ast.Spec, tok token.Token) []ast.Spec {
 
 	j := 0
 	for _, s := range list {
-		if r.filterSpec(s, tok) {
+		if r.filterSpec(s) {
 			list[j] = s
 			j++
 		}
@@ -233,7 +312,7 @@ func (r *reader) filterDecl(decl ast.Decl) bool {
 		// conflicting method will be filtered here, too -
 		// thus, removing these methods early will not lead
 		// to the false removal of possible conflicts
-		return ast.IsExported(d.Name.Name)
+		return token.IsExported(d.Name.Name)
 	}
 	return false
 }

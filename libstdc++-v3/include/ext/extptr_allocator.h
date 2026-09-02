@@ -1,6 +1,6 @@
 // <extptr_allocator.h> -*- C++ -*-
 
-// Copyright (C) 2008-2017 Free Software Foundation, Inc.
+// Copyright (C) 2008-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -35,6 +35,8 @@
 
 #ifndef _EXTPTR_ALLOCATOR_H
 #define _EXTPTR_ALLOCATOR_H 1
+
+#include <bits/requires_hosted.h> // GNU extensions are currently omitted
 
 #include <memory>
 #include <ext/numeric_traits.h>
@@ -92,8 +94,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       const_pointer address(const_reference __x) const _GLIBCXX_NOEXCEPT
       { return std::__addressof(__x); }
 
-      pointer allocate(size_type __n, void* __hint = 0)
-      { return _M_real_alloc.allocate(__n,__hint); }
+      _GLIBCXX_NODISCARD pointer allocate(size_type __n, const void* = 0)
+      { return _M_real_alloc.allocate(__n); }
 
       void deallocate(pointer __p, size_type __n)
       { _M_real_alloc.deallocate(__p.get(), __n); }
@@ -131,21 +133,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Up>
         inline bool
-        operator==(const _ExtPtr_allocator<_Up>& __rarg)
+        operator==(const _ExtPtr_allocator<_Up>& __rarg) const
         { return _M_real_alloc == __rarg._M_getUnderlyingImp(); }
 
       inline bool
-      operator==(const _ExtPtr_allocator& __rarg)
+      operator==(const _ExtPtr_allocator& __rarg) const
       { return _M_real_alloc == __rarg._M_real_alloc; }
 
+#if __cpp_impl_three_way_comparison < 201907L
       template<typename _Up>
         inline bool
-        operator!=(const _ExtPtr_allocator<_Up>& __rarg)
+        operator!=(const _ExtPtr_allocator<_Up>& __rarg) const
         { return _M_real_alloc != __rarg._M_getUnderlyingImp(); }
 
       inline bool
-      operator!=(const _ExtPtr_allocator& __rarg)
+      operator!=(const _ExtPtr_allocator& __rarg) const
       { return _M_real_alloc != __rarg._M_real_alloc; }
+#endif
 
       template<typename _Up>
         inline friend void
@@ -173,6 +177,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef _Pointer_adapter<_Relative_pointer_impl<void> >       pointer;
       typedef _Pointer_adapter<_Relative_pointer_impl<const void> >
                                                               const_pointer;
+
+      _ExtPtr_allocator() { }
+
+      template<typename _Up>
+	_ExtPtr_allocator(const _ExtPtr_allocator<_Up>&) { }
 
       template<typename _Up>
         struct rebind

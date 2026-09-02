@@ -1,4 +1,4 @@
-/* Copyright (C) 1989-2017 Free Software Foundation, Inc.
+/* Copyright (C) 1989-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -46,21 +46,15 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 /* This avoids lossage on SunOS but only if stdtypes.h comes first.
    There's no way to win with the other order!  Sun lossage.  */
 
-/* On 4.3bsd-net2, make sure ansi.h is included, so we have
-   one less case to deal with in the following.  */
-#if defined (__BSD_NET2__) || defined (____386BSD____) || (defined (__FreeBSD__) && (__FreeBSD__ < 5)) || defined(__NetBSD__)
+#if defined(__NetBSD__)
 #include <machine/ansi.h>
 #endif
-/* On FreeBSD 5, machine/ansi.h does not exist anymore... */
-#if defined (__FreeBSD__) && (__FreeBSD__ >= 5)
+
+#if defined (__FreeBSD__)
 #include <sys/_types.h>
 #endif
 
-/* In 4.3bsd-net2, machine/ansi.h defines these symbols, which are
-   defined if the corresponding type is *not* defined.
-   FreeBSD-2.1 defines _MACHINE_ANSI_H_ instead of _ANSI_H_.
-   NetBSD defines _I386_ANSI_H_ and _X86_64_ANSI_H_ instead of _ANSI_H_ */
-#if defined(_ANSI_H_) || defined(_MACHINE_ANSI_H_) || defined(_X86_64_ANSI_H_)  || defined(_I386_ANSI_H_)
+#if defined(__NetBSD__)
 #if !defined(_SIZE_T_) && !defined(_BSD_SIZE_T_)
 #define _SIZE_T
 #endif
@@ -87,7 +81,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #undef _WCHAR_T_
 #undef _BSD_WCHAR_T_
 #endif
-#endif /* defined(_ANSI_H_) || defined(_MACHINE_ANSI_H_) || defined(_X86_64_ANSI_H_) || defined(_I386_ANSI_H_) */
+#endif /* defined(__NetBSD__) */
 
 /* Sequent's header files use _PTRDIFF_T_ in some conflicting way.
    Just ignore it.  */
@@ -134,6 +128,7 @@ _TYPE_wchar_t;
 #ifndef ___int_ptrdiff_t_h
 #ifndef _GCC_PTRDIFF_T
 #ifndef _PTRDIFF_T_DECLARED /* DragonFly */
+#ifndef __DEFINED_ptrdiff_t /* musl libc */
 #define _PTRDIFF_T
 #define _T_PTRDIFF_
 #define _T_PTRDIFF
@@ -143,10 +138,12 @@ _TYPE_wchar_t;
 #define ___int_ptrdiff_t_h
 #define _GCC_PTRDIFF_T
 #define _PTRDIFF_T_DECLARED
+#define __DEFINED_ptrdiff_t
 #ifndef __PTRDIFF_TYPE__
 #define __PTRDIFF_TYPE__ long int
 #endif
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
+#endif /* __DEFINED_ptrdiff_t */
 #endif /* _PTRDIFF_T_DECLARED */
 #endif /* _GCC_PTRDIFF_T */
 #endif /* ___int_ptrdiff_t_h */
@@ -180,6 +177,7 @@ typedef __PTRDIFF_TYPE__ ptrdiff_t;
 #ifndef _SIZE_T_DEFINED
 #ifndef _BSD_SIZE_T_DEFINED_	/* Darwin */
 #ifndef _SIZE_T_DECLARED	/* FreeBSD 5 */
+#ifndef __DEFINED_size_t	/* musl libc */
 #ifndef ___int_size_t_h
 #ifndef _GCC_SIZE_T
 #ifndef _SIZET_
@@ -197,15 +195,15 @@ typedef __PTRDIFF_TYPE__ ptrdiff_t;
 #define _SIZE_T_DEFINED
 #define _BSD_SIZE_T_DEFINED_	/* Darwin */
 #define _SIZE_T_DECLARED	/* FreeBSD 5 */
+#define __DEFINED_size_t	/* musl libc */
 #define ___int_size_t_h
 #define _GCC_SIZE_T
 #define _SIZET_
-#if (defined (__FreeBSD__) && (__FreeBSD__ >= 5)) \
+#if defined (__FreeBSD__) \
   || defined(__DragonFly__) \
-  || defined(__FreeBSD_kernel__)
-/* __size_t is a typedef on FreeBSD 5, must not trash it. */
-#elif defined (__VMS__)
-/* __size_t is also a typedef on VMS.  */
+  || defined(__FreeBSD_kernel__) \
+  || defined(__VMS__)
+/* __size_t is a typedef, must not trash it.  */
 #else
 #define __size_t
 #endif
@@ -222,6 +220,7 @@ typedef long ssize_t;
 #endif /* _SIZET_ */
 #endif /* _GCC_SIZE_T */
 #endif /* ___int_size_t_h */
+#endif /* __DEFINED_size_t */
 #endif /* _SIZE_T_DECLARED */
 #endif /* _BSD_SIZE_T_DEFINED_ */
 #endif /* _SIZE_T_DEFINED */
@@ -258,6 +257,7 @@ typedef long ssize_t;
 #ifndef _BSD_WCHAR_T_DEFINED_    /* Darwin */
 #ifndef _BSD_RUNE_T_DEFINED_	/* Darwin */
 #ifndef _WCHAR_T_DECLARED /* FreeBSD 5 */
+#ifndef __DEFINED_wchar_t /* musl libc */
 #ifndef _WCHAR_T_DEFINED_
 #ifndef _WCHAR_T_DEFINED
 #ifndef _WCHAR_T_H
@@ -279,6 +279,7 @@ typedef long ssize_t;
 #define __INT_WCHAR_T_H
 #define _GCC_WCHAR_T
 #define _WCHAR_T_DECLARED
+#define __DEFINED_wchar_t
 
 /* On BSD/386 1.1, at least, machine/ansi.h defines _BSD_WCHAR_T_
    instead of _WCHAR_T_, and _BSD_RUNE_T_ (which, unlike the other
@@ -333,6 +334,7 @@ typedef __WCHAR_TYPE__ wchar_t;
 #endif
 #endif
 #endif
+#endif /* __DEFINED_wchar_t */
 #endif /* _WCHAR_T_DECLARED */
 #endif /* _BSD_RUNE_T_DEFINED_ */
 #endif
@@ -359,11 +361,7 @@ typedef __WINT_TYPE__ wint_t;
 #undef __need_wint_t
 #endif
 
-/*  In 4.3bsd-net2, leave these undefined to indicate that size_t, etc.
-    are already defined.  */
-/*  BSD/OS 3.1 and FreeBSD [23].x require the MACHINE_ANSI_H check here.  */
-/*  NetBSD 5 requires the I386_ANSI_H and X86_64_ANSI_H checks here.  */
-#if defined(_ANSI_H_) || defined(_MACHINE_ANSI_H_) || defined(_X86_64_ANSI_H_) || defined(_I386_ANSI_H_)
+#if defined(__NetBSD__)
 /*  The references to _GCC_PTRDIFF_T_, _GCC_SIZE_T_, and _GCC_WCHAR_T_
     are probably typos and should be removed before 2.8 is released.  */
 #ifdef _GCC_PTRDIFF_T_
@@ -391,7 +389,7 @@ typedef __WINT_TYPE__ wint_t;
 #undef _WCHAR_T_
 #undef _BSD_WCHAR_T_
 #endif
-#endif /* _ANSI_H_ || _MACHINE_ANSI_H_ || _X86_64_ANSI_H_ || _I386_ANSI_H_ */
+#endif /* __NetBSD__ */
 
 #endif /* __sys_stdtypes_h */
 
@@ -414,6 +412,7 @@ typedef __WINT_TYPE__ wint_t;
 #ifdef _STDDEF_H
 
 /* Offset of member MEMBER in a struct of type TYPE. */
+#undef offsetof		/* in case a system header has defined it. */
 #define offsetof(TYPE, MEMBER) __builtin_offsetof (TYPE, MEMBER)
 
 #if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) \
@@ -444,6 +443,19 @@ typedef struct {
   typedef decltype(nullptr) nullptr_t;
 #endif
 #endif /* C++11.  */
+
+#if (defined (__STDC_VERSION__) && __STDC_VERSION__ > 201710L)
+#ifndef _GCC_NULLPTR_T
+#define _GCC_NULLPTR_T
+  typedef __typeof__(nullptr) nullptr_t;
+/* ??? This doesn't define __STDC_VERSION_STDDEF_H__ yet.  */
+#endif
+#endif /* C23.  */
+
+#if defined __STDC_VERSION__ && __STDC_VERSION__ > 201710L
+#define unreachable() (__builtin_unreachable ())
+#define __STDC_VERSION_STDDEF_H__	202311L
+#endif
 
 #endif /* _STDDEF_H was defined this time */
 

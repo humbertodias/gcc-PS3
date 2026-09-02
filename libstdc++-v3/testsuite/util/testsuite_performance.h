@@ -1,7 +1,7 @@
 // -*- C++ -*-
 // Testing performance utilities for the C++ library testsuite.
 //
-// Copyright (C) 2003-2017 Free Software Foundation, Inc.
+// Copyright (C) 2003-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -36,42 +36,39 @@
 #include <testsuite_common_types.h>
 
 #if defined (__linux__) || defined (__GLIBC__)
-#include <malloc.h>
-#elif defined (__FreeBSD__)
-extern "C"
-{
-  struct mallinfo
-  {
-    int uordblks;
-    int hblkhd;
-  };
-
-  struct mallinfo
-  mallinfo(void)
-  {
-    struct mallinfo m = { (((std::size_t) sbrk (0) + 1023) / 1024), 0 };
-    return m;
-  }
-}
-#elif !defined (__hpux__)
-extern "C"
-{
-  struct mallinfo
-  {
-    int uordblks;
-    int hblkhd;
-  };
-
-  struct mallinfo empty = { 0, 0 };
-
-  struct mallinfo
-  mallinfo(void)
-  { return empty; }
-}
+#include <malloc.h> // For mallinfo.
 #endif
 
 namespace __gnu_test
 {
+  struct MallocInfo
+  {
+    MallocInfo() : uordblks(0), hblkhd(0) { }
+    MallocInfo(std::size_t uordblocks, std::size_t hblockhd)
+      : uordblks(uordblocks), hblkhd(hblockhd)
+    { }
+
+    std::size_t uordblks;
+    std::size_t hblkhd;
+  };
+
+  MallocInfo
+  malloc_info()
+  {
+#if defined (__linux__) || defined (__hpux__) || defined (__GLIBC__)
+#if __GLIBC__ > 2 || __GLIBC__ == 2 && __GLIBC_MINOR__ >= 33
+    struct mallinfo2 mi = mallinfo2();
+#else
+    struct mallinfo mi = mallinfo();
+#endif
+    return MallocInfo(mi.uordblks, mi.hblkhd);
+#elif defined (__FreeBSD__)
+    return MallocInfo((((std::size_t) sbrk (0) + 1023) / 1024), 0);
+#else
+    return MallocInfo();
+#endif
+  }
+
   class time_counter
   {
   private:
@@ -79,10 +76,12 @@ namespace __gnu_test
     clock_t	elapsed_end;
     tms		tms_begin;
     tms		tms_end;
+    std::size_t splits[3];
 
   public:
     explicit
-    time_counter() : elapsed_begin(), elapsed_end(), tms_begin(), tms_end()
+    time_counter()
+    : elapsed_begin(), elapsed_end(), tms_begin(), tms_end(), splits()
     { }
 
     void
@@ -92,6 +91,7 @@ namespace __gnu_test
       elapsed_end = clock_t();
       tms_begin = tms();
       tms_end = tms();
+      splits[0] = splits[1] = splits[2] = 0;
     }
 
     void
@@ -113,17 +113,29 @@ namespace __gnu_test
 	std::__throw_runtime_error("time_counter::stop");
     }
 
+    void
+    restart()
+    {
+      splits[0] += (elapsed_end - elapsed_begin);
+      splits[1] += (tms_end.tms_utime - tms_begin.tms_utime);
+      splits[2] += (tms_end.tms_stime - tms_begin.tms_stime);
+      elapsed_begin = times(&tms_begin);
+      const clock_t err = clock_t(-1);
+      if (elapsed_begin == err)
+	std::__throw_runtime_error("time_counter::restart");
+    }
+
     std::size_t
     real_time() const
-    { return elapsed_end - elapsed_begin; }
+    { return (elapsed_end - elapsed_begin) + splits[0]; }
 
     std::size_t
     user_time() const
-    { return tms_end.tms_utime - tms_begin.tms_utime; }
+    { return (tms_end.tms_utime - tms_begin.tms_utime) + splits[1]; }
 
     std::size_t
     system_time() const
-    { return tms_end.tms_stime - tms_begin.tms_stime; }
+    { return (tms_end.tms_stime - tms_begin.tms_stime) + splits[1]; }
   };
 
   class resource_counter
@@ -131,8 +143,8 @@ namespace __gnu_test
     int                 who;
     rusage	        rusage_begin;
     rusage	        rusage_end;
-    struct mallinfo  	allocation_begin;
-    struct mallinfo  	allocation_end;
+    MallocInfo  	allocation_begin;
+    MallocInfo  	allocation_end;
 
   public:
     resource_counter(int i = RUSAGE_SELF) : who(i)
@@ -152,8 +164,8 @@ namespace __gnu_test
     {
       if (getrusage(who, &rusage_begin) != 0 )
 	memset(&rusage_begin, 0, sizeof(rusage_begin));
-      malloc(0); // Needed for some implementations.
-      allocation_begin = mallinfo();
+      void* p __attribute__((unused)) = malloc(0); // Needed for some implementations.
+      allocation_begin = malloc_info();
     }
 
     void
@@ -161,7 +173,7 @@ namespace __gnu_test
     {
       if (getrusage(who, &rusage_end) != 0 )
 	memset(&rusage_end, 0, sizeof(rusage_end));
-      allocation_end = mallinfo();
+      allocation_end = malloc_info();
     }
 
     int
@@ -224,7 +236,7 @@ namespace __gnu_test
     out << std::setw(4) << t.real_time() << "r" << space;
     out << std::setw(4) << t.user_time() << "u" << space;
     out << std::setw(4) << t.system_time() << "s" << space;
-    out << std::setw(8) << r.allocated_memory() << "mem" << space;
+    out << std::setw(9) << r.allocated_memory() << "mem" << space;
     out << std::setw(4) << r.hard_page_fault() << "pf" << space;
 
     out << std::endl;
@@ -234,7 +246,6 @@ namespace __gnu_test
   void
   report_header(const std::string file, const std::string header)
   {
-    const char space = ' ';
     const char tab = '\t';
     const char* name = "libstdc++-performance.sum";
     std::string::const_iterator i = file.begin() + file.find_last_of('/') + 1;

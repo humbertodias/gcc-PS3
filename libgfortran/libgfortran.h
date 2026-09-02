@@ -1,5 +1,5 @@
 /* Common declarations for all of libgfortran.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>, and
    Andy Vaught <andy@xena.eas.asu.edu>
 
@@ -39,6 +39,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 /* config.h MUST be first because it can affect system headers.  */
 #include "config.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -57,8 +58,8 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 
 /* If we're support quad-precision floating-point type, include the
    header to our support library.  */
-#ifdef HAVE_FLOAT128
-#  include "quadmath_weak.h"
+#if defined(HAVE_FLOAT128) && !defined(USE_IEC_60559)
+# include "quadmath_weak.h"
 #endif
 
 #ifdef __MINGW32__
@@ -88,6 +89,10 @@ extern long double __strtold (const char *, char **);
 #include <sys/types.h>
 #endif
 
+#ifdef HAVE_SYS_UIO_H
+#include <sys/uio.h>
+#endif
+
 #ifdef __MINGW32__
 typedef off64_t gfc_offset;
 #else
@@ -97,6 +102,26 @@ typedef off_t gfc_offset;
 #ifndef NULL
 #define NULL (void *) 0
 #endif
+
+#if defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ \
+    && defined __GLIBC_PREREQ
+#if __GLIBC_PREREQ (2, 32)
+#define POWER_IEEE128 1
+#endif
+#endif
+
+/* These functions from <ctype.h> should only be used on values that can be
+   represented as unsigned char, otherwise the behavior is undefined.
+   Some targets have a char type that is signed, so we cast the argument
+   to unsigned char. See:
+     https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95177
+     https://wiki.sei.cmu.edu/confluence/x/BNcxBQ
+ */
+
+#define safe_isalnum(x) isalnum((unsigned char) (x))
+#define safe_isdigit(x) isdigit((unsigned char) (x))
+#define safe_tolower(x) tolower((unsigned char) (x))
+#define safe_toupper(x) toupper((unsigned char) (x))
 
 
 /* The following macros can be used to annotate conditions which are likely or
@@ -198,7 +223,7 @@ extern int __mingw_snprintf (char *, size_t, const char *, ...)
 # define iexport(x)		iexport1(x, IPREFIX(x))
 # define iexport1(x,y)		iexport2(x,y)
 # define iexport2(x,y) \
-	extern __typeof(x) PREFIX(x) __attribute__((__alias__(#y)))
+  extern __typeof(x) PREFIX(x) __attribute__((__alias__(#y), __copy__ (x)))
 #else
 # define export_proto(x)	sym_rename(x, PREFIX(x))
 # define export_proto_np(x)	extern char swallow_semicolon
@@ -222,7 +247,7 @@ extern int __mingw_snprintf (char *, size_t, const char *, ...)
 
    Another advantage for GCC's builtins for these type-generic macros
    is that it handles floating-point types that the system headers
-   may not support (like __float128).  */
+   may not support (like _Float128).  */
 
 #undef isnan
 #define isnan(x) __builtin_isnan(x)
@@ -255,7 +280,7 @@ typedef GFC_INTEGER_4 GFC_IO_INT;
 typedef ptrdiff_t index_type;
 
 /* The type used for the lengths of character variables.  */
-typedef GFC_INTEGER_4 gfc_charlen_type;
+typedef size_t gfc_charlen_type;
 
 /* Definitions of CHARACTER data types:
      - CHARACTER(KIND=1) corresponds to the C char type,
@@ -266,12 +291,8 @@ typedef GFC_UINTEGER_4 gfc_char4_t;
    simply equal to the kind parameter itself.  */
 #define GFC_SIZE_OF_CHAR_KIND(kind) (kind)
 
-/* This will be 0 on little-endian machines and one on big-endian machines.  */
-extern int big_endian;
-internal_proto(big_endian);
-
 #define GFOR_POINTER_TO_L1(p, kind) \
-  (big_endian * (kind - 1) + (GFC_LOGICAL_1 *)(p))
+  ((__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 1: 0) * (kind - 1) + (GFC_LOGICAL_1 *)(p))
 
 #define GFC_INTEGER_1_HUGE \
   (GFC_INTEGER_1)((((GFC_UINTEGER_1)1) << 7) - 1)
@@ -288,40 +309,50 @@ internal_proto(big_endian);
 
 /* M{IN,AX}{LOC,VAL} need also infinities and NaNs if supported.  */
 
-#ifdef __FLT_HAS_INFINITY__
+#if __FLT_HAS_INFINITY__
 # define GFC_REAL_4_INFINITY __builtin_inff ()
 #endif
-#ifdef __DBL_HAS_INFINITY__
+#if __DBL_HAS_INFINITY__
 # define GFC_REAL_8_INFINITY __builtin_inf ()
 #endif
-#ifdef __LDBL_HAS_INFINITY__
+#if __LDBL_HAS_INFINITY__
 # ifdef HAVE_GFC_REAL_10
 #  define GFC_REAL_10_INFINITY __builtin_infl ()
 # endif
 # ifdef HAVE_GFC_REAL_16
 #  ifdef GFC_REAL_16_IS_LONG_DOUBLE
 #   define GFC_REAL_16_INFINITY __builtin_infl ()
+#  elif defined GFC_REAL_16_USE_IEC_60559
+#   define GFC_REAL_16_INFINITY __builtin_inff128 ()
 #  else
 #   define GFC_REAL_16_INFINITY __builtin_infq ()
 #  endif
 # endif
+# ifdef HAVE_GFC_REAL_17
+#  define GFC_REAL_17_INFINITY __builtin_inff128 ()
+# endif
 #endif
-#ifdef __FLT_HAS_QUIET_NAN__
+#if __FLT_HAS_QUIET_NAN__
 # define GFC_REAL_4_QUIET_NAN __builtin_nanf ("")
 #endif
-#ifdef __DBL_HAS_QUIET_NAN__
+#if __DBL_HAS_QUIET_NAN__
 # define GFC_REAL_8_QUIET_NAN __builtin_nan ("")
 #endif
-#ifdef __LDBL_HAS_QUIET_NAN__
+#if __LDBL_HAS_QUIET_NAN__
 # ifdef HAVE_GFC_REAL_10
 #  define GFC_REAL_10_QUIET_NAN __builtin_nanl ("")
 # endif
 # ifdef HAVE_GFC_REAL_16
 #  ifdef GFC_REAL_16_IS_LONG_DOUBLE
 #   define GFC_REAL_16_QUIET_NAN __builtin_nanl ("")
+#  elif defined GFC_REAL_16_USE_IEC_60559
+#   define GFC_REAL_16_QUIET_NAN __builtin_nanf128 ("")
 #  else
 #   define GFC_REAL_16_QUIET_NAN nanq ("")
 #  endif
+# endif
+# ifdef HAVE_GFC_REAL_17
+#  define GFC_REAL_17_QUIET_NAN __builtin_nanf128 ("")
 # endif
 #endif
 
@@ -331,58 +362,91 @@ typedef struct descriptor_dimension
   index_type lower_bound;
   index_type _ubound;
 }
-
 descriptor_dimension;
 
-#define GFC_ARRAY_DESCRIPTOR(r, type) \
+typedef struct dtype_type
+{
+  size_t elem_len;
+  int version;
+  signed char rank;
+  signed char type;
+  signed short attribute;
+}
+dtype_type;
+
+#define GFC_ARRAY_DESCRIPTOR(type) \
 struct {\
   type *base_addr;\
   size_t offset;\
-  index_type dtype;\
-  descriptor_dimension dim[r];\
+  dtype_type dtype;\
+  index_type span;\
+  descriptor_dimension dim[];\
 }
 
 /* Commonly used array descriptor types.  */
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, void) gfc_array_void;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, char) gfc_array_char;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_1) gfc_array_i1;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_2) gfc_array_i2;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_4) gfc_array_i4;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_8) gfc_array_i8;
+typedef GFC_ARRAY_DESCRIPTOR (void) gfc_array_void;
+typedef GFC_ARRAY_DESCRIPTOR (char) gfc_array_char;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_INTEGER_1) gfc_array_i1;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_INTEGER_2) gfc_array_i2;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_INTEGER_4) gfc_array_i4;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_INTEGER_8) gfc_array_i8;
+typedef GFC_ARRAY_DESCRIPTOR (index_type) gfc_array_index_type;
 #ifdef HAVE_GFC_INTEGER_16
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_16) gfc_array_i16;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_INTEGER_16) gfc_array_i16;
 #endif
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_REAL_4) gfc_array_r4;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_REAL_8) gfc_array_r8;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_REAL_4) gfc_array_r4;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_REAL_8) gfc_array_r8;
 #ifdef HAVE_GFC_REAL_10
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_REAL_10) gfc_array_r10;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_REAL_10) gfc_array_r10;
 #endif
 #ifdef HAVE_GFC_REAL_16
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_REAL_16) gfc_array_r16;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_REAL_16) gfc_array_r16;
 #endif
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_COMPLEX_4) gfc_array_c4;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_COMPLEX_8) gfc_array_c8;
+#ifdef HAVE_GFC_REAL_17
+typedef GFC_ARRAY_DESCRIPTOR (GFC_REAL_17) gfc_array_r17;
+#endif
+typedef GFC_ARRAY_DESCRIPTOR (GFC_COMPLEX_4) gfc_array_c4;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_COMPLEX_8) gfc_array_c8;
 #ifdef HAVE_GFC_COMPLEX_10
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_COMPLEX_10) gfc_array_c10;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_COMPLEX_10) gfc_array_c10;
 #endif
 #ifdef HAVE_GFC_COMPLEX_16
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_COMPLEX_16) gfc_array_c16;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_COMPLEX_16) gfc_array_c16;
 #endif
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_1) gfc_array_l1;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_2) gfc_array_l2;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_4) gfc_array_l4;
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_8) gfc_array_l8;
+#ifdef HAVE_GFC_COMPLEX_17
+typedef GFC_ARRAY_DESCRIPTOR (GFC_COMPLEX_17) gfc_array_c17;
+#endif
+typedef GFC_ARRAY_DESCRIPTOR (GFC_LOGICAL_1) gfc_array_l1;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_LOGICAL_2) gfc_array_l2;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_LOGICAL_4) gfc_array_l4;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_LOGICAL_8) gfc_array_l8;
 #ifdef HAVE_GFC_LOGICAL_16
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_LOGICAL_16) gfc_array_l16;
 #endif
 
+typedef GFC_ARRAY_DESCRIPTOR (GFC_UINTEGER_1) gfc_array_s1;
+typedef GFC_ARRAY_DESCRIPTOR (GFC_UINTEGER_4) gfc_array_s4;
 
-#define GFC_DESCRIPTOR_RANK(desc) ((desc)->dtype & GFC_DTYPE_RANK_MASK)
-#define GFC_DESCRIPTOR_TYPE(desc) (((desc)->dtype & GFC_DTYPE_TYPE_MASK) \
-                                   >> GFC_DTYPE_TYPE_SHIFT)
-#define GFC_DESCRIPTOR_SIZE(desc) ((desc)->dtype >> GFC_DTYPE_SIZE_SHIFT)
+/* These are for when you actually want to declare a descriptor, as
+   opposed to a pointer to it.  */
+
+#define GFC_FULL_ARRAY_DESCRIPTOR(r, type) \
+struct {\
+  type *base_addr;\
+  size_t offset;\
+  dtype_type dtype;\
+  index_type span;\
+  descriptor_dimension dim[r];\
+}
+
+typedef GFC_FULL_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_INTEGER_4) gfc_full_array_i4;
+
+#define GFC_DESCRIPTOR_RANK(desc) ((desc)->dtype.rank)
+#define GFC_DESCRIPTOR_TYPE(desc) ((desc)->dtype.type)
+#define GFC_DESCRIPTOR_SIZE(desc) ((desc)->dtype.elem_len)
 #define GFC_DESCRIPTOR_DATA(desc) ((desc)->base_addr)
 #define GFC_DESCRIPTOR_DTYPE(desc) ((desc)->dtype)
+#define GFC_DESCRIPTOR_SPAN(desc) ((desc)->span)
 
 #define GFC_DIMENSION_LBOUND(dim) ((dim).lower_bound)
 #define GFC_DIMENSION_UBOUND(dim) ((dim)._ubound)
@@ -413,7 +477,19 @@ typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
 #define GFC_DTYPE_SIZE_MASK (-((index_type) 1 << GFC_DTYPE_SIZE_SHIFT))
 #define GFC_DTYPE_TYPE_SIZE_MASK (GFC_DTYPE_SIZE_MASK | GFC_DTYPE_TYPE_MASK)
 
-#define GFC_DTYPE_TYPE_SIZE(desc) ((desc)->dtype & GFC_DTYPE_TYPE_SIZE_MASK)
+#define GFC_DTYPE_TYPE_SIZE(desc) (( ((desc)->dtype.type << GFC_DTYPE_TYPE_SHIFT) \
+    | ((desc)->dtype.elem_len << GFC_DTYPE_SIZE_SHIFT) ) & GFC_DTYPE_TYPE_SIZE_MASK)
+
+/* Macros to set size and type information.  */
+
+#define GFC_DTYPE_COPY(a,b) do { (a)->dtype = (b)->dtype; } while(0)
+#define GFC_DTYPE_IS_UNSET(a) (unlikely((a)->dtype.elem_len == 0))
+#define GFC_DTYPE_CLEAR(a) do { (a)->dtype.elem_len = 0; \
+				(a)->dtype.version = 0; \
+				(a)->dtype.rank = 0; \
+				(a)->dtype.type = 0; \
+				(a)->dtype.attribute = 0; \
+} while(0)
 
 #define GFC_DTYPE_INTEGER_1 ((BT_INTEGER << GFC_DTYPE_TYPE_SHIFT) \
    | (sizeof(GFC_INTEGER_1) << GFC_DTYPE_SIZE_SHIFT))
@@ -453,6 +529,10 @@ typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
 #define GFC_DTYPE_REAL_16 ((BT_REAL << GFC_DTYPE_TYPE_SHIFT) \
    | (sizeof(GFC_REAL_16) << GFC_DTYPE_SIZE_SHIFT))
 #endif
+#ifdef HAVE_GFC_REAL_17
+#define GFC_DTYPE_REAL_17 ((BT_REAL << GFC_DTYPE_TYPE_SHIFT) \
+   | (sizeof(GFC_REAL_17) << GFC_DTYPE_SIZE_SHIFT))
+#endif
 
 #define GFC_DTYPE_COMPLEX_4 ((BT_COMPLEX << GFC_DTYPE_TYPE_SHIFT) \
    | (sizeof(GFC_COMPLEX_4) << GFC_DTYPE_SIZE_SHIFT))
@@ -466,18 +546,9 @@ typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
 #define GFC_DTYPE_COMPLEX_16 ((BT_COMPLEX << GFC_DTYPE_TYPE_SHIFT) \
    | (sizeof(GFC_COMPLEX_16) << GFC_DTYPE_SIZE_SHIFT))
 #endif
-
-#define GFC_DTYPE_DERIVED_1 ((BT_DERIVED << GFC_DTYPE_TYPE_SHIFT) \
-   | (sizeof(GFC_INTEGER_1) << GFC_DTYPE_SIZE_SHIFT))
-#define GFC_DTYPE_DERIVED_2 ((BT_DERIVED << GFC_DTYPE_TYPE_SHIFT) \
-   | (sizeof(GFC_INTEGER_2) << GFC_DTYPE_SIZE_SHIFT))
-#define GFC_DTYPE_DERIVED_4 ((BT_DERIVED << GFC_DTYPE_TYPE_SHIFT) \
-   | (sizeof(GFC_INTEGER_4) << GFC_DTYPE_SIZE_SHIFT))
-#define GFC_DTYPE_DERIVED_8 ((BT_DERIVED << GFC_DTYPE_TYPE_SHIFT) \
-   | (sizeof(GFC_INTEGER_8) << GFC_DTYPE_SIZE_SHIFT))
-#ifdef HAVE_GFC_INTEGER_16
-#define GFC_DTYPE_DERIVED_16 ((BT_DERIVED << GFC_DTYPE_TYPE_SHIFT) \
-   | (sizeof(GFC_INTEGER_16) << GFC_DTYPE_SIZE_SHIFT))
+#ifdef HAVE_GFC_COMPLEX_17
+#define GFC_DTYPE_COMPLEX_17 ((BT_COMPLEX << GFC_DTYPE_TYPE_SHIFT) \
+   | (sizeof(GFC_COMPLEX_17) << GFC_DTYPE_SIZE_SHIFT))
 #endif
 
 /* Macros to determine the alignment of pointers.  */
@@ -513,8 +584,9 @@ typedef struct
   int separator_len;
   const char *separator;
 
-  int all_unbuffered, unbuffered_preconnected, default_recl;
+  int all_unbuffered, unbuffered_preconnected;
   int fpe, backtrace;
+  int unformatted_buffer_size, formatted_buffer_size;
 }
 options_t;
 
@@ -577,12 +649,6 @@ iexport_data_proto(line);
 
 extern char *filename;
 iexport_data_proto(filename);
-
-
-/* The default value of record length for preconnected units is defined
-   here. This value can be overriden by an environment variable.
-   Default value is 1 Gb.  */
-#define DEFAULT_RECL 1073741824
 
 
 #define CHARACTER2(name) \
@@ -674,7 +740,7 @@ internal_proto(show_backtrace);
 #define GFC_LARGEST_BUF (sizeof (GFC_INTEGER_LARGEST))
 #endif
 
-#define GFC_ITOA_BUF_SIZE (sizeof (GFC_INTEGER_LARGEST) * 3 + 2)
+#define GFC_ITOA_BUF_SIZE (sizeof (GFC_INTEGER_LARGEST) * 3 + 1)
 #define GFC_XTOA_BUF_SIZE (GFC_LARGEST_BUF * 2 + 1)
 #define GFC_OTOA_BUF_SIZE (GFC_LARGEST_BUF * 3 + 1)
 #define GFC_BTOA_BUF_SIZE (GFC_LARGEST_BUF * 8 + 1)
@@ -688,18 +754,26 @@ internal_proto(exit_error);
 extern ssize_t estr_write (const char *);
 internal_proto(estr_write);
 
-extern int st_vprintf (const char *, va_list);
-internal_proto(st_vprintf);
+#if !defined(HAVE_WRITEV) && !defined(HAVE_SYS_UIO_H)
+struct iovec {
+  void  *iov_base;    /* Starting address */
+  size_t iov_len;     /* Number of bytes to transfer */
+};
+#endif
+
+extern ssize_t estr_writev (const struct iovec *iov, int iovcnt);
+internal_proto(estr_writev);
 
 extern int st_printf (const char *, ...)
   __attribute__((format (gfc_printf, 1, 2)));
 internal_proto(st_printf);
 
-extern const char *gfc_xtoa (GFC_UINTEGER_LARGEST, char *, size_t);
-internal_proto(gfc_xtoa);
-
 extern _Noreturn void os_error (const char *);
 iexport_proto(os_error);
+
+extern _Noreturn void os_error_at (const char *, const char *, ...)
+  __attribute__ ((format (gfc_printf, 2, 3)));
+iexport_proto(os_error_at);
 
 extern void show_locus (st_parameter_common *);
 internal_proto(show_locus);
@@ -724,6 +798,9 @@ internal_proto(translate_error);
 
 extern void generate_error (st_parameter_common *, int, const char *);
 iexport_proto(generate_error);
+
+extern bool generate_error_common (st_parameter_common *, int, const char *);
+iexport_proto(generate_error_common);
 
 extern void generate_warning (st_parameter_common *, const char *);
 internal_proto(generate_warning);
@@ -846,7 +923,7 @@ internal_proto(fc_strdup);
 extern char *fc_strdup_notrim(const char *, gfc_charlen_type);
 internal_proto(fc_strdup_notrim);
 
-extern const char *gfc_itoa(GFC_INTEGER_LARGEST, char *, size_t);
+extern const char *gfc_itoa(GFC_UINTEGER_LARGEST, char *, size_t);
 internal_proto(gfc_itoa);
 
 /* io/intrinsics.c */
@@ -870,7 +947,7 @@ internal_proto(filename_from_unit);
 
 /* stop.c */
 
-extern _Noreturn void stop_string (const char *, GFC_INTEGER_4);
+extern _Noreturn void stop_string (const char *, size_t, bool);
 export_proto(stop_string);
 
 /* reshape_packed.c */
@@ -915,6 +992,11 @@ GFC_REAL_16 *internal_pack_r16 (gfc_array_r16 *);
 internal_proto(internal_pack_r16);
 #endif
 
+#if defined HAVE_GFC_REAL_17
+GFC_REAL_17 *internal_pack_r17 (gfc_array_r17 *);
+internal_proto(internal_pack_r17);
+#endif
+
 GFC_COMPLEX_4 *internal_pack_c4 (gfc_array_c4 *);
 internal_proto(internal_pack_c4);
 
@@ -929,6 +1011,11 @@ internal_proto(internal_pack_c10);
 #if defined HAVE_GFC_COMPLEX_16
 GFC_COMPLEX_16 *internal_pack_c16 (gfc_array_c16 *);
 internal_proto(internal_pack_c16);
+#endif
+
+#if defined HAVE_GFC_COMPLEX_17
+GFC_COMPLEX_17 *internal_pack_c17 (gfc_array_c17 *);
+internal_proto(internal_pack_c17);
 #endif
 
 extern void internal_unpack_1 (gfc_array_i1 *, const GFC_INTEGER_1 *);
@@ -964,6 +1051,11 @@ extern void internal_unpack_r16 (gfc_array_r16 *, const GFC_REAL_16 *);
 internal_proto(internal_unpack_r16);
 #endif
 
+#if defined HAVE_GFC_REAL_17
+extern void internal_unpack_r17 (gfc_array_r17 *, const GFC_REAL_17 *);
+internal_proto(internal_unpack_r17);
+#endif
+
 extern void internal_unpack_c4 (gfc_array_c4 *, const GFC_COMPLEX_4 *);
 internal_proto(internal_unpack_c4);
 
@@ -978,6 +1070,11 @@ internal_proto(internal_unpack_c10);
 #if defined HAVE_GFC_COMPLEX_16
 extern void internal_unpack_c16 (gfc_array_c16 *, const GFC_COMPLEX_16 *);
 internal_proto(internal_unpack_c16);
+#endif
+
+#if defined HAVE_GFC_COMPLEX_17
+extern void internal_unpack_c17 (gfc_array_c17 *, const GFC_COMPLEX_17 *);
+internal_proto(internal_unpack_c17);
 #endif
 
 /* Internal auxiliary functions for the pack intrinsic.  */
@@ -1024,6 +1121,12 @@ extern void pack_r16 (gfc_array_r16 *, const gfc_array_r16 *,
 internal_proto(pack_r16);
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+extern void pack_r17 (gfc_array_r17 *, const gfc_array_r17 *,
+		     const gfc_array_l1 *, const gfc_array_r17 *);
+internal_proto(pack_r17);
+#endif
+
 extern void pack_c4 (gfc_array_c4 *, const gfc_array_c4 *,
 		     const gfc_array_l1 *, const gfc_array_c4 *);
 internal_proto(pack_c4);
@@ -1042,6 +1145,12 @@ internal_proto(pack_c10);
 extern void pack_c16 (gfc_array_c16 *, const gfc_array_c16 *,
 		     const gfc_array_l1 *, const gfc_array_c16 *);
 internal_proto(pack_c16);
+#endif
+
+#ifdef HAVE_GFC_REAL_17
+extern void pack_c17 (gfc_array_c17 *, const gfc_array_c17 *,
+		     const gfc_array_l1 *, const gfc_array_c17 *);
+internal_proto(pack_c17);
 #endif
 
 /* Internal auxiliary functions for the unpack intrinsic.  */
@@ -1094,6 +1203,14 @@ internal_proto(unpack0_r16);
 
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+
+extern void unpack0_r17 (gfc_array_r17 *, const gfc_array_r17 *,
+			 const gfc_array_l1 *, const GFC_REAL_17 *);
+internal_proto(unpack0_r17);
+
+#endif
+
 extern void unpack0_c4 (gfc_array_c4 *, const gfc_array_c4 *,
 			const gfc_array_l1 *, const GFC_COMPLEX_4 *);
 internal_proto(unpack0_c4);
@@ -1115,6 +1232,14 @@ internal_proto(unpack0_c10);
 extern void unpack0_c16 (gfc_array_c16 *, const gfc_array_c16 *,
 			 const gfc_array_l1 *, const GFC_COMPLEX_16 *);
 internal_proto(unpack0_c16);
+
+#endif
+
+#ifdef HAVE_GFC_COMPLEX_17
+
+extern void unpack0_c17 (gfc_array_c17 *, const gfc_array_c17 *,
+			 const gfc_array_l1 *, const GFC_COMPLEX_17 *);
+internal_proto(unpack0_c17);
 
 #endif
 
@@ -1160,6 +1285,12 @@ extern void unpack1_r16 (gfc_array_r16 *, const gfc_array_r16 *,
 internal_proto(unpack1_r16);
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+extern void unpack1_r17 (gfc_array_r17 *, const gfc_array_r17 *,
+			 const gfc_array_l1 *, const gfc_array_r17 *);
+internal_proto(unpack1_r17);
+#endif
+
 extern void unpack1_c4 (gfc_array_c4 *, const gfc_array_c4 *,
 			const gfc_array_l1 *, const gfc_array_c4 *);
 internal_proto(unpack1_c4);
@@ -1178,6 +1309,12 @@ internal_proto(unpack1_c10);
 extern void unpack1_c16 (gfc_array_c16 *, const gfc_array_c16 *,
 			 const gfc_array_l1 *, const gfc_array_c16 *);
 internal_proto(unpack1_c16);
+#endif
+
+#ifdef HAVE_GFC_COMPLEX_17
+extern void unpack1_c17 (gfc_array_c17 *, const gfc_array_c17 *,
+			 const gfc_array_l1 *, const gfc_array_c17 *);
+internal_proto(unpack1_c17);
 #endif
 
 /* Helper functions for spread.  */
@@ -1227,6 +1364,13 @@ internal_proto(spread_r16);
 
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+extern void spread_r17 (gfc_array_r17 *, const gfc_array_r17 *,
+		       const index_type, const index_type);
+internal_proto(spread_r17);
+
+#endif
+
 extern void spread_c4 (gfc_array_c4 *, const gfc_array_c4 *,
 		       const index_type, const index_type);
 internal_proto(spread_c4);
@@ -1246,6 +1390,13 @@ internal_proto(spread_c10);
 extern void spread_c16 (gfc_array_c16 *, const gfc_array_c16 *,
 		       const index_type, const index_type);
 internal_proto(spread_c16);
+
+#endif
+
+#ifdef HAVE_GFC_COMPLEX_17
+extern void spread_c17 (gfc_array_c17 *, const gfc_array_c17 *,
+		       const index_type, const index_type);
+internal_proto(spread_c17);
 
 #endif
 
@@ -1294,6 +1445,13 @@ internal_proto(spread_scalar_r16);
 
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+extern void spread_scalar_r17 (gfc_array_r17 *, const GFC_REAL_17 *,
+			       const index_type, const index_type);
+internal_proto(spread_scalar_r17);
+
+#endif
+
 extern void spread_scalar_c4 (gfc_array_c4 *, const GFC_COMPLEX_4 *,
 			      const index_type, const index_type);
 internal_proto(spread_scalar_c4);
@@ -1313,6 +1471,13 @@ internal_proto(spread_scalar_c10);
 extern void spread_scalar_c16 (gfc_array_c16 *, const GFC_COMPLEX_16 *,
 			       const index_type, const index_type);
 internal_proto(spread_scalar_c16);
+
+#endif
+
+#ifdef HAVE_GFC_COMPLEX_17
+extern void spread_scalar_c17 (gfc_array_c17 *, const GFC_COMPLEX_17 *,
+			       const index_type, const index_type);
+internal_proto(spread_scalar_c17);
 
 #endif
 
@@ -1341,10 +1506,15 @@ iexport_proto(random_seed_i8);
 
 /* size.c */
 
-typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, void) array_t;
+typedef GFC_ARRAY_DESCRIPTOR (void) array_t;
 
 extern index_type size0 (const array_t * array); 
 iexport_proto(size0);
+
+/* is_contiguous.c */
+
+extern GFC_LOGICAL_4 is_contiguous0 (const array_t * const restrict array); 
+iexport_proto(is_contiguous0);
 
 /* bounds.c */
 
@@ -1402,6 +1572,11 @@ void cshift0_r16 (gfc_array_r16 *, const gfc_array_r16 *, ptrdiff_t, int);
 internal_proto(cshift0_r16);
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+void cshift0_r17 (gfc_array_r17 *, const gfc_array_r17 *, ptrdiff_t, int);
+internal_proto(cshift0_r17);
+#endif
+
 void cshift0_c4 (gfc_array_c4 *, const gfc_array_c4 *, ptrdiff_t, int);
 internal_proto(cshift0_c4);
 
@@ -1417,5 +1592,436 @@ internal_proto(cshift0_c10);
 void cshift0_c16 (gfc_array_c16 *, const gfc_array_c16 *, ptrdiff_t, int);
 internal_proto(cshift0_c16);
 #endif
+
+#ifdef HAVE_GFC_COMPLEX_17
+void cshift0_c17 (gfc_array_c17 *, const gfc_array_c17 *, ptrdiff_t, int);
+internal_proto(cshift0_c17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_4_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_4_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_4_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_4_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_4_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_8_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_8_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_8_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_8_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_8_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_16_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_16_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_16_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_16_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_16_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_4)
+void cshift1_4_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_8)
+void cshift1_4_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_10)
+void cshift1_4_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_16)
+void cshift1_4_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_17)
+void cshift1_4_r17 (gfc_array_r17 * const restrict,
+        const gfc_array_r17 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_4)
+void cshift1_8_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_8)
+void cshift1_8_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_10)
+void cshift1_8_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_16)
+void cshift1_8_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_17)
+void cshift1_8_r17 (gfc_array_r17 * const restrict,
+        const gfc_array_r17 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_4)
+void cshift1_16_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_8)
+void cshift1_16_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_10)
+void cshift1_16_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_16)
+void cshift1_16_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_17)
+void cshift1_16_r17 (gfc_array_r17 * const restrict,
+        const gfc_array_r17 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_4_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_4_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_4_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_4_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_17)
+void cshift1_4_c17 (gfc_array_c17 * const restrict,
+        const gfc_array_c17 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_8_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_8_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_8_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_8_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_17)
+void cshift1_8_c17 (gfc_array_c17 * const restrict,
+        const gfc_array_c17 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c17);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_16_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_16_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_16_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_16_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_17)
+void cshift1_16_c17 (gfc_array_c17 * const restrict,
+        const gfc_array_c17 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c17);
+#endif
+
+/* Prototypes for the POWER __ieee128 functions.  */
+#ifdef POWER_IEEE128
+extern _Float128 __acoshieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __acosieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __asinhieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __asinieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __atan2ieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __atanhieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __atanieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __copysignieee128 (_Float128, _Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __coshieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __cosieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __erfcieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __erfieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __expieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __fabsieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __fmaieee128 (_Float128, _Float128, _Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __fmodieee128 (_Float128, _Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __jnieee128 (int, _Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __log10ieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __logieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __powieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __sinhieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __sinieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __sqrtieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __tanhieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __tanieee128 (_Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __ynieee128 (int , _Float128)
+  __attribute__ ((__nothrow__, __leaf__));
+extern _Float128 __strtoieee128 (const char *, char **)
+  __attribute__ ((__nothrow__, __leaf__));
+extern int __snprintfieee128 (char *, size_t, const char *, ...)
+  __attribute__ ((__nothrow__));
+
+#endif
+
+/* We always have these.  */
+
+#define HAVE_GFC_UINTEGER_1 1
+#define HAVE_GFC_UINTEGER_4 1
 
 #endif  /* LIBGFOR_H  */

@@ -1,7 +1,7 @@
 ;; Machine Description for MIPS MSA ASE
 ;; Based on the MIPS MSA spec Revision 1.11 8/4/2014
 ;;
-;; Copyright (C) 2015-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -231,7 +231,7 @@
    (V4SI  "uimm5")
    (V2DI  "uimm6")])
 
-(define_expand "vec_init<mode>"
+(define_expand "vec_init<mode><unitmode>"
   [(match_operand:MSA 0 "register_operand")
    (match_operand:MSA 1 "")]
   "ISA_HAS_MSA"
@@ -311,7 +311,7 @@
   DONE;
 })
 
-(define_expand "vec_extract<mode>"
+(define_expand "vec_extract<mode><unitmode>"
   [(match_operand:<UNITMODE> 0 "register_operand")
    (match_operand:IMSA 1 "register_operand")
    (match_operand 2 "const_<indeximm>_operand")]
@@ -329,7 +329,7 @@
   DONE;
 })
 
-(define_expand "vec_extract<mode>"
+(define_expand "vec_extract<mode><unitmode>"
   [(match_operand:<UNITMODE> 0 "register_operand")
    (match_operand:FMSA 1 "register_operand")
    (match_operand 2 "const_<indeximm>_operand")]
@@ -346,12 +346,12 @@
 	 operands[2] accordingly.  */
       rtx wd = gen_reg_rtx (V16QImode);
       rtx ws = gen_reg_rtx (V16QImode);
-      emit_move_insn (ws, gen_rtx_SUBREG (V16QImode, operands[1], 0));
+      emit_move_insn (ws, gen_lowpart (V16QImode, operands[1]));
       rtx n = GEN_INT (val * GET_MODE_SIZE (<UNITMODE>mode));
       gcc_assert (INTVAL (n) < GET_MODE_NUNITS (V16QImode));
       emit_insn (gen_msa_sldi_b (wd, ws, ws, n));
       temp = gen_reg_rtx (<MODE>mode);
-      emit_move_insn (temp, gen_rtx_SUBREG (<MODE>mode, wd, 0));
+      emit_move_insn (temp, gen_lowpart (<MODE>mode, wd));
     }
   emit_insn (gen_msa_vec_extract_<msafmt_f> (operands[0], temp));
   DONE;
@@ -435,15 +435,40 @@
   DONE;
 })
 
+(define_expand "vec_cmp<MSA:mode><mode_i>"
+  [(match_operand:<VIMODE> 0 "register_operand")
+   (match_operator 1 ""
+     [(match_operand:MSA 2 "register_operand")
+      (match_operand:MSA 3 "register_operand")])]
+  "ISA_HAS_MSA"
+{
+  mips_expand_vec_cmp_expr (operands);
+  DONE;
+})
+
+(define_expand "vec_cmpu<IMSA:mode><mode_i>"
+  [(match_operand:<VIMODE> 0 "register_operand")
+   (match_operator 1 ""
+     [(match_operand:IMSA 2 "register_operand")
+      (match_operand:IMSA 3 "register_operand")])]
+  "ISA_HAS_MSA"
+{
+  mips_expand_vec_cmp_expr (operands);
+  DONE;
+})
+
 (define_insn "msa_insert_<msafmt_f>"
-  [(set (match_operand:MSA 0 "register_operand" "=f")
+  [(set (match_operand:MSA 0 "register_operand" "=f,f")
 	(vec_merge:MSA
 	  (vec_duplicate:MSA
-	    (match_operand:<UNITMODE> 1 "reg_or_0_operand" "dJ"))
-	  (match_operand:MSA 2 "register_operand" "0")
+	    (match_operand:<UNITMODE> 1 "reg_or_0_operand" "dJ,f"))
+	  (match_operand:MSA 2 "register_operand" "0,0")
 	  (match_operand 3 "const_<bitmask>_operand" "")))]
   "ISA_HAS_MSA"
 {
+  if (which_alternative == 1)
+    return "insve.<msafmt>\t%w0[%y3],%w1[0]";
+
   if (!TARGET_64BIT && (<MODE>mode == V2DImode || <MODE>mode == V2DFmode))
     return "#";
   else
@@ -462,6 +487,8 @@
   "reload_completed && ISA_HAS_MSA && !TARGET_64BIT"
   [(const_int 0)]
 {
+  if (REG_P (operands[1]) && FP_REG_P (REGNO (operands[1])))
+    FAIL;
   mips_split_msa_insert_d (operands[0], operands[2], operands[3], operands[1]);
   DONE;
 })
@@ -557,19 +584,6 @@
 }
   [(set_attr "type" "simd_copy")
    (set_attr "mode" "<MODE>")])
-
-(define_expand "vec_perm_const<mode>"
-  [(match_operand:MSA 0 "register_operand")
-   (match_operand:MSA 1 "register_operand")
-   (match_operand:MSA 2 "register_operand")
-   (match_operand:<VIMODE> 3 "")]
-  "ISA_HAS_MSA"
-{
-  if (mips_expand_vec_perm_const (operands))
-    DONE;
-  else
-    FAIL;
-})
 
 (define_expand "abs<mode>2"
   [(match_operand:IMSA 0 "register_operand" "=f")
@@ -856,9 +870,12 @@
 	  (match_operand:IMSA 1 "register_operand" "f,f")
 	  (match_operand:IMSA 2 "reg_or_vector_same_uimm6_operand" "f,Uuv6")))]
   "ISA_HAS_MSA"
-  "@
-   srl.<msafmt>\t%w0,%w1,%w2
-   srli.<msafmt>\t%w0,%w1,%E2"
+{
+  if (which_alternative == 0)
+    return "srl.<msafmt>\t%w0,%w1,%w2";
+
+  return mips_msa_output_shift_immediate("srli.<msafmt>\t%w0,%w1,%E2", operands);
+}
   [(set_attr "type" "simd_shift")
    (set_attr "mode" "<MODE>")])
 
@@ -868,9 +885,12 @@
 	  (match_operand:IMSA 1 "register_operand" "f,f")
 	  (match_operand:IMSA 2 "reg_or_vector_same_uimm6_operand" "f,Uuv6")))]
   "ISA_HAS_MSA"
-  "@
-   sra.<msafmt>\t%w0,%w1,%w2
-   srai.<msafmt>\t%w0,%w1,%E2"
+{
+  if (which_alternative == 0)
+    return "sra.<msafmt>\t%w0,%w1,%w2";
+
+  return mips_msa_output_shift_immediate("srai.<msafmt>\t%w0,%w1,%E2", operands);
+}
   [(set_attr "type" "simd_shift")
    (set_attr "mode" "<MODE>")])
 
@@ -880,9 +900,12 @@
 	  (match_operand:IMSA 1 "register_operand" "f,f")
 	  (match_operand:IMSA 2 "reg_or_vector_same_uimm6_operand" "f,Uuv6")))]
   "ISA_HAS_MSA"
-  "@
-   sll.<msafmt>\t%w0,%w1,%w2
-   slli.<msafmt>\t%w0,%w1,%E2"
+{
+  if (which_alternative == 0)
+    return "sll.<msafmt>\t%w0,%w1,%w2";
+
+  return mips_msa_output_shift_immediate("slli.<msafmt>\t%w0,%w1,%E2", operands);
+}
   [(set_attr "type" "simd_shift")
    (set_attr "mode" "<MODE>")])
 
@@ -2727,7 +2750,8 @@
 }
  [(set_attr "type" "simd_branch")
   (set_attr "mode" "<MODE>")
-  (set_attr "compact_form" "never")])
+  (set_attr "compact_form" "never")
+  (set_attr "branch_likely" "no")])
 
 (define_insn "msa_<msabr>_v_<msafmt_f>"
  [(set (pc) (if_then_else
@@ -2746,4 +2770,5 @@
 }
  [(set_attr "type" "simd_branch")
   (set_attr "mode" "TI")
-  (set_attr "compact_form" "never")])
+  (set_attr "compact_form" "never")
+  (set_attr "branch_likely" "no")])

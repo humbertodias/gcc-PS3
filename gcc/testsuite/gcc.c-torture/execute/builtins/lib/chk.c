@@ -3,10 +3,18 @@
 #include <sys/types.h>
 #endif
 
+/* If some target has a Max alignment less than 16, please create
+   a #ifdef around the alignment and add your alignment.  */
+#ifdef __pdp11__
+#define ALIGNMENT 2
+#else
+#define ALIGNMENT 16
+#endif
+
 extern void abort (void);
 
 extern int inside_main;
-void *chk_fail_buf[256] __attribute__((aligned (16)));
+void *chk_fail_buf[256] __attribute__((aligned (ALIGNMENT)));
 volatile int chk_fail_allowed, chk_calls;
 volatile int memcpy_disallowed, mempcpy_disallowed, memmove_disallowed;
 volatile int memset_disallowed, strcpy_disallowed, stpcpy_disallowed;
@@ -508,4 +516,15 @@ vsnprintf (char *str, __SIZE_TYPE__ len, const char *fmt, va_list ap)
     }
   return ret;
 }
+#endif
+
+#if defined(__powerpc__) && defined(__LONG_DOUBLE_IEEE128__)
+__typeof (__sprintf_chk) __sprintf_chkieee128
+  __attribute__((alias ("__sprintf_chk")));
+__typeof (__vsprintf_chk) __vsprintf_chkieee128
+  __attribute__((alias ("__vsprintf_chk")));
+__typeof (__snprintf_chk) __snprintf_chkieee128
+  __attribute__((alias ("__snprintf_chk")));
+__typeof (__vsnprintf_chk) __vsnprintf_chkieee128
+  __attribute__((alias ("__vsnprintf_chk")));
 #endif

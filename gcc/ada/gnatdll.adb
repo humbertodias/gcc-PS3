@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1997-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1997-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -28,7 +28,7 @@
 
 with Gnatvsn;
 with MDLL.Fil; use MDLL.Fil;
-with MDLL.Utl; use MDLL.Utl;
+with MDLL.Utl;
 with Switch;   use Switch;
 
 with Ada.Text_IO;           use Ada.Text_IO;
@@ -40,8 +40,6 @@ with GNAT.OS_Lib;       use GNAT.OS_Lib;
 with GNAT.Command_Line; use GNAT.Command_Line;
 
 procedure Gnatdll is
-
-   use type GNAT.OS_Lib.Argument_List;
 
    procedure Syntax;
    --  Print out usage
@@ -174,11 +172,8 @@ procedure Gnatdll is
       --  Add the files listed in List_Filename (one by line) to the list
       --  of file to handle
 
-      Max_Files   : constant := 5_000;
-      Max_Options : constant :=   100;
-      --  These are arbitrary limits, a better way will be to use linked list.
-      --  No, a better choice would be to use tables ???
-      --  Limits on what???
+      Max_Files   : constant := 50_000;
+      Max_Options : constant :=  1_000;
 
       Ofiles : Argument_List (1 .. Max_Files);
       O      : Positive := Ofiles'First;

@@ -4,6 +4,7 @@
 
 // Only build this file if libffi is supported.
 
+//go:build libffi
 // +build libffi
 
 package runtime
@@ -37,7 +38,7 @@ func ffi_type_void() *__ffi_type
 func ffi_prep_cif(*_ffi_cif, _ffi_abi, uint32, *__ffi_type, **__ffi_type) _ffi_status
 
 // ffiFuncToCIF is called from C code.
-//go:linkname ffiFuncToCIF runtime.ffiFuncToCIF
+//go:linkname ffiFuncToCIF
 
 // ffiFuncToCIF builds an _ffi_cif struct for function described by ft.
 func ffiFuncToCIF(ft *functype, isInterface bool, isMethod bool, cif *_ffi_cif) {
@@ -221,15 +222,62 @@ func stringToFFI() *__ffi_type {
 // structToFFI returns an ffi_type for a Go struct type.
 func structToFFI(typ *structtype) *__ffi_type {
 	c := len(typ.fields)
-	if c == 0 {
+	if typ.typ.kind&kindDirectIface != 0 {
+		return ffi_type_pointer()
+	}
+
+	fields := make([]*__ffi_type, 0, c+1)
+	checkPad := false
+	lastzero := false
+	sawnonzero := false
+	for i, v := range typ.fields {
+		// Skip zero-sized fields; they confuse libffi,
+		// and there is no value to pass in any case.
+		// We do have to check whether the alignment of the
+		// zero-sized field introduces any padding for the
+		// next field.
+		if v.typ.size == 0 {
+			checkPad = true
+			if v.name == nil || *v.name != "_" {
+				lastzero = true
+			}
+			continue
+		}
+		lastzero = false
+		sawnonzero = true
+
+		if checkPad {
+			off := uintptr(0)
+			for j := i - 1; j >= 0; j-- {
+				if typ.fields[j].typ.size > 0 {
+					off = typ.fields[j].offset() + typ.fields[j].typ.size
+					break
+				}
+			}
+			off += uintptr(v.typ.align) - 1
+			off &^= uintptr(v.typ.align) - 1
+			if off != v.offset() {
+				fields = append(fields, padFFI(v.offset()-off))
+			}
+			checkPad = false
+		}
+
+		fields = append(fields, typeToFFI(v.typ))
+	}
+
+	if !sawnonzero {
 		return emptyStructToFFI()
 	}
 
-	fields := make([]*__ffi_type, c+1)
-	for i, v := range typ.fields {
-		fields[i] = typeToFFI(v.typ)
+	if lastzero {
+		// The compiler adds one byte padding to non-empty struct ending
+		// with a zero-sized field (types.cc:get_backend_struct_fields).
+		// Add this padding to the FFI type.
+		fields = append(fields, ffi_type_uint8())
 	}
-	fields[c] = nil
+
+	fields = append(fields, nil)
+
 	return &__ffi_type{
 		_type:    _FFI_TYPE_STRUCT,
 		elements: &fields[0],
@@ -268,6 +316,9 @@ func arrayToFFI(typ *arraytype) *__ffi_type {
 	if typ.len == 0 {
 		return emptyStructToFFI()
 	}
+	if typ.typ.kind&kindDirectIface != 0 {
+		return ffi_type_pointer()
+	}
 	elements := make([]*__ffi_type, typ.len+1)
 	et := typeToFFI(typ.elem)
 	for i := uintptr(0); i < typ.len; i++ {
@@ -299,6 +350,19 @@ func emptyStructToFFI() *__ffi_type {
 	elements := make([]*__ffi_type, 2)
 	elements[0] = ffi_type_void()
 	elements[1] = nil
+	return &__ffi_type{
+		_type:    _FFI_TYPE_STRUCT,
+		elements: &elements[0],
+	}
+}
+
+// padFFI returns a padding field of the given size
+func padFFI(size uintptr) *__ffi_type {
+	elements := make([]*__ffi_type, size+1)
+	for i := uintptr(0); i < size; i++ {
+		elements[i] = ffi_type_uint8()
+	}
+	elements[size] = nil
 	return &__ffi_type{
 		_type:    _FFI_TYPE_STRUCT,
 		elements: &elements[0],

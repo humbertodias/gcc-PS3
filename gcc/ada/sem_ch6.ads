@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -41,6 +41,7 @@ package Sem_Ch6 is
    procedure Analyze_Operator_Symbol                 (N : Node_Id);
    procedure Analyze_Parameter_Association           (N : Node_Id);
    procedure Analyze_Procedure_Call                  (N : Node_Id);
+   procedure Analyze_Return_When_Statement           (N : Node_Id);
    procedure Analyze_Simple_Return_Statement         (N : Node_Id);
    procedure Analyze_Subprogram_Declaration          (N : Node_Id);
    procedure Analyze_Subprogram_Body                 (N : Node_Id);
@@ -49,6 +50,9 @@ package Sem_Ch6 is
    --  Analyze subprogram specification in both subprogram declarations
    --  and body declarations. Returns the defining entity for the
    --  specification N.
+
+   function Can_Override_Operator (Subp : Entity_Id) return Boolean;
+   --  Returns true if Subp can override a predefined operator
 
    procedure Check_Conventions (Typ : Entity_Id);
    --  Ada 2005 (AI-430): Check that the conventions of all inherited and
@@ -68,6 +72,16 @@ package Sem_Ch6 is
    --  discriminants of the corresponding partial view Prev. Prev_Loc indicates
    --  the source location of the partial view, which may be different than
    --  Prev in the case of private types.
+
+   procedure Check_Formal_Subprogram_Conformance
+     (New_Id  : Entity_Id;
+      Old_Id  : Entity_Id;
+      Err_Loc : Node_Id := Empty);
+   --  Check RM 6.3.1(17/3): the profile of a generic formal subprogram is not
+   --  subtype conformant with any other profile and post an error message if
+   --  either New_Id or Old_Id denotes a formal subprogram, with the flag being
+   --  placed on the Err_Loc node if it is specified, and on New_Id if not. See
+   --  also spec of Check_Fully_Conformant below for New_Id and Old_Id usage.
 
    procedure Check_Fully_Conformant
      (New_Id  : Entity_Id;
@@ -100,7 +114,7 @@ package Sem_Ch6 is
       Overridden_Subp : Entity_Id;
       Is_Primitive    : Boolean);
    --  Verify the consistency of an overriding_indicator given for subprogram
-   --  declaration, body, renaming, or instantiation.  Overridden_Subp is set
+   --  declaration, body, renaming, or instantiation. Overridden_Subp is set
    --  if the scope where we are introducing the subprogram contains a
    --  type-conformant subprogram that becomes hidden by the new subprogram.
    --  Is_Primitive indicates whether the subprogram is primitive.
@@ -160,6 +174,22 @@ package Sem_Ch6 is
    --  the end of Subp's parameter list (with each subsequent extra formal
    --  being attached to the preceding extra formal).
 
+   function Extra_Formals_Match_OK
+     (E     : Entity_Id;
+      Ref_E : Entity_Id) return Boolean;
+   --  Return True if the extra formals of the given entities match. E is a
+   --  subprogram, and Ref_E is the reference entity that will be used to check
+   --  the extra formals of E: a subprogram type or another subprogram. For
+   --  example, if E is a dispatching primitive of a tagged type then Ref_E
+   --  may be the overridden primitive of its parent type or its ultimate
+   --  renamed entity; however, if E is a subprogram to which 'Access is
+   --  applied then Ref_E is its corresponding subprogram type. Used in
+   --  assertions.
+
+   function Extra_Formals_OK (E : Entity_Id) return Boolean;
+   --  Return True if the decoration of the attributes associated with extra
+   --  formals are properly set. Used in assertions.
+
    function Find_Corresponding_Spec
      (N          : Node_Id;
       Post_Error : Boolean := True) return Entity_Id;
@@ -172,7 +202,8 @@ package Sem_Ch6 is
 
    function Fully_Conformant_Expressions
      (Given_E1 : Node_Id;
-      Given_E2 : Node_Id) return Boolean;
+      Given_E2 : Node_Id;
+      Report   : Boolean := False) return Boolean;
    --  Determines if two (non-empty) expressions are fully conformant
    --  as defined by (RM 6.3.1(18-21))
 
@@ -181,6 +212,9 @@ package Sem_Ch6 is
        Given_S2 : Node_Id) return Boolean;
    --  Determines if two subtype definitions are fully conformant. Used
    --  for entry family conformance checks (RM 6.3.1 (24)).
+
+   function Has_BIP_Formals (E : Entity_Id) return Boolean;
+   --  Determines if a given entity has build-in-place formals
 
    procedure Install_Entity (E : Entity_Id);
    --  Place a single entity on the visibility chain

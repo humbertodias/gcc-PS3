@@ -1,5 +1,5 @@
 /* Data structures and function exported by the C++ Parser.
-   Copyright (C) 2010-2017 Free Software Foundation, Inc.
+   Copyright (C) 2010-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -41,34 +41,35 @@ struct GTY(()) tree_check {
 
 struct GTY (()) cp_token {
   /* The kind of token.  */
-  ENUM_BITFIELD (cpp_ttype) type : 8;
+  enum cpp_ttype type : 8;
   /* If this token is a keyword, this value indicates which keyword.
      Otherwise, this value is RID_MAX.  */
-  ENUM_BITFIELD (rid) keyword : 8;
+  enum rid keyword : 8;
   /* Token flags.  */
   unsigned char flags;
   /* True if this token is from a context where it is implicitly extern "C" */
-  BOOL_BITFIELD implicit_extern_c : 1;
+  bool implicit_extern_c : 1;
   /* True if an error has already been reported for this token, such as a
      CPP_NAME token that is not a keyword (i.e., for which KEYWORD is
      RID_MAX) iff this name was looked up and found to be ambiguous.  */
-  BOOL_BITFIELD error_reported : 1;
+  bool error_reported : 1;
   /* True for a token that has been purged.  If a token is purged,
      it is no longer a valid token and it should be considered
      deleted.  */
-  BOOL_BITFIELD purged_p : 1;
-  /* 5 unused bits.  */
+  bool purged_p : 1;
+  bool tree_check_p : 1;
+  bool main_source_p : 1;
+  /* 3 unused bits.  */
+
   /* The location at which this token was found.  */
   location_t location;
   /* The value associated with this token, if any.  */
   union cp_token_value {
     /* Used for compound tokens such as CPP_NESTED_NAME_SPECIFIER.  */
-    struct tree_check* GTY((tag ("1"))) tree_check_value;
+    struct tree_check* GTY((tag ("true"))) tree_check_value;
     /* Use for all other tokens.  */
-    tree GTY((tag ("0"))) value;
-  } GTY((desc ("(%1.type == CPP_TEMPLATE_ID)"
-	       "|| (%1.type == CPP_NESTED_NAME_SPECIFIER)"
-	       "|| (%1.type == CPP_DECLTYPE)"))) u;
+    tree GTY((tag ("false"))) value;
+  } GTY((desc ("%1.tree_check_p"))) u;
 };
 
 
@@ -99,6 +100,10 @@ struct GTY (()) cp_lexer {
      tokens.  */
   vec<cp_token_position> GTY ((skip)) saved_tokens;
 
+  /* Saved pieces of end token we replaced with the eof token.  */
+  enum cpp_ttype saved_type : 8;
+  enum rid saved_keyword : 8;
+
   /* The next lexer in a linked list of lexers.  */
   struct cp_lexer *next;
 
@@ -108,6 +113,14 @@ struct GTY (()) cp_lexer {
   /* True if we're in the context of parsing a pragma, and should not
      increment past the end-of-line marker.  */
   bool in_pragma;
+
+  /* True if we're in the context of OpenMP directives written as C++11
+     attributes turned into pragma.  */
+  bool in_omp_attribute_pragma;
+
+  /* True for in_omp_attribute_pragma lexer that should be destroyed
+     when it is no longer in use.  */
+  bool orphan_p;
 };
 
 
@@ -163,9 +176,11 @@ struct GTY(()) cp_unparsed_functions_entry {
      FIELD_DECLs appear in this list in declaration order.  */
   vec<tree, va_gc> *nsdmis;
 
-  /* Nested classes go in this vector, so that we can do some final
-     processing after parsing any NSDMIs.  */
-  vec<tree, va_gc> *classes;
+  /* Functions with noexcept-specifiers that require post-processing.  */
+  vec<tree, va_gc> *noexcepts;
+
+  /* Functions with contract attributes that require post-processing.  */
+  vec<tree, va_gc> *contracts;
 };
 
 
@@ -199,18 +214,19 @@ struct GTY (()) cp_parser_context {
 };
 
 
-/* Helper data structure for parsing #pragma omp declare simd, and Cilk Plus
-   SIMD-enabled functions' vector attribute.  */
+/* Helper data structure for parsing #pragma omp declare {simd,variant}.  */
 struct cp_omp_declare_simd_data {
   bool error_seen; /* Set if error has been reported.  */
   bool fndecl_seen; /* Set if one fn decl/definition has been seen already.  */
+  bool variant_p; /* Set for #pragma omp declare variant.  */
+  location_t loc;
   vec<cp_token_cache_ptr> tokens;
-  tree clauses;
+  tree *attribs[2];
 };
 
 /* Helper data structure for parsing #pragma acc routine.  */
 struct cp_oacc_routine_data : cp_omp_declare_simd_data {
-  location_t loc;
+  tree clauses;
 };
 
 /* The cp_parser structure represents the C++ parser.  */
@@ -283,9 +299,12 @@ struct GTY(()) cp_parser {
      been seen that makes the expression non-constant.  */
   bool non_integral_constant_expression_p;
 
-  /* TRUE if local variable names and `this' are forbidden in the
-     current context.  */
-  bool local_variables_forbidden_p;
+  /* Used to track if local variable names and/or `this' are forbidden
+     in the current context.  */
+#define LOCAL_VARS_FORBIDDEN (1 << 0)
+#define THIS_FORBIDDEN (1 << 1)
+#define LOCAL_VARS_AND_THIS_FORBIDDEN (LOCAL_VARS_FORBIDDEN | THIS_FORBIDDEN)
+  unsigned char local_variables_forbidden_p;
 
   /* TRUE if the declaration we are parsing is part of a
      linkage-specification of the form `extern string-literal
@@ -309,8 +328,6 @@ struct GTY(()) cp_parser {
 #define IN_OMP_BLOCK		4
 #define IN_OMP_FOR		8
 #define IN_IF_STMT             16
-#define IN_CILK_SIMD_FOR       32
-#define IN_CILK_SPAWN          64
   unsigned char in_statement;
 
   /* TRUE if we are presently parsing the body of a switch statement.
@@ -323,10 +340,6 @@ struct GTY(()) cp_parser {
      such a situation, both "type (expr)" and "type (type)" are valid
      alternatives.  */
   bool in_type_id_in_expr_p;
-
-  /* TRUE if we are currently in a header file where declarations are
-     implicitly extern "C".  */
-  bool implicit_extern_c;
 
   /* TRUE if strings in expressions should be translated to the execution
      character set.  */
@@ -349,10 +362,17 @@ struct GTY(()) cp_parser {
      is terminated by colon.  */
   bool colon_doesnt_start_class_def_p;
 
+  /* TRUE if we are parsing an objective c message, and ':' is permitted
+     to terminate an assignment-expression.  */
+  bool objective_c_message_context_p;
+
   /* If non-NULL, then we are parsing a construct where new type
      definitions are not permitted.  The string stored here will be
      issued as an error message if a type is defined.  */
   const char *type_definition_forbidden_message;
+
+  /* Argument for type_definition_forbidden_message if needed.  */
+  const char *type_definition_forbidden_message_arg;
 
   /* A stack used for member functions of local classes.  The lists
      contained in an individual entry can only be processed once the
@@ -371,14 +391,10 @@ struct GTY(()) cp_parser {
      helper data structure.  */
   cp_omp_declare_simd_data * GTY((skip)) omp_declare_simd;
 
-  /* When parsing Cilk Plus SIMD-enabled functions' vector attributes,
-     this is a pointer to a helper data structure.  */
-  cp_omp_declare_simd_data * GTY((skip)) cilk_simd_fn_info;
-
   /* When parsing #pragma acc routine, this is a pointer to a helper data
      structure.  */
   cp_oacc_routine_data * GTY((skip)) oacc_routine;
-  
+
   /* Nonzero if parsing a parameter list where 'auto' should trigger an implicit
      template parameter.  */
   bool auto_is_implicit_function_template_parm_p;
@@ -387,6 +403,9 @@ struct GTY(()) cp_parser {
      parameter list containing generic type specifiers (`auto' or concept
      identifiers) rather than an explicit template parameter list.  */
   bool fully_implicit_function_template_p;
+
+  /* TRUE if omp::directive or omp::sequence attributes may not appear.  */
+  bool omp_attrs_forbidden_p;
 
   /* Tracks the function's template parameter list when declaring a function
      using generic type parameters.  This is either a new chain in the case of a
@@ -412,9 +431,13 @@ struct GTY(()) cp_parser {
      context e.g., because they could never be deduced.  */
   int prevent_constrained_type_specifiers;
 
+  /* Location of the string-literal token within the current linkage
+     specification, if any, or UNKNOWN_LOCATION otherwise.  */
+  location_t innermost_linkage_specification_location;
+
 };
 
-/* In parser.c  */
+/* In parser.cc  */
 extern void debug (cp_token &ref);
 extern void debug (cp_token *ptr);
 extern void cp_lexer_debug_tokens (vec<cp_token, va_gc> *);

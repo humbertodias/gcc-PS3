@@ -1,7 +1,13 @@
-/* { dg-do run { target { powerpc*-*-linux* powerpc*-*-darwin* powerpc*-*-aix* rs6000-*-* } } } */
-/* { dg-options "-std=c99 -mlong-double-128 -O2" } */
+/* { dg-do run } */
+/* { dg-require-effective-target long_double_ibm128 } */
+/* { dg-options "-std=c99 -O2" } */
+/* { dg-add-options long_double_ibm128 } */
 
 #include <float.h>
+
+#ifndef __LONG_DOUBLE_IBM128__
+#error "long double must be IBM 128-bit"
+#endif
 
 union gl_long_double_union
 {
@@ -25,10 +31,10 @@ main (void)
   long double ld;
 
   ld = gl_LDBL_MAX.ld;
-  if (__builtin_isinfl (ld))
+  if (__builtin_isinf (ld))
     __builtin_abort ();
   ld = -gl_LDBL_MAX.ld;
-  if (__builtin_isinfl (ld))
+  if (__builtin_isinf (ld))
     __builtin_abort ();
 
   ld = gl_LDBL_MAX.ld;

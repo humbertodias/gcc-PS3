@@ -1,6 +1,6 @@
 // Exception Handling support header for -*- C++ -*-
 
-// Copyright (C) 2016-2017 Free Software Foundation, Inc.
+// Copyright (C) 2016-2023 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
 //
@@ -33,19 +33,18 @@
 
 #pragma GCC system_header
 
-#pragma GCC visibility push(default)
-
 #include <bits/c++config.h>
 
 extern "C++" {
 
-namespace std
+namespace std _GLIBCXX_VISIBILITY(default)
 {
   /**
    * @defgroup exceptions Exceptions
    * @ingroup diagnostics
+   * @since C++98
    *
-   * Classes and functions for reporting errors via exception classes.
+   * Classes and functions for reporting errors via exceptions.
    * @{
    */
 
@@ -60,19 +59,25 @@ namespace std
   class exception
   {
   public:
-    exception() _GLIBCXX_USE_NOEXCEPT { }
-    virtual ~exception() _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_USE_NOEXCEPT;
+    exception() _GLIBCXX_NOTHROW { }
+    virtual ~exception() _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW;
+#if __cplusplus >= 201103L
+    exception(const exception&) = default;
+    exception& operator=(const exception&) = default;
+    exception(exception&&) = default;
+    exception& operator=(exception&&) = default;
+#endif
 
     /** Returns a C-style character string describing the general cause
      *  of the current error.  */
     virtual const char*
-    what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_USE_NOEXCEPT;
+    what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW;
   };
+
+  /// @}
 
 } // namespace std
 
 }
-
-#pragma GCC visibility pop
 
 #endif

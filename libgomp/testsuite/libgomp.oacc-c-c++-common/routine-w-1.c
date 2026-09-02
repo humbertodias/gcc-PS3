@@ -1,24 +1,26 @@
-/* This code uses nvptx inline assembly guarded with acc_on_device, which is
-   not optimized away at -O0, and then confuses the target assembler.
-   { dg-skip-if "" { *-*-* } { "-O0" } { "" } } */
+/* { dg-additional-options "-Wopenacc-parallelism" } for testing/documenting
+   aspects of that functionality.  */
 
 #include <stdio.h>
+#include <openacc.h>
+#include <gomp-constants.h>
 
 #define N (32*32*32+17)
 
 #pragma acc routine worker
 void __attribute__ ((noinline)) worker (int ary[N])
+/* { dg-warning "region is vector partitioned but does not contain vector partitioned code" "" { target *-*-* } .-1 } */
 {
 #pragma acc loop worker
   for (unsigned ix = 0; ix < N; ix++)
     {
-      if (__builtin_acc_on_device (5))
+      if (acc_on_device (acc_device_not_host))
 	{
-	  int g = 0, w = 0, v = 0;
+	  int g, w, v;
 
-	  __asm__ volatile ("mov.u32 %0,%%ctaid.x;" : "=r" (g));
-	  __asm__ volatile ("mov.u32 %0,%%tid.y;" : "=r" (w));
-	  __asm__ volatile ("mov.u32 %0,%%tid.x;" : "=r" (v));
+	  g = __builtin_goacc_parlevel_id (GOMP_DIM_GANG);
+	  w = __builtin_goacc_parlevel_id (GOMP_DIM_WORKER);
+	  v = __builtin_goacc_parlevel_id (GOMP_DIM_VECTOR);
 	  ary[ix] = (g << 16) | (w << 8) | v;
 	}
       else
@@ -32,15 +34,25 @@ int main ()
   int ix;
   int exit = 0;
   int ondev = 0;
+  int workersize;
 
   for (ix = 0; ix < N;ix++)
     ary[ix] = -1;
   
-#pragma acc parallel num_workers(32) vector_length(32) copy(ary) copy(ondev)
+#define NW 32
+#define VL 32
+#pragma acc parallel num_workers(NW) vector_length(VL) \
+	    copy(ary) copy(ondev)
   {
-    ondev = __builtin_acc_on_device (5);
+    ondev = acc_on_device (acc_device_not_host);
     worker (ary);
   }
+  workersize = NW;
+#ifdef ACC_DEVICE_TYPE_radeon
+  /* AMD GCN has an upper limit of 'num_workers(16)'.  */
+  if (workersize > 16)
+    workersize = 16;
+#endif
 
   for (ix = 0; ix < N; ix++)
     {
@@ -48,7 +60,7 @@ int main ()
       if(ondev)
 	{
 	  int g = 0;
-	  int w = ix % 32;
+	  int w = ix % workersize;
 	  int v = 0;
 
 	  expected = (g << 16) | (w << 8) | v;

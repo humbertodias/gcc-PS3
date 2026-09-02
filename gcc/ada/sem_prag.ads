@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -49,6 +49,8 @@ package Sem_Prag is
       Pragma_Contract_Cases               => True,
       Pragma_Convention                   => True,
       Pragma_CPU                          => True,
+      Pragma_CUDA_Device                  => True,
+      Pragma_CUDA_Global                  => True,
       Pragma_Default_Initial_Condition    => True,
       Pragma_Default_Storage_Pool         => True,
       Pragma_Depends                      => True,
@@ -62,6 +64,7 @@ package Sem_Prag is
       Pragma_Favor_Top_Level              => True,
       Pragma_Ghost                        => True,
       Pragma_Global                       => True,
+      Pragma_GNAT_Annotate                => True,
       Pragma_Import                       => True,
       Pragma_Independent                  => True,
       Pragma_Independent_Components       => True,
@@ -114,7 +117,6 @@ package Sem_Prag is
       Pragma_Type_Invariant               => True,
       Pragma_Unchecked_Union              => True,
       Pragma_Universal_Aliasing           => True,
-      Pragma_Universal_Data               => True,
       Pragma_Unmodified                   => True,
       Pragma_Unreferenced                 => True,
       Pragma_Unreferenced_Objects         => True,
@@ -133,6 +135,7 @@ package Sem_Prag is
       Pragma_Assert_And_Cut            => True,
       Pragma_Assume                    => True,
       Pragma_Check                     => True,
+      Pragma_Compile_Time_Error        => True,
       Pragma_Contract_Cases            => True,
       Pragma_Default_Initial_Condition => True,
       Pragma_Initial_Condition         => True,
@@ -147,10 +150,14 @@ package Sem_Prag is
       Pragma_Precondition              => True,
       Pragma_Predicate                 => True,
       Pragma_Refined_Post              => True,
+      Pragma_Subprogram_Variant        => True,
       Pragma_Test_Case                 => True,
       Pragma_Type_Invariant            => True,
       Pragma_Type_Invariant_Class      => True,
       others                           => False);
+
+   --  Should to following constant arrays be renamed to better suit their
+   --  use as a predicate (e.g. Is_Pragma_*) ???
 
    --  The following table lists all the implementation-defined pragmas that
    --  should apply to the anonymous object produced by the analysis of a
@@ -175,6 +182,53 @@ package Sem_Prag is
       Pragma_Warnings        => True,
       others                 => False);
 
+   --  The following table lists all pragmas which are significant in SPARK and
+   --  as a result get translated into verification conditions. The table is an
+   --  amalgamation of the pragmas listed in SPARK RM 16.1 and internally added
+   --  entries.
+
+   Pragma_Significant_In_SPARK : constant array (Pragma_Id) of Boolean :=
+     (Pragma_All_Calls_Remote              => False,
+      Pragma_Asynchronous                  => False,
+      Pragma_Default_Storage_Pool          => False,
+      Pragma_Discard_Names                 => False,
+      Pragma_Dispatching_Domain            => False,
+      Pragma_Priority_Specific_Dispatching => False,
+      Pragma_Remote_Call_Interface         => False,
+      Pragma_Remote_Types                  => False,
+      Pragma_Shared_Passive                => False,
+      Pragma_Task_Dispatching_Policy       => False,
+      Pragma_Unmodified                    => False,
+      Pragma_Unreferenced                  => False,
+      Pragma_Warnings                      => False,
+      others                               => True);
+
+   --  The following table lists all pragmas which are relevant to the analysis
+   --  of subprogram bodies.
+
+   Pragma_Significant_To_Subprograms : constant array (Pragma_Id) of Boolean :=
+     (Pragma_Contract_Cases    => True,
+      Pragma_Depends           => True,
+      Pragma_Ghost             => True,
+      Pragma_Global            => True,
+      Pragma_Inline            => True,
+      Pragma_Inline_Always     => True,
+      Pragma_Post              => True,
+      Pragma_Post_Class        => True,
+      Pragma_Postcondition     => True,
+      Pragma_Pre               => True,
+      Pragma_Pre_Class         => True,
+      Pragma_Precondition      => True,
+      Pragma_Pure              => True,
+      Pragma_Pure_Function     => True,
+      Pragma_Refined_Depends   => True,
+      Pragma_Refined_Global    => True,
+      Pragma_Refined_Post      => True,
+      Pragma_Refined_State     => True,
+      Pragma_Volatile          => True,
+      Pragma_Volatile_Function => True,
+      others                   => False);
+
    -----------------
    -- Subprograms --
    -----------------
@@ -197,12 +251,13 @@ package Sem_Prag is
      (N        : Node_Id;
       Expr_Val : out Boolean);
    --  Perform full analysis of delayed pragmas Async_Readers, Async_Writers,
-   --  Effective_Reads and Effective_Writes. Flag Expr_Val contains the Boolean
-   --  argument of the pragma or a default True if no argument is present.
+   --  Effective_Reads, Effective_Writes and No_Caching. Flag Expr_Val contains
+   --  the Boolean argument of the pragma or a default True if no argument
+   --  is present.
 
    procedure Analyze_Global_In_Decl_Part (N : Node_Id);
    --  Perform full analysis of delayed pragma Global. This routine is also
-   --  capable of performing basic analysis of pragma Refind_Global.
+   --  capable of performing basic analysis of pragma Refined_Global.
 
    procedure Analyze_Initial_Condition_In_Decl_Part (N : Node_Id);
    --  Perform full analysis of delayed pragma Initial_Condition
@@ -239,6 +294,13 @@ package Sem_Prag is
      (N         : Node_Id;
       Freeze_Id : Entity_Id := Empty);
    --  Perform full analysis of delayed pragma Refined_State. Freeze_Id denotes
+   --  the entity of [generic] package body or [generic] subprogram body which
+   --  caused "freezing" of the related contract where the pragma resides.
+
+   procedure Analyze_Subprogram_Variant_In_Decl_Part
+     (N         : Node_Id;
+      Freeze_Id : Entity_Id := Empty);
+   --  Perform full analysis of delayed pragma Subprogram_Variant. Freeze_Id is
    --  the entity of [generic] package body or [generic] subprogram body which
    --  caused "freezing" of the related contract where the pragma resides.
 
@@ -330,9 +392,9 @@ package Sem_Prag is
       Subp_Outputs : in out Elist_Id;
       Global_Seen  : out Boolean);
    --  Subsidiary to the analysis of pragmas Depends, Global, Refined_Depends
-   --  and Refined_Global. The routine is also used by GNATprove. Collect all
-   --  inputs and outputs of subprogram Subp_Id in lists Subp_Inputs (inputs)
-   --  and Subp_Outputs (outputs). The inputs and outputs are gathered from:
+   --  and Refined_Global. Collect all inputs and outputs of subprogram Subp_Id
+   --  in lists Subp_Inputs (inputs) and Subp_Outputs (outputs). The inputs and
+   --  outputs are gathered from:
    --    1) The formal parameters of the subprogram
    --    2) The generic formal parameters of the generic subprogram
    --    3) The current instance of a concurrent type
@@ -357,12 +419,15 @@ package Sem_Prag is
    function Find_Related_Package_Or_Body
      (Prag      : Node_Id;
       Do_Checks : Boolean := False) return Node_Id;
-   --  Subsidiary to the analysis of pragmas Abstract_State, Initial_Condition,
-   --  Initializes and Refined_State. Find the declaration of the related
-   --  package [body] subject to pragma Prag. The return value is either
-   --  N_Package_Declaration, N_Package_Body or Empty if the placement of
-   --  the pragma is illegal. If flag Do_Checks is set, the routine reports
-   --  duplicate pragmas.
+   --  Subsidiary to the analysis of pragmas
+   --    Abstract_State
+   --    Initial_Condition
+   --    Initializes
+   --    Refined_State
+   --  Find the declaration of the related package [body] subject to pragma
+   --  Prag. The return value is either N_Package_Declaration, N_Package_Body,
+   --  or Empty if the placement of the pragma is illegal. If flag Do_Checks is
+   --  set, the routine reports duplicate pragmas.
 
    function Find_Related_Declaration_Or_Body
      (Prag      : Node_Id;
@@ -372,6 +437,10 @@ package Sem_Prag is
    --    Depends
    --    Extensions_Visible
    --    Global
+   --    Initializes
+   --    Max_Entry_Queue_Depth
+   --    Max_Entry_Queue_Length
+   --    Max_Queue_Length
    --    Post
    --    Post_Class
    --    Postcondition
@@ -381,7 +450,9 @@ package Sem_Prag is
    --    Refined_Depends
    --    Refined_Global
    --    Refined_Post
+   --    Refined_State
    --    Test_Case
+   --    Volatile_Function
    --  as well as attributes 'Old and 'Result. Find the declaration of the
    --  related entry, subprogram or task type [body] subject to pragma Prag.
    --  If flag Do_Checks is set, the routine reports duplicate pragmas and
@@ -390,12 +461,12 @@ package Sem_Prag is
 
    function Get_Argument
      (Prag       : Node_Id;
-      Context_Id : Node_Id := Empty) return Node_Id;
+      Context_Id : Entity_Id := Empty) return Node_Id;
    --  Obtain the argument of pragma Prag depending on context and the nature
    --  of the pragma. The argument is extracted in the following manner:
    --
    --    When the pragma is generated from an aspect, return the corresponding
-   --    aspect for ASIS or when Context_Id denotes a generic unit.
+   --    aspect when Context_Id denotes a generic unit.
    --
    --    Otherwise return the first argument of Prag
    --
@@ -468,14 +539,6 @@ package Sem_Prag is
    --  Name_uInvariant, and Name_uType_Invariant (_Pre, _Post, _Invariant,
    --  and _Type_Invariant).
 
-   procedure Process_Compile_Time_Warning_Or_Error
-     (N    : Node_Id;
-      Eloc : Source_Ptr);
-   --  Common processing for Compile_Time_Error and Compile_Time_Warning of
-   --  pragma N. Called when the pragma is processed as part of its regular
-   --  analysis but also called after calling the back end to validate these
-   --  pragmas for size and alignment appropriateness.
-
    procedure Process_Compilation_Unit_Pragmas (N : Node_Id);
    --  Called at the start of processing compilation unit N to deal with any
    --  special issues regarding pragmas. In particular, we have to deal with
@@ -507,6 +570,11 @@ package Sem_Prag is
    --  the value of the Interface_Name. Otherwise it is encoded as needed by
    --  particular operating systems. See the body for details of the encoding.
 
+   procedure Set_Overflow_Mode (N : Node_Id);
+   --  Sets Sem.Scope_Suppress according to the overflow modes specified in
+   --  the pragma Overflow_Mode passed in argument. This should only be called
+   --  after N has been successfully analyzed.
+
    function Test_Case_Arg
      (Prag        : Node_Id;
       Arg_Nam     : Name_Id;
@@ -525,5 +593,11 @@ package Sem_Prag is
    --    the argument appears in positional form.
    --
    --    Empty if there is no such argument
+
+   procedure Validate_Compile_Time_Warning_Errors;
+   --  This routine is called after calling the back end to validate pragmas
+   --  Compile_Time_Error and Compile_Time_Warning for size and alignment
+   --  appropriateness. The reason it is called that late is to take advantage
+   --  of any back-annotation of size and alignment performed by the back end.
 
 end Sem_Prag;

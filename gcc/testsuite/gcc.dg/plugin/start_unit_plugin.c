@@ -20,7 +20,6 @@
 #include "basic-block.h"
 #include "tree-ssa-alias.h"
 #include "internal-fn.h"
-#include "gimple-fold.h"
 #include "tree-eh.h"
 #include "gimple-expr.h"
 #include "is-a.h"
@@ -40,6 +39,19 @@ gate_start_unit (void)
 
 static void start_unit_callback (void *gcc_data, void *user_data)
 {
+  static const struct ggc_root_tab root[] = {
+    {
+      &fake_var,
+      1,
+      sizeof (fake_var),
+      &gt_ggc_mx_tree_node,
+      &gt_pch_nx_tree_node
+    },
+    LAST_GGC_ROOT_TAB
+  };
+
+  register_callback ("start_unit", PLUGIN_REGISTER_GGC_ROOTS, NULL,
+		     (void *)root);
   if (integer_type_node) {
     fake_var = build_decl (UNKNOWN_LOCATION, VAR_DECL, 
                            get_identifier ("_fake_var_"),

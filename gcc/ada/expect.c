@@ -6,7 +6,7 @@
  *                                                                          *
  *                          C Implementation File                           *
  *                                                                          *
- *                     Copyright (C) 2001-2016, AdaCore                     *
+ *                     Copyright (C) 2001-2023, AdaCore                     *
  *                                                                          *
  * GNAT is free software;  you can  redistribute it  and/or modify it under *
  * terms of the  GNU General Public License as published  by the Free Soft- *
@@ -29,32 +29,26 @@
  *                                                                          *
  ****************************************************************************/
 
-#ifdef __alpha_vxworks
-#include "vxWorks.h"
-#endif
-
 #ifdef IN_RTS
 #define POSIX
-#include "tconfig.h"
-#include "tsystem.h"
+#include "runtime.h"
+#include <unistd.h>
+
 #else
 #include "config.h"
 #include "system.h"
 #endif
 
+#include "adaint.h"
 #include <sys/types.h>
 
-#ifdef __MINGW32__
-# if OLD_MINGW
-#  include <sys/wait.h>
-# endif
-#elif defined (__vxworks) && defined (__RTP__)
+#if defined (__vxworks) && defined (__RTP__)
 # include <wait.h>
 #elif defined (__Lynx__)
   /* ??? See comment in adaint.c.  */
 # define GCC_RESOURCE_H
 # include <sys/wait.h>
-#elif defined (__PikeOS__)
+#elif defined (__PikeOS__) || defined (__MINGW32__)
   /* No wait.h available */
 #else
 #include <sys/wait.h>
@@ -77,6 +71,7 @@
 
 #ifdef _WIN32
 
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <process.h>
 #include <signal.h>
@@ -88,11 +83,10 @@ __gnat_waitpid (int pid)
 {
   HANDLE h = OpenProcess (PROCESS_ALL_ACCESS, FALSE, pid);
   DWORD exitcode = 1;
-  DWORD res;
 
   if (h != NULL)
     {
-      res = WaitForSingleObject (h, INFINITE);
+      (void) WaitForSingleObject (h, INFINITE);
       GetExitCodeProcess (h, &exitcode);
       CloseHandle (h);
     }
@@ -108,7 +102,8 @@ __gnat_expect_fork (void)
 }
 
 void
-__gnat_expect_portable_execvp (int *pid, char *cmd, char *argv[])
+__gnat_expect_portable_execvp (int *pid, char *cmd ATTRIBUTE_UNUSED,
+                               char *argv[])
 {
   *pid = __gnat_portable_no_block_spawn (argv);
 }
@@ -265,7 +260,7 @@ __gnat_expect_poll (int *fd,
 	  if ((status & 1) != 1)
 	    {
               ready = -1;
-              dead_process = i + 1;
+              *dead_process = i + 1;
               return ready;
 	    }
 	}
@@ -347,8 +342,17 @@ __gnat_waitpid (int pid)
 {
   int status = 0;
 
-  waitpid (pid, &status, 0);
-  status = WEXITSTATUS (status);
+  if (waitpid (pid, &status, 0) == -1) {
+     return -1;
+  }
+
+  if WIFEXITED (status) {
+     status = WEXITSTATUS (status);
+  } else if WIFSIGNALED (status) {
+     status = WTERMSIG (status);
+  } else if WIFSTOPPED (status) {
+     status = WSTOPSIG (status);
+  }
 
   return status;
 }
@@ -362,7 +366,11 @@ __gnat_pipe (int *fd)
 int
 __gnat_expect_fork (void)
 {
-  return fork ();
+  int pid = fork();
+  if (pid == 0) {
+    __gnat_in_child_after_fork = 1;
+  }
+  return pid;
 }
 
 void
@@ -450,7 +458,7 @@ __gnat_expect_poll (int *fd,
 	            if (ei.request == TIOCCLOSE)
 		      {
 		        ioctl (fd[i], TIOCREQSET, &ei);
-                        dead_process = i + 1;
+                        *dead_process = i + 1;
 		        return -1;
 		      }
 

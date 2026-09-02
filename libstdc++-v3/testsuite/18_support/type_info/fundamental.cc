@@ -1,9 +1,10 @@
 // { dg-do run { target c++11 } }
 // { dg-require-effective-target dfp }
+// { dg-require-effective-target rtti }
 
 // 2011-02-23  Benjamin Kosnik  <bkoz@redhat.com>
 //
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -27,10 +28,10 @@
 template<typename _Tp>
   std::string
   gen_type_info()
-  { 
-    std::string s1 = typeid(_Tp).name(); 
-    std::string s2 = typeid(_Tp*).name(); 
-    std::string s3 = typeid(const _Tp*).name(); 
+  {
+    std::string s1 = typeid(_Tp).name();
+    std::string s2 = typeid(_Tp*).name();
+    std::string s3 = typeid(const _Tp*).name();
     return std::max(std::max(s1, s2), s3);
   }
 
@@ -50,6 +51,9 @@ int main()
   gen_type_info<long long>();
   gen_type_info<unsigned long long>();
   gen_type_info<wchar_t>();
+#ifdef _GLIBCXX_USE_CHAR8_T
+  gen_type_info<char8_t>();
+#endif
   gen_type_info<char16_t>();
   gen_type_info<char32_t>();
 

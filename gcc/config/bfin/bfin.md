@@ -1,5 +1,5 @@
 ;;- Machine description for Blackfin for GNU compiler
-;;  Copyright (C) 2005-2017 Free Software Foundation, Inc.
+;;  Copyright (C) 2005-2023 Free Software Foundation, Inc.
 ;;  Contributed by Analog Devices.
 
 ;; This file is part of GCC.
@@ -138,8 +138,7 @@
    ;; Distinguish a 32-bit version of an insn from a 16-bit version.
    (UNSPEC_32BIT 11)
    (UNSPEC_NOP 12)
-   (UNSPEC_ONES 13)
-   (UNSPEC_ATOMIC 14)])
+   (UNSPEC_ATOMIC 13)])
 
 (define_constants
   [(UNSPEC_VOLATILE_CSYNC 1)
@@ -557,6 +556,7 @@
    %0 = %x1; %0 = %w1;
    %w0 = %1; %x0 = %1;"
   [(set_attr "type" "move,mcst,mcld")
+   (set_attr "length" "4,*,*")
    (set_attr "seq_insns" "*,multi,multi")])
 
 (define_insn "load_accumulator"
@@ -751,7 +751,8 @@
   "@
    %d0 = %h1 << 0%!
    %d0 = %1;"
-  [(set_attr "type" "dsp32shiftimm,mvi")])
+  [(set_attr "type" "dsp32shiftimm,mvi")
+   (set_attr "length" "*,4")])
 
 (define_expand "insv"
   [(set (zero_extract:SI (match_operand:SI 0 "register_operand" "")
@@ -1396,11 +1397,31 @@
 
 (define_insn "ones"
   [(set (match_operand:HI 0 "register_operand" "=d")
-	(unspec:HI [(match_operand:SI 1 "register_operand" "d")]
-		UNSPEC_ONES))]
+	(truncate:HI
+	 (popcount:SI (match_operand:SI 1 "register_operand" "d"))))]
   ""
   "%h0 = ONES %1;"
   [(set_attr "type" "alu0")])
+
+(define_expand "popcountsi2"
+  [(set (match_dup 2)
+	(truncate:HI (popcount:SI (match_operand:SI 1 "register_operand" ""))))
+   (set (match_operand:SI 0 "register_operand")
+	(zero_extend:SI (match_dup 2)))]
+  ""
+{
+  operands[2] = gen_reg_rtx (HImode);
+})
+
+(define_expand "popcounthi2"
+  [(set (match_dup 2)
+	(zero_extend:SI (match_operand:HI 1 "register_operand" "")))
+   (set (match_operand:HI 0 "register_operand") 
+	(truncate:HI (popcount:SI (match_dup 2))))]
+  ""
+{
+  operands[2] = gen_reg_rtx (SImode);
+})
 
 (define_insn "smaxsi3"
   [(set (match_operand:SI 0 "register_operand" "=d")
@@ -1578,7 +1599,7 @@
 
       emit_library_call_value (umulsi3_highpart_libfunc,
 			       operands[0], LCT_NORMAL, SImode,
-			       2, operands[1], SImode, operands[2], SImode);
+			       operands[1], SImode, operands[2], SImode);
     }
   DONE;
 })
@@ -1628,7 +1649,7 @@
 
       emit_library_call_value (smulsi3_highpart_libfunc,
 			       operands[0], LCT_NORMAL, SImode,
-			       2, operands[1], SImode, operands[2], SImode);
+			       operands[1], SImode, operands[2], SImode);
     }
   DONE;
 })
@@ -1720,7 +1741,7 @@
 	(ior:SI (ashift:SI (match_operand:SI 1 "register_operand" "d") (const_int 1))
 		(zero_extend:SI (reg:BI REG_CC))))
    (set (reg:BI REG_CC)
-	(zero_extract:BI (match_dup 1) (const_int 31) (const_int 0)))]
+	(zero_extract:BI (match_dup 1) (const_int 1) (const_int 31)))]
   ""
   "%0 = ROT %1 BY 1%!"
   [(set_attr "type" "dsp32shiftimm")])
@@ -1938,7 +1959,8 @@
 		   (plus:SI (match_dup 0)
 			    (const_int -1)))
 	      (unspec [(const_int 0)] UNSPEC_LSETUP_END)
-	      (clobber (match_dup 2))])] ; match_scratch
+	      (clobber (match_dup 2))
+	      (clobber (reg:BI REG_CC))])] ; match_scratch
   ""
 {
   /* The loop optimizer doesn't check the predicates... */
@@ -1958,7 +1980,8 @@
 	(plus (match_dup 2)
 	      (const_int -1)))
    (unspec [(const_int 0)] UNSPEC_LSETUP_END)
-   (clobber (match_scratch:SI 3 "=X,&r,&r"))]
+   (clobber (match_scratch:SI 3 "=X,&r,&r"))
+   (clobber (reg:BI REG_CC))]
   ""
   "@
    /* loop end %0 %l1 */
@@ -1976,7 +1999,8 @@
 	(plus (match_dup 0)
 	      (const_int -1)))
    (unspec [(const_int 0)] UNSPEC_LSETUP_END)
-   (clobber (match_scratch:SI 2))]
+   (clobber (match_scratch:SI 2))
+   (clobber (reg:BI REG_CC))]
   "memory_operand (operands[0], SImode) || splitting_loops"
   [(set (match_dup 2) (match_dup 0))
    (set (match_dup 2) (plus:SI (match_dup 2) (const_int -1)))
@@ -2315,14 +2339,14 @@
    (set_attr "length" "16")
    (set_attr "seq_insns" "multi")])
 
-(define_expand "movmemsi"
+(define_expand "cpymemsi"
   [(match_operand:BLK 0 "general_operand" "")
    (match_operand:BLK 1 "general_operand" "")
    (match_operand:SI 2 "const_int_operand" "")
    (match_operand:SI 3 "const_int_operand" "")]
   ""
 {
-  if (bfin_expand_movmem (operands[0], operands[1], operands[2], operands[3]))
+  if (bfin_expand_cpymem (operands[0], operands[1], operands[2], operands[3]))
     DONE;
   FAIL;
 })
@@ -2997,19 +3021,6 @@
 (define_insn "addsubv2hi3"
   [(set (match_operand:V2HI 0 "register_operand" "=d")
 	(vec_concat:V2HI
-	 (plus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
-				 (parallel [(const_int 0)]))
-		  (vec_select:HI (match_operand:V2HI 2 "register_operand" "d")
-				 (parallel [(const_int 0)])))
-	 (minus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
-		   (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
-  ""
-  "%0 = %1 +|- %2%!"
-  [(set_attr "type" "dsp32")])
-
-(define_insn "subaddv2hi3"
-  [(set (match_operand:V2HI 0 "register_operand" "=d")
-	(vec_concat:V2HI
 	 (minus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
 				  (parallel [(const_int 0)]))
 		   (vec_select:HI (match_operand:V2HI 2 "register_operand" "d")
@@ -3017,23 +3028,23 @@
 	 (plus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
 		  (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
   ""
+  "%0 = %1 +|- %2%!"
+  [(set_attr "type" "dsp32")])
+
+(define_insn "subaddv2hi3"
+  [(set (match_operand:V2HI 0 "register_operand" "=d")
+	(vec_concat:V2HI
+	 (plus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
+				 (parallel [(const_int 0)]))
+		  (vec_select:HI (match_operand:V2HI 2 "register_operand" "d")
+				 (parallel [(const_int 0)])))
+	 (minus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
+		   (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
+  ""
   "%0 = %1 -|+ %2%!"
   [(set_attr "type" "dsp32")])
 
 (define_insn "ssaddsubv2hi3"
-  [(set (match_operand:V2HI 0 "register_operand" "=d")
-	(vec_concat:V2HI
-	 (ss_plus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
-				    (parallel [(const_int 0)]))
-		     (vec_select:HI (match_operand:V2HI 2 "register_operand" "d")
-				    (parallel [(const_int 0)])))
-	 (ss_minus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
-		      (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
-  ""
-  "%0 = %1 +|- %2 (S)%!"
-  [(set_attr "type" "dsp32")])
-
-(define_insn "sssubaddv2hi3"
   [(set (match_operand:V2HI 0 "register_operand" "=d")
 	(vec_concat:V2HI
 	 (ss_minus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
@@ -3042,6 +3053,19 @@
 				     (parallel [(const_int 0)])))
 	 (ss_plus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
 		     (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
+  ""
+  "%0 = %1 +|- %2 (S)%!"
+  [(set_attr "type" "dsp32")])
+
+(define_insn "sssubaddv2hi3"
+  [(set (match_operand:V2HI 0 "register_operand" "=d")
+	(vec_concat:V2HI
+	 (ss_plus:HI (vec_select:HI (match_operand:V2HI 1 "register_operand" "d")
+				    (parallel [(const_int 0)]))
+		     (vec_select:HI (match_operand:V2HI 2 "register_operand" "d")
+				    (parallel [(const_int 0)])))
+	 (ss_minus:HI (vec_select:HI (match_dup 1) (parallel [(const_int 1)]))
+		      (vec_select:HI (match_dup 2) (parallel [(const_int 1)])))))]
   ""
   "%0 = %1 -|+ %2 (S)%!"
   [(set_attr "type" "dsp32")])

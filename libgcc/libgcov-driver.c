@@ -1,6 +1,6 @@
 /* Routines required for instrumenting a program.  */
 /* Compile this one with gcc.  */
-/* Copyright (C) 1989-2017 Free Software Foundation, Inc.
+/* Copyright (C) 1989-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -24,6 +24,19 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 <http://www.gnu.org/licenses/>.  */
 
 #include "libgcov.h"
+#include "gcov-io.h"
+
+/* Return 1, if all counter values are zero, otherwise 0. */
+
+static inline int
+are_all_counters_zero (const struct gcov_ctr_info *ci_ptr)
+{
+  for (unsigned i = 0; i < ci_ptr->num; i++)
+    if (ci_ptr->values[i] != 0)
+      return 0;
+
+  return 1;
+}
 
 #if defined(inhibit_libc)
 /* If libc and its header files are not available, provide dummy functions.  */
@@ -34,15 +47,31 @@ void __gcov_init (struct gcov_info *p __attribute__ ((unused))) {}
 
 #else /* inhibit_libc */
 
-#include <string.h>
 #if GCOV_LOCKED
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/stat.h>
+#elif GCOV_LOCKED_WITH_LOCKING
+#include <fcntl.h>
+#include <sys/locking.h>
+#include <sys/stat.h>
 #endif
 
-#ifdef L_gcov
+#if HAVE_SYS_MMAN_H
+#include <sys/mman.h>
+#endif
 
+#endif /* inhibit_libc */
+
+#if defined(L_gcov) && !defined(inhibit_libc)
+#define NEED_L_GCOV
+#endif
+
+#if defined(L_gcov_info_to_gcda) && !IN_GCOV_TOOL
+#define NEED_L_GCOV_INFO_TO_GCDA
+#endif
+
+#ifdef NEED_L_GCOV
 /* A utility function for outputting errors.  */
 static int gcov_error (const char *, ...);
 
@@ -50,7 +79,9 @@ static int gcov_error (const char *, ...);
 static void gcov_error_exit (void);
 #endif
 
-#include "gcov-io.c"
+#include "gcov-io.cc"
+
+#define GCOV_PROF_PREFIX "libgcov profiling error:%s:"
 
 struct gcov_fn_buffer
 {
@@ -72,9 +103,8 @@ struct gcov_summary_buffer
 struct gcov_filename
 {
   char *filename;  /* filename buffer */
-  size_t max_length;  /* maximum filename length */
   int strip; /* leading chars to strip from filename */
-  size_t prefix; /* chars to prepend to filename */
+  char *prefix; /* prefix string */
 };
 
 static struct gcov_fn_buffer *
@@ -151,29 +181,31 @@ buffer_fn_data (const char *filename, const struct gcov_info *gi_ptr,
   return &fn_buffer->next;
 
 fail:
-  gcov_error ("profiling:%s:Function %u %s %u \n", filename, fn_ix,
+  gcov_error (GCOV_PROF_PREFIX "Function %u %s %u \n", filename, fn_ix,
               len ? "cannot allocate" : "counter mismatch", len ? len : ix);
 
   return (struct gcov_fn_buffer **)free_fn_data (gi_ptr, fn_buffer, ix);
 }
 
-/* Add an unsigned value to the current crc */
+/* Convert VERSION into a string description and return the it.
+   BUFFER is used for storage of the string.  The code should be
+   aligned wit gcov-iov.c.  */
 
-static gcov_unsigned_t
-crc32_unsigned (gcov_unsigned_t crc32, gcov_unsigned_t value)
+static char *
+gcov_version_string (char *buffer, char version[4])
 {
-  unsigned ix;
-
-  for (ix = 32; ix--; value <<= 1)
+  if (version[0] < 'A' || version[0] > 'Z'
+      || version[1] < '0' || version[1] > '9'
+      || version[2] < '0' || version[2] > '9')
+    sprintf (buffer, "(unknown)");
+  else
     {
-      unsigned feedback;
-
-      feedback = (value ^ crc32) & 0x80000000 ? 0x04c11db7 : 0;
-      crc32 <<= 1;
-      crc32 ^= feedback;
+      unsigned major = 10 * (version[0] - 'A') + (version[1] - '0');
+      unsigned minor = version[2] - '0';
+      sprintf (buffer, "%u.%u (%s)", major, minor,
+	       version[3] == '*' ? "release" : "experimental");
     }
-
-  return crc32;
+  return buffer;
 }
 
 /* Check if VERSION of the info block PTR matches libgcov one.
@@ -188,160 +220,23 @@ gcov_version (struct gcov_info *ptr, gcov_unsigned_t version,
   if (version != GCOV_VERSION)
     {
       char v[4], e[4];
+      char ver_string[128], expected_string[128];
 
       GCOV_UNSIGNED2STRING (v, version);
       GCOV_UNSIGNED2STRING (e, GCOV_VERSION);
 
-      gcov_error ("profiling:%s:Version mismatch - expected %.4s got %.4s\n",
-                  filename? filename : ptr->filename, e, v);
+      gcov_error (GCOV_PROF_PREFIX "Version mismatch - expected %s (%.4s) "
+		  "got %s (%.4s)\n",
+		  filename? filename : ptr->filename,
+		  gcov_version_string (expected_string, e), e,
+		  gcov_version_string (ver_string, v), v);
       return 0;
     }
   return 1;
 }
 
-/* Insert counter VALUE into HISTOGRAM.  */
-
-static void
-gcov_histogram_insert(gcov_bucket_type *histogram, gcov_type value)
-{
-  unsigned i;
-
-  i = gcov_histo_index(value);
-  histogram[i].num_counters++;
-  histogram[i].cum_value += value;
-  if (value < histogram[i].min_value)
-    histogram[i].min_value = value;
-}
-
-/* Computes a histogram of the arc counters to place in the summary SUM.  */
-
-static void
-gcov_compute_histogram (struct gcov_info *list, struct gcov_summary *sum)
-{
-  struct gcov_info *gi_ptr;
-  const struct gcov_fn_info *gfi_ptr;
-  const struct gcov_ctr_info *ci_ptr;
-  struct gcov_ctr_summary *cs_ptr;
-  unsigned t_ix, f_ix, ctr_info_ix, ix;
-  int h_ix;
-
-  /* This currently only applies to arc counters.  */
-  t_ix = GCOV_COUNTER_ARCS;
-
-  /* First check if there are any counts recorded for this counter.  */
-  cs_ptr = &(sum->ctrs[t_ix]);
-  if (!cs_ptr->num)
-    return;
-
-  for (h_ix = 0; h_ix < GCOV_HISTOGRAM_SIZE; h_ix++)
-    {
-      cs_ptr->histogram[h_ix].num_counters = 0;
-      cs_ptr->histogram[h_ix].min_value = cs_ptr->run_max;
-      cs_ptr->histogram[h_ix].cum_value = 0;
-    }
-
-  /* Walk through all the per-object structures and record each of
-     the count values in histogram.  */
-  for (gi_ptr = list; gi_ptr; gi_ptr = gi_ptr->next)
-    {
-      if (!gi_ptr->merge[t_ix])
-        continue;
-
-      /* Find the appropriate index into the gcov_ctr_info array
-         for the counter we are currently working on based on the
-         existence of the merge function pointer for this object.  */
-      for (ix = 0, ctr_info_ix = 0; ix < t_ix; ix++)
-        {
-          if (gi_ptr->merge[ix])
-            ctr_info_ix++;
-        }
-      for (f_ix = 0; f_ix != gi_ptr->n_functions; f_ix++)
-        {
-          gfi_ptr = gi_ptr->functions[f_ix];
-
-          if (!gfi_ptr || gfi_ptr->key != gi_ptr)
-            continue;
-
-          ci_ptr = &gfi_ptr->ctrs[ctr_info_ix];
-          for (ix = 0; ix < ci_ptr->num; ix++)
-            gcov_histogram_insert (cs_ptr->histogram, ci_ptr->values[ix]);
-        }
-    }
-}
-
 /* buffer for the fn_data from another program.  */
 static struct gcov_fn_buffer *fn_buffer;
-/* buffer for summary from other programs to be written out. */
-static struct gcov_summary_buffer *sum_buffer;
-
-/* This function computes the program level summary and the histo-gram.
-   It computes and returns CRC32 and stored summary in THIS_PRG.
-   Also determines the longest filename length of the info files.  */
-
-#if !IN_GCOV_TOOL
-static
-#endif
-gcov_unsigned_t
-compute_summary (struct gcov_info *list, struct gcov_summary *this_prg,
-		 size_t *max_length)
-{
-  struct gcov_info *gi_ptr;
-  const struct gcov_fn_info *gfi_ptr;
-  struct gcov_ctr_summary *cs_ptr;
-  const struct gcov_ctr_info *ci_ptr;
-  int f_ix;
-  unsigned t_ix;
-  gcov_unsigned_t c_num;
-  gcov_unsigned_t crc32 = 0;
-
-  /* Find the totals for this execution.  */
-  memset (this_prg, 0, sizeof (*this_prg));
-  *max_length = 0;
-  for (gi_ptr = list; gi_ptr; gi_ptr = gi_ptr->next)
-    {
-      size_t len = strlen (gi_ptr->filename);
-      if (len > *max_length)
-	*max_length = len;
-      
-      crc32 = crc32_unsigned (crc32, gi_ptr->stamp);
-      crc32 = crc32_unsigned (crc32, gi_ptr->n_functions);
-
-      for (f_ix = 0; (unsigned)f_ix != gi_ptr->n_functions; f_ix++)
-        {
-          gfi_ptr = gi_ptr->functions[f_ix];
-
-          if (gfi_ptr && gfi_ptr->key != gi_ptr)
-            gfi_ptr = 0;
-
-          crc32 = crc32_unsigned (crc32, gfi_ptr ? gfi_ptr->cfg_checksum : 0);
-          crc32 = crc32_unsigned (crc32,
-                                  gfi_ptr ? gfi_ptr->lineno_checksum : 0);
-          if (!gfi_ptr)
-            continue;
-
-          ci_ptr = gfi_ptr->ctrs;
-          for (t_ix = 0; t_ix != GCOV_COUNTERS_SUMMABLE; t_ix++)
-            {
-              if (!gi_ptr->merge[t_ix])
-                continue;
-
-              cs_ptr = &(this_prg->ctrs[t_ix]);
-              cs_ptr->num += ci_ptr->num;
-              crc32 = crc32_unsigned (crc32, ci_ptr->num);
-
-              for (c_num = 0; c_num < ci_ptr->num; c_num++)
-                {
-                  cs_ptr->sum_all += ci_ptr->values[c_num];
-                  if (cs_ptr->run_max < ci_ptr->values[c_num])
-                    cs_ptr->run_max = ci_ptr->values[c_num];
-                }
-              ci_ptr++;
-            }
-        }
-    }
-  gcov_compute_histogram (list, this_prg);
-  return crc32;
-}
 
 /* Including system dependent components. */
 #include "libgcov-driver-system.c"
@@ -353,69 +248,38 @@ compute_summary (struct gcov_info *list, struct gcov_summary *this_prg,
 static int
 merge_one_data (const char *filename,
 		struct gcov_info *gi_ptr,
-		struct gcov_summary *prg_p,
-		struct gcov_summary *this_prg,
-		gcov_position_t *summary_pos_p,
-		gcov_position_t *eof_pos_p,
-		gcov_unsigned_t crc32)
+		struct gcov_summary *summary)
 {
   gcov_unsigned_t tag, length;
   unsigned t_ix;
-  int f_ix;
+  int f_ix = -1;
   int error = 0;
   struct gcov_fn_buffer **fn_tail = &fn_buffer;
-  struct gcov_summary_buffer **sum_tail = &sum_buffer;
 
   length = gcov_read_unsigned ();
   if (!gcov_version (gi_ptr, length, filename))
     return -1;
 
+  /* Skip timestamp.  */
+  gcov_read_unsigned ();
+
   length = gcov_read_unsigned ();
-  if (length != gi_ptr->stamp)
-    /* Read from a different compilation. Overwrite the file.  */
-    return 0;
-
-  /* Look for program summary.  */
-  for (f_ix = 0;;)
+  if (length != gi_ptr->checksum)
     {
-      struct gcov_summary tmp;
-
-      *eof_pos_p = gcov_position ();
-      tag = gcov_read_unsigned ();
-      if (tag != GCOV_TAG_PROGRAM_SUMMARY)
-        break;
-
-      f_ix--;
-      length = gcov_read_unsigned ();
-      gcov_read_summary (&tmp);
-      if ((error = gcov_is_error ()))
-        goto read_error;
-      if (*summary_pos_p)
-        {
-          /* Save all summaries after the one that will be
-             merged into below. These will need to be rewritten
-             as histogram merging may change the number of non-zero
-             histogram entries that will be emitted, and thus the
-             size of the merged summary.  */
-          (*sum_tail) = (struct gcov_summary_buffer *)
-              xmalloc (sizeof(struct gcov_summary_buffer));
-          (*sum_tail)->summary = tmp;
-          (*sum_tail)->next = 0;
-          sum_tail = &((*sum_tail)->next);
-          goto next_summary;
-        }
-      if (tmp.checksum != crc32)
-        goto next_summary;
-
-      for (t_ix = 0; t_ix != GCOV_COUNTERS_SUMMABLE; t_ix++)
-        if (tmp.ctrs[t_ix].num != this_prg->ctrs[t_ix].num)
-          goto next_summary;
-      *prg_p = tmp;
-      *summary_pos_p = *eof_pos_p;
-
-    next_summary:;
+      /* Read from a different compilation.  Overwrite the file.  */
+      gcov_error (GCOV_PROF_PREFIX "overwriting an existing profile data "
+		  "with a different checksum\n", filename);
+      return 0;
     }
 
+  tag = gcov_read_unsigned ();
+  if (tag != GCOV_TAG_OBJECT_SUMMARY)
+    goto read_mismatch;
+  length = gcov_read_unsigned ();
+  gcc_assert (length > 0);
+  gcov_read_summary (summary);
+
+  tag = gcov_read_unsigned ();
   /* Merge execution counts for each function.  */
   for (f_ix = 0; (unsigned)f_ix != gi_ptr->n_functions;
        f_ix++, tag = gcov_read_unsigned ())
@@ -468,22 +332,27 @@ merge_one_data (const char *filename,
           if (!merge)
             continue;
 
-          tag = gcov_read_unsigned ();
-          length = gcov_read_unsigned ();
-          if (tag != GCOV_TAG_FOR_COUNTER (t_ix)
-              || length != GCOV_TAG_COUNTER_LENGTH (ci_ptr->num))
-            goto read_mismatch;
-          (*merge) (ci_ptr->values, ci_ptr->num);
-          ci_ptr++;
-        }
+	  tag = gcov_read_unsigned ();
+	  int read_length = (int)gcov_read_unsigned ();
+	  length = abs (read_length);
+	  if (tag != GCOV_TAG_FOR_COUNTER (t_ix)
+	      || (length != GCOV_TAG_COUNTER_LENGTH (ci_ptr->num)
+		  && t_ix != GCOV_COUNTER_V_TOPN
+		  && t_ix != GCOV_COUNTER_V_INDIR))
+	    goto read_mismatch;
+	  /* Merging with all zero counters does not make sense.  */
+	  if (read_length > 0)
+	    (*merge) (ci_ptr->values, ci_ptr->num);
+	  ci_ptr++;
+	}
       if ((error = gcov_is_error ()))
-        goto read_error;
+	goto read_error;
     }
 
   if (tag)
     {
     read_mismatch:;
-      gcov_error ("profiling:%s:Merge mismatch for %s %u\n",
+      gcov_error (GCOV_PROF_PREFIX "Merge mismatch for %s %u\n",
                   filename, f_ix >= 0 ? "function" : "summary",
                   f_ix < 0 ? -1 - f_ix : f_ix);
       return -1;
@@ -491,9 +360,144 @@ merge_one_data (const char *filename,
   return 0;
 
 read_error:
-  gcov_error ("profiling:%s:%s merging\n", filename,
+  gcov_error (GCOV_PROF_PREFIX "%s merging\n", filename,
               error < 0 ? "Overflow": "Error");
   return -1;
+}
+
+/* Write the DATA of LENGTH characters to the gcov file.  */
+
+static void
+gcov_dump_handler (const void *data,
+		   unsigned length,
+		   void *arg ATTRIBUTE_UNUSED)
+{
+  gcov_write (data, length);
+}
+
+/* Allocate SIZE characters and return the address of the allocated memory.  */
+
+static void *
+gcov_allocate_handler (unsigned size, void *arg ATTRIBUTE_UNUSED)
+{
+  return xmalloc (size);
+}
+#endif /* NEED_L_GCOV */
+
+#if defined(NEED_L_GCOV) || defined(NEED_L_GCOV_INFO_TO_GCDA)
+/* Dump the WORD using the DUMP handler called with ARG.  */
+
+static inline void
+dump_unsigned (gcov_unsigned_t word,
+	       void (*dump_fn) (const void *, unsigned, void *),
+	       void *arg)
+{
+  (*dump_fn) (&word, sizeof (word), arg);
+}
+
+/* Dump the COUNTER using the DUMP handler called with ARG.  */
+
+static inline void
+dump_counter (gcov_type counter,
+	      void (*dump_fn) (const void *, unsigned, void *),
+	      void *arg)
+{
+  dump_unsigned ((gcov_unsigned_t)counter, dump_fn, arg);
+
+  if (sizeof (counter) > sizeof (gcov_unsigned_t))
+    dump_unsigned ((gcov_unsigned_t)(counter >> 32), dump_fn, arg);
+  else
+    dump_unsigned (0, dump_fn, arg);
+}
+
+/* Dump the STRING using the DUMP handler called with ARG.  */
+
+static inline void
+ATTRIBUTE_UNUSED
+dump_string (const char *string,
+	     void (*dump_fn) (const void *, unsigned, void *),
+	     void *arg)
+{
+  unsigned length = 0;
+
+  if (string)
+    length = strlen (string) + 1;
+
+  dump_unsigned (length, dump_fn, arg);
+  if (string)
+    (*dump_fn) (string, length, arg);
+}
+
+#define MAX(X,Y) ((X) > (Y) ? (X) : (Y))
+
+/* Store all TOP N counters where each has a dynamic length.  */
+
+static void
+write_topn_counters (const struct gcov_ctr_info *ci_ptr,
+		     unsigned t_ix,
+		     gcov_unsigned_t n_counts,
+		     void (*dump_fn) (const void *, unsigned, void *),
+		     void *(*allocate_fn)(unsigned, void *),
+		     void *arg)
+{
+  unsigned counters = n_counts / GCOV_TOPN_MEM_COUNTERS;
+  gcc_assert (n_counts % GCOV_TOPN_MEM_COUNTERS == 0);
+
+  /* It can happen in a multi-threaded environment that number of counters is
+     different from the size of the corresponding linked lists.  */
+#define LIST_SIZE_MIN_LENGTH 4 * 1024
+
+  static unsigned *list_sizes = NULL;
+  static unsigned list_size_length = 0;
+
+  if (list_sizes == NULL || counters > list_size_length)
+    {
+      list_size_length = MAX (LIST_SIZE_MIN_LENGTH, 2 * counters);
+#if !defined(inhibit_libc) && HAVE_SYS_MMAN_H
+      list_sizes
+	= (unsigned *)malloc_mmap (list_size_length * sizeof (unsigned));
+#endif
+
+      /* Malloc fallback.  */
+      if (list_sizes == NULL)
+	list_sizes =
+	  (unsigned *)(*allocate_fn) (list_size_length * sizeof (unsigned),
+				      arg);
+    }
+
+  unsigned pair_total = 0;
+
+  for (unsigned i = 0; i < counters; i++)
+    {
+      gcov_type start = ci_ptr->values[GCOV_TOPN_MEM_COUNTERS * i + 2];
+      unsigned sizes = 0;
+
+      for (struct gcov_kvp *node = (struct gcov_kvp *)(__INTPTR_TYPE__)start;
+	   node != NULL; node = node->next)
+	++sizes;
+
+      pair_total += sizes;
+      list_sizes[i] = sizes;
+    }
+
+  unsigned disk_size = GCOV_TOPN_DISK_COUNTERS * counters + 2 * pair_total;
+  dump_unsigned (GCOV_TAG_FOR_COUNTER (t_ix), dump_fn, arg),
+  dump_unsigned (GCOV_TAG_COUNTER_LENGTH (disk_size), dump_fn, arg);
+
+  for (unsigned i = 0; i < counters; i++)
+    {
+      dump_counter (ci_ptr->values[GCOV_TOPN_MEM_COUNTERS * i], dump_fn, arg);
+      dump_counter (list_sizes[i], dump_fn, arg);
+      gcov_type start = ci_ptr->values[GCOV_TOPN_MEM_COUNTERS * i + 2];
+
+      unsigned j = 0;
+      for (struct gcov_kvp *node = (struct gcov_kvp *)(__INTPTR_TYPE__)start;
+	   j < list_sizes[i]; node = node->next, j++)
+	{
+	  dump_counter (node->value, dump_fn, arg);
+	  dump_counter (node->count, dump_fn, arg);
+	}
+    }
 }
 
 /* Write counters in GI_PTR and the summary in PRG to a gcda file. In
@@ -502,48 +506,35 @@ read_error:
 
 static void
 write_one_data (const struct gcov_info *gi_ptr,
-		const struct gcov_summary *prg_p,
-		const gcov_position_t eof_pos,
-		const gcov_position_t summary_pos)
+		const struct gcov_summary *prg_p ATTRIBUTE_UNUSED,
+		void (*dump_fn) (const void *, unsigned, void *),
+		void *(*allocate_fn) (unsigned, void *),
+		void *arg)
 {
   unsigned f_ix;
-  struct gcov_summary_buffer *next_sum_buffer;
 
-  /* Write out the data.  */
-  if (!eof_pos)
-    {
-      gcov_write_tag_length (GCOV_DATA_MAGIC, GCOV_VERSION);
-      gcov_write_unsigned (gi_ptr->stamp);
-    }
+  dump_unsigned (GCOV_DATA_MAGIC, dump_fn, arg);
+  dump_unsigned (GCOV_VERSION, dump_fn, arg);
+  dump_unsigned (gi_ptr->stamp, dump_fn, arg);
+  dump_unsigned (gi_ptr->checksum, dump_fn, arg);
 
-  if (summary_pos)
-    gcov_seek (summary_pos);
-
+#ifdef NEED_L_GCOV
   /* Generate whole program statistics.  */
-  gcov_write_summary (GCOV_TAG_PROGRAM_SUMMARY, prg_p);
-
-  /* Rewrite all the summaries that were after the summary we merged
-     into. This is necessary as the merged summary may have a different
-     size due to the number of non-zero histogram entries changing after
-     merging.  */
-
-  while (sum_buffer)
-    {
-      gcov_write_summary (GCOV_TAG_PROGRAM_SUMMARY, &sum_buffer->summary);
-      next_sum_buffer = sum_buffer->next;
-      free (sum_buffer);
-      sum_buffer = next_sum_buffer;
-    }
+  gcov_write_object_summary (prg_p);
+#endif
 
   /* Write execution counts for each function.  */
   for (f_ix = 0; f_ix != gi_ptr->n_functions; f_ix++)
     {
+#ifdef NEED_L_GCOV
       unsigned buffered = 0;
+#endif
       const struct gcov_fn_info *gfi_ptr;
       const struct gcov_ctr_info *ci_ptr;
       gcov_unsigned_t length;
       unsigned t_ix;
 
+#ifdef NEED_L_GCOV
       if (fn_buffer && fn_buffer->fn_ix == f_ix)
         {
           /* Buffered data from another program.  */
@@ -552,6 +543,7 @@ write_one_data (const struct gcov_info *gi_ptr,
           length = GCOV_TAG_FUNCTION_LENGTH;
         }
       else
+#endif
         {
           gfi_ptr = gi_ptr->functions[f_ix];
           if (gfi_ptr && gfi_ptr->key == gi_ptr)
@@ -560,197 +552,57 @@ write_one_data (const struct gcov_info *gi_ptr,
                 length = 0;
         }
 
-      gcov_write_tag_length (GCOV_TAG_FUNCTION, length);
+      dump_unsigned (GCOV_TAG_FUNCTION, dump_fn, arg);
+      dump_unsigned (length, dump_fn, arg);
       if (!length)
         continue;
 
-      gcov_write_unsigned (gfi_ptr->ident);
-      gcov_write_unsigned (gfi_ptr->lineno_checksum);
-      gcov_write_unsigned (gfi_ptr->cfg_checksum);
+      dump_unsigned (gfi_ptr->ident, dump_fn, arg);
+      dump_unsigned (gfi_ptr->lineno_checksum, dump_fn, arg);
+      dump_unsigned (gfi_ptr->cfg_checksum, dump_fn, arg);
 
       ci_ptr = gfi_ptr->ctrs;
       for (t_ix = 0; t_ix < GCOV_COUNTERS; t_ix++)
         {
-          gcov_unsigned_t n_counts;
-          gcov_type *c_ptr;
+	  gcov_position_t n_counts;
 
-          if (!gi_ptr->merge[t_ix])
-            continue;
+	  if (!gi_ptr->merge[t_ix])
+	    continue;
 
-          n_counts = ci_ptr->num;
-          gcov_write_tag_length (GCOV_TAG_FOR_COUNTER (t_ix),
-                                 GCOV_TAG_COUNTER_LENGTH (n_counts));
-          c_ptr = ci_ptr->values;
-          while (n_counts--)
-            gcov_write_counter (*c_ptr++);
-          ci_ptr++;
-        }
+	  n_counts = ci_ptr->num;
+
+	  if (t_ix == GCOV_COUNTER_V_TOPN || t_ix == GCOV_COUNTER_V_INDIR)
+	    write_topn_counters (ci_ptr, t_ix, n_counts, dump_fn, allocate_fn,
+				 arg);
+	  else
+	    {
+	      dump_unsigned (GCOV_TAG_FOR_COUNTER (t_ix), dump_fn, arg);
+	      if (are_all_counters_zero (ci_ptr))
+		/* Do not stream when all counters are zero.  */
+		dump_unsigned (GCOV_TAG_COUNTER_LENGTH (-n_counts),
+			       dump_fn, arg);
+	      else
+		{
+		  dump_unsigned (GCOV_TAG_COUNTER_LENGTH (n_counts),
+				 dump_fn, arg);
+		  for (unsigned i = 0; i < n_counts; i++)
+		    dump_counter (ci_ptr->values[i], dump_fn, arg);
+		}
+	    }
+
+	  ci_ptr++;
+	}
+#ifdef NEED_L_GCOV
       if (buffered)
         fn_buffer = free_fn_data (gi_ptr, fn_buffer, GCOV_COUNTERS);
-    }
-
-  gcov_write_unsigned (0);
-}
-
-/* Helper function for merging summary.
-   Return -1 on error. Return 0 on success.  */
-
-static int
-merge_summary (const char *filename, int run_counted,
-	       const struct gcov_info *gi_ptr, struct gcov_summary *prg,
-	       struct gcov_summary *this_prg, gcov_unsigned_t crc32,
-	       struct gcov_summary *all_prg __attribute__ ((unused)))
-{
-  struct gcov_ctr_summary *cs_prg, *cs_tprg;
-  unsigned t_ix;
-#if !GCOV_LOCKED 
-  /* summary for all instances of program.  */ 
-  struct gcov_ctr_summary *cs_all;
-#endif 
-
-  /* Merge the summaries.  */
-  for (t_ix = 0; t_ix < GCOV_COUNTERS_SUMMABLE; t_ix++)
-    {
-      cs_prg = &(prg->ctrs[t_ix]);
-      cs_tprg = &(this_prg->ctrs[t_ix]);
-
-      if (gi_ptr->merge[t_ix])
-        {
-	  int first = !cs_prg->runs;
-
-	  if (!run_counted)
-	    cs_prg->runs++;
-          if (first)
-            cs_prg->num = cs_tprg->num;
-          cs_prg->sum_all += cs_tprg->sum_all;
-          if (cs_prg->run_max < cs_tprg->run_max)
-            cs_prg->run_max = cs_tprg->run_max;
-          cs_prg->sum_max += cs_tprg->run_max;
-          if (first)
-            memcpy (cs_prg->histogram, cs_tprg->histogram,
-                   sizeof (gcov_bucket_type) * GCOV_HISTOGRAM_SIZE);
-          else
-            gcov_histogram_merge (cs_prg->histogram, cs_tprg->histogram);
-        }
-      else if (cs_prg->runs)
-        {
-          gcov_error ("profiling:%s:Merge mismatch for summary.\n",
-                      filename);
-          return -1;
-        }
-#if !GCOV_LOCKED
-      cs_all = &all_prg->ctrs[t_ix];
-      if (!cs_all->runs && cs_prg->runs)
-        {
-          cs_all->num = cs_prg->num;
-          cs_all->runs = cs_prg->runs;
-          cs_all->sum_all = cs_prg->sum_all;
-          cs_all->run_max = cs_prg->run_max;
-          cs_all->sum_max = cs_prg->sum_max;
-        }
-      else if (!all_prg->checksum
-               /* Don't compare the histograms, which may have slight
-                  variations depending on the order they were updated
-                  due to the truncating integer divides used in the
-                  merge.  */
-               && (cs_all->num != cs_prg->num
-                   || cs_all->runs != cs_prg->runs
-                   || cs_all->sum_all != cs_prg->sum_all
-                   || cs_all->run_max != cs_prg->run_max
-                   || cs_all->sum_max != cs_prg->sum_max))
-             {
-               gcov_error ("profiling:%s:Data file mismatch - some "
-                           "data files may have been concurrently "
-                           "updated without locking support\n", filename);
-               all_prg->checksum = ~0u;
-             }
 #endif
     }
-  
-  prg->checksum = crc32;
 
-  return 0;
+  dump_unsigned (0, dump_fn, arg);
 }
+#endif /* NEED_L_GCOV || NEED_L_GCOV_INFO_TO_GCDA */
 
-
-/* Sort N entries in VALUE_ARRAY in descending order.
-   Each entry in VALUE_ARRAY has two values. The sorting
-   is based on the second value.  */
-
-GCOV_LINKAGE  void
-gcov_sort_n_vals (gcov_type *value_array, int n)
-{
-  int j, k;
-
-  for (j = 2; j < n; j += 2)
-    {
-      gcov_type cur_ent[2];
-
-      cur_ent[0] = value_array[j];
-      cur_ent[1] = value_array[j + 1];
-      k = j - 2;
-      while (k >= 0 && value_array[k + 1] < cur_ent[1])
-        {
-          value_array[k + 2] = value_array[k];
-          value_array[k + 3] = value_array[k+1];
-          k -= 2;
-        }
-      value_array[k + 2] = cur_ent[0];
-      value_array[k + 3] = cur_ent[1];
-    }
-}
-
-/* Sort the profile counters for all indirect call sites. Counters
-   for each call site are allocated in array COUNTERS.  */
-
-static void
-gcov_sort_icall_topn_counter (const struct gcov_ctr_info *counters)
-{
-  int i;
-  gcov_type *values;
-  int n = counters->num;
-
-  gcc_assert (!(n % GCOV_ICALL_TOPN_NCOUNTS));
-  values = counters->values;
-
-  for (i = 0; i < n; i += GCOV_ICALL_TOPN_NCOUNTS)
-    {
-      gcov_type *value_array = &values[i + 1];
-      gcov_sort_n_vals (value_array, GCOV_ICALL_TOPN_NCOUNTS - 1);
-    }
-}
-
-/* Sort topn indirect_call profile counters in GI_PTR.  */
-
-static void
-gcov_sort_topn_counter_arrays (const struct gcov_info *gi_ptr)
-{
-  unsigned int i;
-  int f_ix;
-  const struct gcov_fn_info *gfi_ptr;
-  const struct gcov_ctr_info *ci_ptr;
-
-  if (!gi_ptr->merge[GCOV_COUNTER_ICALL_TOPNV]) 
-    return;
-
-  for (f_ix = 0; (unsigned)f_ix != gi_ptr->n_functions; f_ix++)
-    {
-      gfi_ptr = gi_ptr->functions[f_ix];
-      ci_ptr = gfi_ptr->ctrs;
-      for (i = 0; i < GCOV_COUNTERS; i++)
-        {
-          if (!gi_ptr->merge[i])
-            continue;
-          if (i == GCOV_COUNTER_ICALL_TOPNV)
-            {
-              gcov_sort_icall_topn_counter (ci_ptr);
-              break;
-            }
-          ci_ptr++;
-        }
-    }
-}
-
+#ifdef NEED_L_GCOV
 /* Dump the coverage counts for one gcov_info object. We merge with existing
    counts when possible, to avoid growing the .da files ad infinitum. We use
    this program's checksum to make sure we only accumulate whole program
@@ -760,22 +612,15 @@ gcov_sort_topn_counter_arrays (const struct gcov_info *gi_ptr)
 
 static void
 dump_one_gcov (struct gcov_info *gi_ptr, struct gcov_filename *gf,
-	       unsigned run_counted,
-	       gcov_unsigned_t crc32, struct gcov_summary *all_prg,
-	       struct gcov_summary *this_prg)
+	       unsigned run_counted ATTRIBUTE_UNUSED,
+	       gcov_type run_max ATTRIBUTE_UNUSED, int mode)
 {
-  struct gcov_summary prg; /* summary for this object over all program.  */
+  struct gcov_summary summary = {};
   int error;
   gcov_unsigned_t tag;
-  gcov_position_t summary_pos = 0;
-  gcov_position_t eof_pos = 0;
-
   fn_buffer = 0;
-  sum_buffer = 0;
 
-  gcov_sort_topn_counter_arrays (gi_ptr);
-
-  error = gcov_exit_open_gcda_file (gi_ptr, gf);
+  error = gcov_exit_open_gcda_file (gi_ptr, gf, mode);
   if (error == -1)
     return;
 
@@ -785,29 +630,29 @@ dump_one_gcov (struct gcov_info *gi_ptr, struct gcov_filename *gf,
       /* Merge data from file.  */
       if (tag != GCOV_DATA_MAGIC)
         {
-          gcov_error ("profiling:%s:Not a gcov data file\n", gf->filename);
+	  gcov_error (GCOV_PROF_PREFIX "Not a gcov data file\n",
+		      gf->filename);
           goto read_fatal;
         }
-      error = merge_one_data (gf->filename, gi_ptr, &prg, this_prg,
-			      &summary_pos, &eof_pos, crc32);
+      error = merge_one_data (gf->filename, gi_ptr, &summary);
       if (error == -1)
         goto read_fatal;
     }
 
   gcov_rewrite ();
 
-  if (!summary_pos)
+#if !IN_GCOV_TOOL
+  if (!run_counted)
     {
-      memset (&prg, 0, sizeof (prg));
-      summary_pos = eof_pos;
+      summary.runs++;
+      summary.sum_max += run_max;
     }
+#else
+  summary = gi_ptr->summary;
+#endif
 
-  error = merge_summary (gf->filename, run_counted, gi_ptr, &prg, this_prg,
-			 crc32, all_prg);
-  if (error == -1)
-    goto read_fatal;
-
-  write_one_data (gi_ptr, &prg, eof_pos, summary_pos);
+  write_one_data (gi_ptr, &summary, gcov_dump_handler, gcov_allocate_handler,
+		  NULL);
   /* fall through */
 
 read_fatal:;
@@ -815,41 +660,47 @@ read_fatal:;
     fn_buffer = free_fn_data (gi_ptr, fn_buffer, GCOV_COUNTERS);
 
   if ((error = gcov_close ()))
-    gcov_error (error  < 0 ?
-                "profiling:%s:Overflow writing\n" :
-                "profiling:%s:Error writing\n",
-                gf->filename);
+    gcov_error ((error < 0 ? GCOV_PROF_PREFIX "Overflow writing\n"
+		 : GCOV_PROF_PREFIX "Error writing\n"), gf->filename);
 }
 
 
 /* Dump all the coverage counts for the program. It first computes program
    summary and then traverses gcov_list list and dumps the gcov_info
-   objects one by one.  */
+   objects one by one.  Use MODE to open files.  */
 
 #if !IN_GCOV_TOOL
 static
 #endif
 void
-gcov_do_dump (struct gcov_info *list, int run_counted)
+gcov_do_dump (struct gcov_info *list, int run_counted, int mode)
 {
   struct gcov_info *gi_ptr;
   struct gcov_filename gf;
-  gcov_unsigned_t crc32;
-  struct gcov_summary all_prg;
-  struct gcov_summary this_prg;
 
-  crc32 = compute_summary (list, &this_prg, &gf.max_length);
+  /* Compute run_max of this program run.  */
+  gcov_type run_max = 0;
+  for (gi_ptr = list; gi_ptr; gi_ptr = gi_ptr->next)
+    for (unsigned f_ix = 0; (unsigned)f_ix != gi_ptr->n_functions; f_ix++)
+      {
+	const struct gcov_ctr_info *cinfo
+	  = &gi_ptr->functions[f_ix]->ctrs[GCOV_COUNTER_ARCS];
+
+	for (unsigned i = 0; i < cinfo->num; i++)
+	  if (run_max < cinfo->values[i])
+	    run_max = cinfo->values[i];
+      }
 
   allocate_filename_struct (&gf);
-#if !GCOV_LOCKED
-  memset (&all_prg, 0, sizeof (all_prg));
-#endif
 
   /* Now merge each file.  */
   for (gi_ptr = list; gi_ptr; gi_ptr = gi_ptr->next)
-    dump_one_gcov (gi_ptr, &gf, run_counted, crc32, &all_prg, &this_prg);
+    {
+      dump_one_gcov (gi_ptr, &gf, run_counted, run_max, mode);
+      free (gf.filename);
+    }
 
-  free (gf.filename);
+  free (gf.prefix);
 }
 
 #if IN_GCOV_TOOL
@@ -868,7 +719,7 @@ __gcov_dump_one (struct gcov_root *root)
   if (root->dumped)
     return;
 
-  gcov_do_dump (root->list, root->run_counted);
+  gcov_do_dump (root->list, root->run_counted, 0);
   
   root->dumped = 1;
   root->run_counted = 1;
@@ -880,6 +731,15 @@ struct gcov_root __gcov_root;
 /* Exactly one of these will be live in the process image.  */
 struct gcov_master __gcov_master = 
   {GCOV_VERSION, 0};
+
+/* Dynamic pool for gcov_kvp structures.  */
+struct gcov_kvp *__gcov_kvp_dynamic_pool;
+
+/* Index into __gcov_kvp_dynamic_pool array.  */
+unsigned __gcov_kvp_dynamic_pool_index;
+
+/* Size of _gcov_kvp_dynamic_pool array.  */
+unsigned __gcov_kvp_dynamic_pool_size;
 
 void
 __gcov_exit (void)
@@ -922,5 +782,33 @@ __gcov_init (struct gcov_info *info)
     }
 }
 #endif /* !IN_GCOV_TOOL */
-#endif /* L_gcov */
-#endif /* inhibit_libc */
+#endif /* NEED_L_GCOV */
+
+#ifdef NEED_L_GCOV_INFO_TO_GCDA
+/* Convert the gcov info to a gcda data stream.  It is intended for
+   freestanding environments which do not support the C library file I/O.  */
+
+void
+__gcov_info_to_gcda (const struct gcov_info *gi_ptr,
+		     void (*filename_fn) (const char *, void *),
+		     void (*dump_fn) (const void *, unsigned, void *),
+		     void *(*allocate_fn) (unsigned, void *),
+		     void *arg)
+{
+  (*filename_fn) (gi_ptr->filename, arg);
+  write_one_data (gi_ptr, NULL, dump_fn, allocate_fn, arg);
+}
+
+/* Convert the filename to a gcfn data stream.  It is intended for
+   freestanding environments which do not support the C library file I/O.  */
+
+void
+__gcov_filename_to_gcfn (const char *filename,
+			 void (*dump_fn) (const void *, unsigned, void *),
+			 void *arg)
+{
+  dump_unsigned (GCOV_FILENAME_MAGIC, dump_fn, arg);
+  dump_unsigned (GCOV_VERSION, dump_fn, arg);
+  dump_string (filename, dump_fn, arg);
+}
+#endif /* NEED_L_GCOV_INFO_TO_GCDA */

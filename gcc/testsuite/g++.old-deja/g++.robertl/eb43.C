@@ -5,6 +5,7 @@
 // to pointer_to_binary_function, which has an `explicit' constructor.
 
 // { dg-prune-output "note" }
+// { dg-options "-Wno-deprecated" }
 
 #include <vector>
 #include <algorithm>
@@ -42,3 +43,5 @@ int main()
   sort( a.begin(), a.end(),
 	pointer_to_binary_function<const Expr<int>, const Expr<int>, bool>(compare<>) );
 }
+
+// { dg-prune-output "enable_if" }

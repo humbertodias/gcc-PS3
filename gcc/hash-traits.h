@@ -1,5 +1,5 @@
 /* Traits for hashable types.
-   Copyright (C) 2014-2017 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -28,6 +28,11 @@ struct typed_free_remove
   static inline void remove (Type *p);
 };
 
+template <typename Type>
+struct typed_const_free_remove
+{
+  static inline void remove (const Type *p);
+};
 
 /* Remove with free.  */
 
@@ -36,6 +41,13 @@ inline void
 typed_free_remove <Type>::remove (Type *p)
 {
   free (p);
+}
+
+template <typename Type>
+inline void
+typed_const_free_remove <Type>::remove (const Type *p)
+{
+  free (const_cast <Type *> (p));
 }
 
 /* Helpful type for removing with delete.  */
@@ -73,6 +85,32 @@ typed_noop_remove <Type>::remove (Type &)
 {
 }
 
+/* Base traits for integer type Type, providing just the hash and
+   comparison functionality.  */
+
+template <typename Type>
+struct int_hash_base : typed_noop_remove <Type>
+{
+  typedef Type value_type;
+  typedef Type compare_type;
+
+  static inline hashval_t hash (value_type);
+  static inline bool equal (value_type existing, value_type candidate);
+};
+
+template <typename Type>
+inline hashval_t
+int_hash_base <Type>::hash (value_type x)
+{
+  return x;
+}
+
+template <typename Type>
+inline bool
+int_hash_base <Type>::equal (value_type x, value_type y)
+{
+  return x == y;
+}
 
 /* Hasher for integer type Type in which Empty is a spare value that can be
    used to mark empty slots.  If Deleted != Empty then Deleted is another
@@ -80,32 +118,17 @@ typed_noop_remove <Type>::remove (Type &)
    hash table entries cannot be deleted.  */
 
 template <typename Type, Type Empty, Type Deleted = Empty>
-struct int_hash : typed_noop_remove <Type>
+struct int_hash : int_hash_base <Type>
 {
   typedef Type value_type;
   typedef Type compare_type;
 
-  static inline hashval_t hash (value_type);
-  static inline bool equal (value_type existing, value_type candidate);
   static inline void mark_deleted (Type &);
+  static const bool empty_zero_p = Empty == 0;
   static inline void mark_empty (Type &);
   static inline bool is_deleted (Type);
   static inline bool is_empty (Type);
 };
-
-template <typename Type, Type Empty, Type Deleted>
-inline hashval_t
-int_hash <Type, Empty, Deleted>::hash (value_type x)
-{
-  return x;
-}
-
-template <typename Type, Type Empty, Type Deleted>
-inline bool
-int_hash <Type, Empty, Deleted>::equal (value_type x, value_type y)
-{
-  return x == y;
-}
 
 template <typename Type, Type Empty, Type Deleted>
 inline void
@@ -150,6 +173,7 @@ struct pointer_hash
   static inline bool equal (const value_type &existing,
 			    const compare_type &candidate);
   static inline void mark_deleted (Type *&);
+  static const bool empty_zero_p = true;
   static inline void mark_empty (Type *&);
   static inline bool is_deleted (Type *);
   static inline bool is_empty (Type *);
@@ -235,6 +259,13 @@ struct ggc_remove
     gt_ggc_mx (p);
   }
 
+  /* Overridden in ggc_cache_remove.  */
+  static void
+  ggc_maybe_mx (T &p)
+  {
+    ggc_mx (p);
+  }
+
   static void
   pch_nx (T &p)
   {
@@ -245,7 +276,7 @@ struct ggc_remove
   static void
   pch_nx (T &p, gt_pointer_operator op, void *cookie)
   {
-    op (&p, cookie);
+    op (&p, NULL, cookie);
   }
 };
 
@@ -256,7 +287,7 @@ template<typename T>
 struct ggc_cache_remove : ggc_remove<T>
 {
   /* Entries are weakly held because this is for caches.  */
-  static void ggc_mx (T &) {}
+  static void ggc_maybe_mx (T &) {}
 
   static int
   keep_cache_entry (T &e)
@@ -296,10 +327,141 @@ struct ggc_ptr_hash : pointer_hash <T>, ggc_remove <T *> {};
 template <typename T>
 struct ggc_cache_ptr_hash : pointer_hash <T>, ggc_cache_remove <T *> {};
 
+/* Traits for string elements that should be freed when an element is
+   deleted.  */
+
+struct free_string_hash : string_hash, typed_const_free_remove <char> {};
+
 /* Traits for string elements that should not be freed when an element
    is deleted.  */
 
 struct nofree_string_hash : string_hash, typed_noop_remove <const char *> {};
+
+/* Traits for pairs of values, using the first to record empty and
+   deleted slots.  */
+
+template <typename T1, typename T2>
+struct pair_hash
+{
+  typedef std::pair <typename T1::value_type,
+		     typename T2::value_type> value_type;
+  typedef std::pair <typename T1::compare_type,
+		     typename T2::compare_type> compare_type;
+
+  static inline hashval_t hash (const value_type &);
+  static inline bool equal (const value_type &, const compare_type &);
+  static inline void remove (value_type &);
+  static inline void mark_deleted (value_type &);
+  static const bool empty_zero_p = T1::empty_zero_p;
+  static inline void mark_empty (value_type &);
+  static inline bool is_deleted (const value_type &);
+  static inline bool is_empty (const value_type &);
+};
+
+template <typename T1, typename T2>
+inline hashval_t
+pair_hash <T1, T2>::hash (const value_type &x)
+{
+  return iterative_hash_hashval_t (T1::hash (x.first), T2::hash (x.second));
+}
+
+template <typename T1, typename T2>
+inline bool
+pair_hash <T1, T2>::equal (const value_type &x, const compare_type &y)
+{
+  return T1::equal (x.first, y.first) && T2::equal (x.second, y.second);
+}
+
+template <typename T1, typename T2>
+inline void
+pair_hash <T1, T2>::remove (value_type &x)
+{
+  T1::remove (x.first);
+  T2::remove (x.second);
+}
+
+template <typename T1, typename T2>
+inline void
+pair_hash <T1, T2>::mark_deleted (value_type &x)
+{
+  T1::mark_deleted (x.first);
+}
+
+template <typename T1, typename T2>
+inline void
+pair_hash <T1, T2>::mark_empty (value_type &x)
+{
+  T1::mark_empty (x.first);
+}
+
+template <typename T1, typename T2>
+inline bool
+pair_hash <T1, T2>::is_deleted (const value_type &x)
+{
+  return T1::is_deleted (x.first);
+}
+
+template <typename T1, typename T2>
+inline bool
+pair_hash <T1, T2>::is_empty (const value_type &x)
+{
+  return T1::is_empty (x.first);
+}
+
+/* Base traits for vectors, providing just the hash and comparison
+   functionality.  Type gives the corresponding traits for the element
+   type.  */
+
+template <typename Type>
+struct vec_hash_base
+{
+  typedef vec<typename Type::value_type> value_type;
+  typedef vec<typename Type::compare_type> compare_type;
+
+  static inline hashval_t hash (value_type);
+  static inline bool equal (value_type, compare_type);
+};
+
+template <typename Type>
+inline hashval_t
+vec_hash_base <Type>::hash (value_type x)
+{
+  inchash::hash hstate;
+  hstate.add_int (x.length ());
+  for (auto &value : x)
+    hstate.merge_hash (Type::hash (value));
+  return hstate.end ();
+}
+
+template <typename Type>
+inline bool
+vec_hash_base <Type>::equal (value_type x, compare_type y)
+{
+  if (x.length () != y.length ())
+    return false;
+  for (unsigned int i = 0; i < x.length (); ++i)
+    if (!Type::equal (x[i], y[i]))
+      return false;
+  return true;
+}
+
+/* Traits for vectors whose contents should be freed normally.  */
+
+template <typename Type>
+struct vec_free_hash_base : vec_hash_base <Type>
+{
+  static void remove (typename vec_hash_base <Type>::value_type &);
+};
+
+template <typename Type>
+void
+vec_free_hash_base <Type>
+::remove (typename vec_hash_base <Type>::value_type &x)
+{
+  for (auto &value : x)
+    Type::remove (x);
+  x.release ();
+}
 
 template <typename T> struct default_hash_traits : T {};
 

@@ -17,12 +17,12 @@
 #include "basic-block.h"
 #include "tree-ssa-alias.h"
 #include "internal-fn.h"
+#include "gimple.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "tree-eh.h"
 #include "gimple-expr.h"
 #include "is-a.h"
-#include "gimple.h"
-#include "gimple-iterator.h"
 #include "tree.h"
 #include "tree-pass.h"
 #include "intl.h"
@@ -41,18 +41,18 @@ show_tree (tree node)
     return;
 
   gcc_rich_location richloc (EXPR_LOCATION (node));
-  richloc.add_expr (node);
+  richloc.add_expr (node, NULL);
 
   if (richloc.get_num_locations () < 2)
     {
-      error_at_rich_loc (&richloc, "range not found");
+      error_at (&richloc, "range not found");
       return;
     }
 
   enum tree_code code = TREE_CODE (node);
 
   location_range *range = richloc.get_range (1);
-  inform_at_rich_loc (&richloc, "%s", get_tree_code_name (code));
+  inform (&richloc, "%s", get_tree_code_name (code));
 
   /* Recurse.  */
   int min_idx = 0;
@@ -114,6 +114,8 @@ plugin_init (struct plugin_name_args *plugin_info,
 
   if (!plugin_default_version_check (version, &gcc_version))
     return 1;
+
+  global_dc->caret_max_width = 80;
 
   register_callback (plugin_name,
 		     PLUGIN_PRE_GENERICIZE,

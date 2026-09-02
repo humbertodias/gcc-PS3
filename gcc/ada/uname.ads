@@ -6,23 +6,17 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2014, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
 -- ware  Foundation;  either version 3,  or (at your option) any later ver- --
 -- sion.  GNAT is distributed in the hope that it will be useful, but WITH- --
 -- OUT ANY WARRANTY;  without even the  implied warranty of MERCHANTABILITY --
--- or FITNESS FOR A PARTICULAR PURPOSE.                                     --
---                                                                          --
--- As a special exception under Section 7 of GPL version 3, you are granted --
--- additional permissions described in the GCC Runtime Library Exception,   --
--- version 3.1, as published by the Free Software Foundation.               --
---                                                                          --
--- You should have received a copy of the GNU General Public License and    --
--- a copy of the GCC Runtime Library Exception along with this program;     --
--- see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see    --
--- <http://www.gnu.org/licenses/>.                                          --
+-- or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License --
+-- for  more details.  You should have  received  a copy of the GNU General --
+-- Public License  distributed with GNAT; see file COPYING3.  If not, go to --
+-- http://www.gnu.org/licenses for a complete copy of the license.          --
 --                                                                          --
 -- GNAT was originally developed  by the GNAT team at  New York University. --
 -- Extensive contributions were provided by Ada Core Technologies Inc.      --
@@ -63,7 +57,7 @@ package Uname is
 
    --  For display purposes, unit names are printed out with the suffix
    --  " (body)" for a body and " (spec)" for a spec. These formats are
-   --  used for the Write_Unit_Name and Get_Unit_Name_String subprograms.
+   --  used for Write_Unit_Name and Get_Unit_Name_String.
 
    -----------------
    -- Subprograms --
@@ -117,13 +111,11 @@ package Uname is
    --    N_Subunit
 
    procedure Get_Unit_Name_String
-     (N      : Unit_Name_Type;
+     (Buf    : in out Bounded_String;
+      N      : Unit_Name_Type;
       Suffix : Boolean := True);
-   --  Places the display name of the unit in Name_Buffer and sets Name_Len to
-   --  the length of the stored name, i.e. it uses the same interface as the
-   --  Get_Name_String routine in the Namet package. The name is decoded and
-   --  contains an indication of spec or body if Boolean parameter Suffix is
-   --  True.
+   --  Puts the display name for N in Buf. The name is decoded and contains an
+   --  indication of spec or body if Suffix is True.
 
    function Is_Body_Name (N : Unit_Name_Type) return Boolean;
    --  Returns True iff the given name is the unit name of a body (i.e. if
@@ -132,6 +124,18 @@ package Uname is
    function Is_Child_Name (N : Unit_Name_Type) return Boolean;
    --  Returns True iff the given name is a child unit name (of either a
    --  body or a spec).
+
+   function Is_Internal_Unit_Name
+     (Name               : String;
+      Renamings_Included : Boolean := True) return Boolean;
+   --  Same as Fname.Is_Internal_File_Name, except it works with the name of
+   --  the unit, rather than the file name.
+
+   function Is_Predefined_Unit_Name
+     (Name               : String;
+      Renamings_Included : Boolean := True) return Boolean;
+   --  Same as Fname.Is_Predefined_File_Name, except it works with the name of
+   --  the unit, rather than the file name.
 
    function Is_Spec_Name (N : Unit_Name_Type) return Boolean;
    --  Returns True iff the given name is the unit name of a specification
@@ -155,7 +159,7 @@ package Uname is
    --     result = A.R.C (body)
    --
    --   See spec of Load_Unit for extensive discussion of why this routine
-   --   needs to be used (the call in the body of Load_Unit is the only one).
+   --   needs to be used (the calls in Load_Unit are the only ones).
 
    function Uname_Ge (Left, Right : Unit_Name_Type) return Boolean;
    function Uname_Gt (Left, Right : Unit_Name_Type) return Boolean;
@@ -169,8 +173,10 @@ package Uname is
    --  are the same, they always have the same Name_Id value.
 
    procedure Write_Unit_Name (N : Unit_Name_Type);
-   --  Given a unit name, this procedure writes the display name to the
-   --  standard output file. Name_Buffer and Name_Len are set as described
-   --  above for the Get_Unit_Name_String call on return.
+   --  Writes the display form of N to standard output
+
+   procedure Write_Unit_Name_For_Debug (N : Unit_Name_Type);
+   --  Like Write_Unit_Name, except it tries to be robust in the presence of
+   --  invalid data.
 
 end Uname;

@@ -1,5 +1,5 @@
 /* Routines for expanding from SSA form to RTL.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -42,6 +42,10 @@ struct ssaexpand
   /* If partition I contains an SSA name that has a default def for a
      parameter, bit I will be set in this bitmap.  */
   bitmap partitions_for_parm_default_defs;
+
+  /* If partition I contains an SSA name that has an undefined value,
+     bit I will be set in this bitmap.  */
+  bitmap partitions_for_undefined_values;
 };
 
 /* This is the singleton described above.  */
@@ -49,7 +53,7 @@ extern struct ssaexpand SA;
 
 /* Returns the RTX expression representing the storage of the outof-SSA
    partition that the SSA name EXP is a member of.  */
-static inline rtx
+inline rtx
 get_rtx_for_ssa_name (tree exp)
 {
   int p = partition_find (SA.map->var_partition, SSA_NAME_VERSION (exp));
@@ -61,7 +65,7 @@ get_rtx_for_ssa_name (tree exp)
 
 /* If TER decided to forward the definition of SSA name EXP this function
    returns the defining statement, otherwise NULL.  */
-static inline gimple *
+inline gimple *
 get_gimple_for_ssa_name (tree exp)
 {
   int v = SSA_NAME_VERSION (exp);

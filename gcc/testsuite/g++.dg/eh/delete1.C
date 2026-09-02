@@ -14,7 +14,7 @@ void operator delete (void *) throw ()
 struct Foo {
   ~Foo()
 #if __cplusplus <= 201402L
-  throw(int)			// { dg-warning "deprecated" "" { target { c++11 && { ! c++1z } } } }
+  throw(int)			// { dg-warning "deprecated" "" { target { c++11 && { ! c++17 } } } }
 #else
   noexcept(false)
 #endif
@@ -28,7 +28,7 @@ struct Baz {
   }
   virtual ~Baz()
 #if __cplusplus <= 201402L
-  throw(int)			// { dg-warning "deprecated" "" { target { c++11 && { ! c++1z } } } }
+  throw(int)			// { dg-warning "deprecated" "" { target { c++11 && { ! c++17 } } } }
 #else
   noexcept(false)
 #endif
@@ -69,7 +69,7 @@ int ary ()
 {
   deleted = 0;
 
-  Baz *p = new Baz[5];
+  Baz *p = new Baz[1];
   try { delete[] p; }
   catch (...) { return deleted != 1;}
   return 1;

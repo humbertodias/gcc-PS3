@@ -1,6 +1,7 @@
 // { dg-do run { target c++11 } }
+// { dg-require-effective-target hosted }
 
-// Copyright (C) 2009-2017 Free Software Foundation, Inc.
+// Copyright (C) 2009-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -25,7 +26,7 @@ struct moveable
   ~moveable() = default;
   // target object must be CopyConstructible,
   // but should not be copied during this test
-  moveable(const moveable& c) { throw "copied"; }
+  moveable(const moveable&) { throw "copied"; }
   moveable& operator=(const moveable&) = delete;
   moveable(moveable&&) { }
 

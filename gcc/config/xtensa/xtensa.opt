@@ -1,6 +1,6 @@
 ; Options for the Tensilica Xtensa port of the compiler.
 
-; Copyright (C) 2005-2017 Free Software Foundation, Inc.
+; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -19,16 +19,24 @@
 ; <http://www.gnu.org/licenses/>.
 
 mconst16
-Target Report Mask(CONST16)
+Target Mask(CONST16)
 Use CONST16 instruction to load constants.
 
 mforce-no-pic
-Target Report Mask(FORCE_NO_PIC)
+Target Mask(FORCE_NO_PIC)
 Disable position-independent code (PIC) for use in OS kernel code.
 
 mlongcalls
-Target
+Target Mask(LONGCALLS)
 Use indirect CALLXn instructions for large programs.
+
+mextra-l32r-costs=
+Target RejectNegative Joined UInteger Var(xtensa_extra_l32r_costs) Init(0)
+Set extra memory access cost for L32R instruction, in clock-cycle units.
+
+mlra
+Target Mask(LRA)
+Use LRA instead of reload (transitional).
 
 mtarget-align
 Target
@@ -39,9 +47,20 @@ Target
 Intersperse literal pools with code in the text section.
 
 mauto-litpools
-Target Report Mask(AUTO_LITPOOLS)
+Target Mask(AUTO_LITPOOLS)
 Relax literals in assembler and place them automatically in the text section.
 
 mserialize-volatile
-Target Report Mask(SERIALIZE_VOLATILE)
+Target Mask(SERIALIZE_VOLATILE)
 -mno-serialize-volatile	Do not serialize volatile memory references with MEMW instructions.
+
+TargetVariable
+int xtensa_windowed_abi = -1
+
+mabi=call0
+Target RejectNegative Var(xtensa_windowed_abi, 0)
+Use call0 ABI.
+
+mabi=windowed
+Target RejectNegative Var(xtensa_windowed_abi, 1)
+Use windowed registers ABI.

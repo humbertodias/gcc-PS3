@@ -1,5 +1,5 @@
 /* Implementation of the NORM2 intrinsic
-   Copyright (C) 2010-2017 Free Software Foundation, Inc.
+   Copyright (C) 2010-2023 Free Software Foundation, Inc.
    Contributed by Tobias Burnus  <burnus@net-b.de>
 
 This file is part of the GNU Fortran runtime library (libgfortran).
@@ -30,7 +30,11 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #if defined (HAVE_GFC_REAL_16) && defined (HAVE_GFC_REAL_16) && (defined(GFC_REAL_16_IS_FLOAT128) || defined(HAVE_SQRTL)) && (defined(GFC_REAL_16_IS_FLOAT128) || defined(HAVE_FABSL))
 
 #if defined(GFC_REAL_16_IS_FLOAT128)
+#if defined(GFC_REAL_16_USE_IEC_60559)
+#define MATHFUNC(funcname) funcname ## f128
+#else
 #define MATHFUNC(funcname) funcname ## q
+#endif
 #else
 #define MATHFUNC(funcname) funcname ## l
 #endif
@@ -59,8 +63,15 @@ norm2_r16 (gfc_array_r16 * const restrict retarray,
   int continue_loop;
 
   /* Make dim zero based to avoid confusion.  */
-  dim = (*pdim) - 1;
   rank = GFC_DESCRIPTOR_RANK (array) - 1;
+  dim = (*pdim) - 1;
+
+  if (unlikely (dim < 0 || dim > rank))
+    {
+      runtime_error ("Dim argument incorrect in NORM intrinsic: "
+ 		     "is %ld, should be between 1 and %ld",
+		     (long int) dim + 1, (long int) rank + 1);
+    }
 
   len = GFC_DESCRIPTOR_EXTENT(array,dim);
   if (len < 0)
@@ -100,7 +111,7 @@ norm2_r16 (gfc_array_r16 * const restrict retarray,
 	}
 
       retarray->offset = 0;
-      retarray->dtype = (array->dtype & ~GFC_DTYPE_RANK_MASK) | rank;
+      retarray->dtype.rank = rank;
 
       alloc_size = GFC_DESCRIPTOR_STRIDE(retarray,rank-1) * extent[rank-1];
 
@@ -152,8 +163,10 @@ norm2_r16 (gfc_array_r16 * const restrict retarray,
 	  *dest = 0;
 	else
 	  {
+#if ! defined HAVE_BACK_ARG
 	    for (n = 0; n < len; n++, src += delta)
 	      {
+#endif
 
 	  if (*src != 0)
 	    {

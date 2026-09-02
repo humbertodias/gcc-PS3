@@ -2,11 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !plan9 && !windows
 // +build !plan9,!windows
 
 package main
 
 /*
+#cgo CFLAGS: -pthread
+#cgo LDFLAGS: -pthread
+
 #include <pthread.h>
 
 void go_callback();
@@ -20,7 +24,9 @@ static void foo() {
     pthread_t th;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, 256 << 10);
+    // For gccgo use a stack size large enough for all the callbacks,
+    // in case we are on a platform that does not support -fsplit-stack.
+    pthread_attr_setstacksize(&attr, 512 * 10000);
     pthread_create(&th, &attr, thr, 0);
     pthread_join(th, 0);
 }
@@ -29,6 +35,7 @@ import "C"
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 )
 
@@ -63,7 +70,10 @@ func grow1(x, sum *int) int {
 }
 
 func CgoCallbackGC() {
-	const P = 100
+	P := 100
+	if os.Getenv("RUNTIME_TEST_SHORT") != "" {
+		P = 10
+	}
 	done := make(chan bool)
 	// allocate a bunch of stack frames and spray them with pointers
 	for i := 0; i < P; i++ {

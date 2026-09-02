@@ -1,10 +1,14 @@
 // PR c++/34094
 // { dg-do link { target { ! { *-*-darwin* *-*-hpux* *-*-solaris2.* } } } }
+// { dg-require-effective-target nonpic }
+// Skip on vxworks kernel: The link being partial, the linker doesn't see
+// the undefined reference
+// { dg-skip-if "partial link" { vxworks_kernel } }
 // { dg-options "-gdwarf-2" }
 // Ignore additional message on powerpc-ibm-aix
 // { dg-prune-output "obtain more information" } */
 // Ignore additional messages on Linux/x86 with PIE
-// { dg-prune-output "Bad value" } */
+// { dg-prune-output "\[Bb\]ad value" } */
 
 namespace {
   struct c

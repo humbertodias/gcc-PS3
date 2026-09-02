@@ -6,6 +6,7 @@
 *~
 .#*
 *#
+.*.swp
 
 *.flt
 *.gmo
@@ -15,13 +16,15 @@
 *.o
 *.pyc
 *.tmp
+*.a
 
 .deps
 .libs
 
 autom4te.cache
 config.cache
-config.h
+# GCC does not support in-tree builds, do not conceal a stray config.h:
+# config.h
 config.intl
 config.log
 config.status
@@ -31,14 +34,22 @@ POTFILES
 
 TAGS
 TAGS.sub
+cscope.out
 
 .local.vimrc
 .lvimrc
 
 .clang-format
+.clang-tidy
+.clangd
+.cache
+compile_commands.json
 
 .gdbinit
 .gdb_history
+
+perf.data
+perf.data.old
 
 # ignore core files, but not java/net/protocol/core/
 core
@@ -49,6 +60,9 @@ lost+found
 # ignore ./contrib/gcc_update output
 LAST_UPDATED
 REVISION
+
+stamp-*
+*.stamp
 
 # ignore in-tree prerequisites
 /mpfr*

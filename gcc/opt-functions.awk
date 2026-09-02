@@ -1,4 +1,4 @@
-#  Copyright (C) 2003-2017 Free Software Foundation, Inc.
+#  Copyright (C) 2003-2023 Free Software Foundation, Inc.
 #  Contributed by Kelley Cook, June 2004.
 #  Original code from Neil Booth, May 2003.
 #
@@ -72,6 +72,27 @@ function opt_args(name, flags)
 	return flags
 }
 
+# If FLAGS contains a "NAME(...argument...)" flag, return the value
+# of the argument.  Print error message otherwise.
+function opt_args_non_empty(name, flags, description)
+{
+	args = opt_args(name, flags)
+	if (args == "")
+		print "#error Empty option argument '" name "' during parsing of: " flags
+	return args
+}
+
+# Return the number of comma-separated element of S.
+function n_args(s)
+{
+	n = 1
+	while (s ~ ",") {
+		n++
+		sub("[^,]*, *", "", s)
+	}
+	return n
+}
+
 # Return the Nth comma-separated element of S.  Return the empty string
 # if S does not contain N elements.
 function nth_arg(n, s)
@@ -105,7 +126,8 @@ function switch_flags (flags)
 	  test_flag("Undocumented", flags,  " | CL_UNDOCUMENTED") \
 	  test_flag("NoDWARFRecord", flags,  " | CL_NO_DWARF_RECORD") \
 	  test_flag("Warning", flags,  " | CL_WARNING") \
-	  test_flag("(Optimization|PerFunction)", flags,  " | CL_OPTIMIZATION")
+	  test_flag("(Optimization|PerFunction)", flags,  " | CL_OPTIMIZATION") \
+	  test_flag("Param", flags,  " | CL_PARAMS")
 	sub( "^0 \\| ", "", result )
 	return result
 }
@@ -113,9 +135,14 @@ function switch_flags (flags)
 # Return bit-field initializers for option flags FLAGS.
 function switch_bit_fields (flags)
 {
+	uinteger_flag = ""
 	vn = var_name(flags);
 	if (host_wide_int[vn] == "yes")
 		hwi = "Host_Wide_Int"
+	else if (flag_set_p("Host_Wide_Int", flags)) {
+		hwi = "Host_Wide_Int"
+		uinteger_flag = flag_init("UInteger", flags)
+	}
 	else
 		hwi = ""
 	result = ""
@@ -126,6 +153,20 @@ function switch_bit_fields (flags)
 		sep_args--
 	result = result sep_args ", "
 
+	if (uinteger_flag == "")
+		uinteger_flag = flag_init("UInteger", flags)
+
+	hwi_flag = flag_init("Host_Wide_Int", hwi)
+	byte_size_flag = flag_init("ByteSize", flags)
+
+	if (substr(byte_size_flag, 1, 1) != "0"	\
+	    && substr(uinteger_flag, 1, 1) == "0" \
+	    && substr(hwi_flag, 1, 1) == "0")
+	  print "#error only UInteger amd Host_Wide_Int options can specify a ByteSize suffix"
+
+	# The following flags need to be in the same order as
+	# the corresponding members of struct cl_option defined
+	# in gcc/opts.h.
 	result = result \
 	  flag_init("SeparateAlias", flags) \
 	  flag_init("NegativeAlias", flags) \
@@ -133,10 +174,13 @@ function switch_bit_fields (flags)
 	  flag_init("RejectDriver", flags) \
 	  flag_init("RejectNegative", flags) \
 	  flag_init("JoinedOrMissing", flags) \
-	  flag_init("UInteger", flags) \
-	  flag_init("Host_Wide_Int", hwi) \
+	  uinteger_flag \
+	  hwi_flag \
 	  flag_init("ToLower", flags) \
-	  flag_init("Report", flags)
+	  byte_size_flag
+
+	if (flag_set_p("Report", flags))
+	    print "#error Report option property is dropped"
 
 	sub(", $", "", result)
 	return result
@@ -199,6 +243,8 @@ function var_type(flags)
 	}
 	else if (!flag_set_p("Joined.*", flags) && !flag_set_p("Separate", flags))
 		return "int "
+	else if (flag_set_p("Host_Wide_Int", flags))
+		return "HOST_WIDE_INT "
 	else if (flag_set_p("UInteger", flags))
 		return "int "
 	else
@@ -210,8 +256,13 @@ function var_type(flags)
 # type instead of int to save space.
 function var_type_struct(flags)
 {
-	if (flag_set_p("UInteger", flags))
-		return "int "
+	if (flag_set_p("UInteger", flags)) {
+		if (host_wide_int[var_name(flags)] == "yes")
+			return "HOST_WIDE_INT ";
+		if (flag_set_p("ByteSize", flags))
+			return "HOST_WIDE_INT "
+	  return "int "
+	}
 	else if (flag_set_p("Enum.*", flags)) {
 		en = opt_args("Enum", flags);
 		return enum_type[en] " "
@@ -221,7 +272,7 @@ function var_type_struct(flags)
 			if (host_wide_int[var_name(flags)] == "yes")
 				return "HOST_WIDE_INT "
 			else
-				return "int "
+				return "/* - */ int "
 		}
 		else
 			return "signed char "
@@ -257,11 +308,18 @@ function var_set(flags)
 	}
 	if (flag_set_p("Enum.*", flags)) {
 		en = opt_args("Enum", flags);
-		return enum_index[en] ", CLVC_ENUM, 0"
+		if (flag_set_p("EnumSet", flags))
+			return enum_index[en] ", CLVC_ENUM, CLEV_SET"
+		else if (flag_set_p("EnumBitSet", flags))
+			return enum_index[en] ", CLVC_ENUM, CLEV_BITSET"
+		else
+			return enum_index[en] ", CLVC_ENUM, CLEV_NORMAL"
 	}
 	if (var_type(flags) == "const char *")
 		return "0, CLVC_STRING, 0"
-	return "0, CLVC_BOOLEAN, 0"
+	if (flag_set_p("ByteSize", flags))
+		return "0, CLVC_SIZE, 0"
+	return "0, CLVC_INTEGER, 0"
 }
 
 # Given that an option called NAME has flags FLAGS, return an initializer
@@ -275,7 +333,7 @@ function var_ref(name, flags)
 		return "offsetof (struct gcc_options, x_target_flags)"
 	if (opt_args("InverseMask", flags) != "")
 		return "offsetof (struct gcc_options, x_target_flags)"
-	return "-1"
+	return "(unsigned short) -1"
 }
 
 # Given the option called NAME return a sanitized version of its name.
@@ -314,38 +372,18 @@ function search_var_name(name, opt_numbers, opts, flags, n_opts)
     return ""
 }
 
-# Handle LangEnabledBy(ENABLED_BY_LANGS, ENABLEDBY_NAME, ENABLEDBY_POSARG,
-# ENABLEDBY_NEGARG). This function does not return anything.
-function lang_enabled_by(enabledby_langs, enabledby_name, enabledby_posarg, enabledby_negarg)
+function integer_range_info(range_option, init, option, uinteger_used)
 {
-    n_enabledby_arg_langs = split(enabledby_langs, enabledby_arg_langs, " ");
-    if (enabledby_posarg != "" && enabledby_negarg != "") {
-        with_args = "," enabledby_posarg "," enabledby_negarg
-    } else if (enabledby_posarg == "" && enabledby_negarg == "") {
-        with_args = ""
-    } else {
-        print "#error " opts[i] " LangEnabledBy("enabledby_langs","enabledby_name", " \
-            enabledby_posarg", " enabledby_negargs                  \
-            ") with three arguments, it should have either 2 or 4"
+    if (range_option != "") {
+	ival = init + 0;
+	start = nth_arg(0, range_option) + 0;
+	end = nth_arg(1, range_option) + 0;
+	if (init != "" && init != "-1" && (ival < start || ival > end))
+	  print "#error initial value " init " of '" option "' must be in range [" start "," end "]"
+	if (uinteger_used && start < 0)
+	  print "#error '" option"': negative IntegerRange (" start ", " end ") cannot be combined with UInteger"
+	return start ", " end
     }
-
-    n_enabledby_array = split(enabledby_name, enabledby_array, " \\|\\| ");
-    for (k = 1; k <= n_enabledby_array; k++) {
-        enabledby_index = opt_numbers[enabledby_array[k]];
-        if (enabledby_index == "") {
-             print "#error " opts[i] " LangEnabledBy("enabledby_langs","enabledby_name", " \
-                 enabledby_posarg", " enabledby_negargs"), unknown option '" enabledby_name "'"
-        } else {
-            for (j = 1; j <= n_enabledby_arg_langs; j++) {
-                 lang_name = lang_sanitized_name(enabledby_arg_langs[j]);
-                 lang_index = lang_numbers[enabledby_arg_langs[j]];
-                 if (enables[lang_name,enabledby_array[k]] == "") {
-                     enabledby[lang_name,n_enabledby_lang[lang_index]] = enabledby_array[k];
-                     n_enabledby_lang[lang_index]++;
-                 }
-                 enables[lang_name,enabledby_array[k]] \
-                     = enables[lang_name,enabledby_array[k]] opts[i] with_args ";";
-            }
-        }
-    }
+    else
+        return "-1, -1"
 }

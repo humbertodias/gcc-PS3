@@ -1,4 +1,4 @@
-# Copyright (C) 1995-2017 Free Software Foundation, Inc.
+# Copyright (C) 1995-2023 Free Software Foundation, Inc.
 #
 # This file is part of GCC.
 #
@@ -18,7 +18,11 @@
 
 MULTILIB_OPTIONS = msoft-float
 
-# Because the pdp11 POINTER_SIZE is only 16, in dwarf2out.c,
+# Optimize for space
+LIBGCC2_CFLAGS = -Os
+CRTSTUFF_T_CFLAGS = -Os
+
+# Because the pdp11 POINTER_SIZE is only 16, in dwarf2out.cc,
 # DWARF_ARANGES_PAD_SIZE is 0, thus a loop in output_aranges that checks
 # (i < (unsigned) DWARF_ARANGES_PAD_SIZE) elicits a warning that the
 # comparison is always false.

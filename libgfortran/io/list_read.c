@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    Namelist input contributed by Paul Thomas
    F2003 I/O support contributed by Jerry DeLisle
@@ -29,7 +29,6 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #include "fbuf.h"
 #include "unix.h"
 #include <string.h>
-#include <ctype.h>
 
 typedef unsigned char uchar;
 
@@ -266,15 +265,19 @@ next_char_internal (st_parameter_dt *dtp)
     }
 
   /* Get the next character and handle end-of-record conditions.  */
-
-  if (is_char4_unit(dtp)) /* Check for kind=4 internal unit.  */
-   length = sread (dtp->u.p.current_unit->s, &c, 1);
+  if (likely (dtp->u.p.current_unit->bytes_left > 0))
+    {
+      if (unlikely (is_char4_unit(dtp))) /* Check for kind=4 internal unit.  */
+       length = sread (dtp->u.p.current_unit->s, &c, 1);
+      else
+       {
+	 char cc;
+	 length = sread (dtp->u.p.current_unit->s, &cc, 1);
+	 c = cc;
+       }
+    }
   else
-   {
-     char cc;
-     length = sread (dtp->u.p.current_unit->s, &cc, 1);
-     c = cc;
-   }
+    length = 0;
 
   if (unlikely (length < 0))
     {
@@ -290,7 +293,6 @@ next_char_internal (st_parameter_dt *dtp)
 	  generate_error (&dtp->common, LIBERROR_INTERNAL_UNIT, NULL);
 	  return '\0';
 	}
-      dtp->u.p.current_unit->bytes_left--;
     }
   else
     {
@@ -302,6 +304,7 @@ next_char_internal (st_parameter_dt *dtp)
 	  dtp->u.p.at_eof = 1;
 	}
     }
+  dtp->u.p.current_unit->bytes_left--;
 
 done:
   dtp->u.p.at_eol = (c == '\n' || c == EOF);
@@ -807,7 +810,7 @@ read_logical (st_parameter_dt *dtp, int length)
   if (parse_repeat (dtp))
     return;
 
-  c = tolower (next_char (dtp));
+  c = safe_tolower (next_char (dtp));
   l_push_char (dtp, c);
   switch (c)
     {
@@ -833,7 +836,7 @@ read_logical (st_parameter_dt *dtp, int length)
       break;
 
     case '.':
-      c = tolower (next_char (dtp));
+      c = safe_tolower (next_char (dtp));
       switch (c)
 	{
 	  case 't':
@@ -1048,7 +1051,7 @@ read_integer (st_parameter_dt *dtp, int length)
     }
 
  get_integer:
-  if (!isdigit (c))
+  if (!safe_isdigit (c))
     goto bad_integer;
   push_char (dtp, c);
 
@@ -1299,7 +1302,7 @@ parse_real (st_parameter_dt *dtp, void *buffer, int length)
   if (c == ',' && dtp->u.p.current_unit->decimal_status == DECIMAL_COMMA)
     c = '.';
 
-  if (!isdigit (c) && c != '.')
+  if (!safe_isdigit (c) && c != '.')
     {
       if (c == 'i' || c == 'I' || c == 'n' || c == 'N')
 	goto inf_nan;
@@ -1373,10 +1376,10 @@ parse_real (st_parameter_dt *dtp, void *buffer, int length)
     }
 
  exp2:
-  if (!isdigit (c))
+  if (!safe_isdigit (c))
     {
       /* Extension: allow default exponent of 0 when omitted.  */
-      if (dtp->common.flags & IOPARM_DT_DEFAULT_EXP)
+      if (dtp->common.flags & IOPARM_DT_DEC_EXT)
 	{
 	  push_char (dtp, '0');
 	  goto done;
@@ -1744,7 +1747,7 @@ read_real (st_parameter_dt *dtp, void *dest, int length)
   if (c == ',' && dtp->u.p.current_unit->decimal_status == DECIMAL_COMMA)
     c = '.';
 
-  if (!isdigit (c) && c != '.')
+  if (!safe_isdigit (c) && c != '.')
     {
       if (c == 'i' || c == 'I' || c == 'n' || c == 'N')
 	goto inf_nan;
@@ -1824,10 +1827,10 @@ read_real (st_parameter_dt *dtp, void *dest, int length)
     }
 
  exp2:
-  if (!isdigit (c))
+  if (!safe_isdigit (c))
     {
       /* Extension: allow default exponent of 0 when omitted.  */
-      if (dtp->common.flags & IOPARM_DT_DEFAULT_EXP)
+      if (dtp->common.flags & IOPARM_DT_DEC_EXT)
 	{
 	  push_char (dtp, '0');
 	  goto done;
@@ -2096,10 +2099,9 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
 			    int kind, size_t size)
 {
   gfc_char4_t *q, *r;
-  int c, i, m;
+  size_t m;
+  int c;
   int err = 0;
-
-  dtp->u.p.namelist_mode = 0;
 
   /* Set the next_char and push_char worker functions.  */
   set_workers (dtp);
@@ -2195,7 +2197,7 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
 	  gfc_charlen_type child_iomsg_len;
 	  int noiostat;
 	  int *child_iostat = NULL;
-	  gfc_array_i4 vlist;
+	  gfc_full_array_i4 vlist;
 
 	  GFC_DESCRIPTOR_DATA(&vlist) = NULL;
 	  GFC_DIMENSION_SET(vlist.dim[0],1, 0, 0);
@@ -2253,20 +2255,20 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
     case BT_CHARACTER:
       if (dtp->u.p.saved_string)
 	{
-	  m = ((int) size < dtp->u.p.saved_used)
-	      ? (int) size : dtp->u.p.saved_used;
+	  m = (size < (size_t) dtp->u.p.saved_used)
+	    ? size : (size_t) dtp->u.p.saved_used;
 
 	  q = (gfc_char4_t *) p;
 	  r = (gfc_char4_t *) dtp->u.p.saved_string;
 	  if (dtp->u.p.current_unit->flags.encoding == ENCODING_UTF8)
-	    for (i = 0; i < m; i++)
+	    for (size_t i = 0; i < m; i++)
 	      *q++ = *r++;
 	  else
 	    {
 	      if (kind == 1)
 		memcpy (p, dtp->u.p.saved_string, m);
 	      else
-		for (i = 0; i < m; i++)
+		for (size_t i = 0; i < m; i++)
 		  *q++ = *r++;
 	    }
 	}
@@ -2274,14 +2276,14 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
 	/* Just delimiters encountered, nothing to copy but SPACE.  */
         m = 0;
 
-      if (m < (int) size)
+      if (m < size)
 	{
 	  if (kind == 1)
 	    memset (((char *) p) + m, ' ', size - m);
 	  else
 	    {
 	      q = (gfc_char4_t *) p;
-	      for (i = m; i < (int) size; i++)
+	      for (size_t i = m; i < size; i++)
 		q[i] = (unsigned char) ' ';
 	    }
 	}
@@ -2754,7 +2756,7 @@ nml_match_name (st_parameter_dt *dtp, const char *name, index_type len)
   for (i = 0; i < len; i++)
     {
       c = next_char (dtp);
-      if (c == EOF || (tolower (c) != tolower (name[i])))
+      if (c == EOF || (safe_tolower (c) != safe_tolower (name[i])))
 	{
 	  dtp->u.p.nml_read_error = 1;
 	  break;
@@ -2993,12 +2995,12 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
 		gfc_charlen_type child_iomsg_len;
 		int noiostat;
 		int *child_iostat = NULL;
-		gfc_array_i4 vlist;
+		gfc_full_array_i4 vlist;
 		formatted_dtio dtio_ptr = (formatted_dtio)nl->dtio_sub;
 
 		GFC_DESCRIPTOR_DATA(&vlist) = NULL;
 		GFC_DIMENSION_SET(vlist.dim[0],1, 0, 0);
-
+		
 		list_obj.vptr = nl->vtable;
 		list_obj.len = 0;
 
@@ -3018,11 +3020,6 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
 		    child_iomsg = tmp_iomsg;
 		    child_iomsg_len = IOMSG_LEN;
 		  }
-
-		/* If reading from an internal unit, stash it to allow
-		   the child procedure to access it.  */
-		if (is_internal_unit (dtp))
-		  stash_internal_unit (dtp);
 
 		/* Call the user defined formatted READ procedure.  */
 		dtp->u.p.current_unit->child_dtio++;
@@ -3288,7 +3285,7 @@ get_name:
   do
     {
       if (!is_separator (c))
-	push_char_default (dtp, tolower(c));
+	push_char_default (dtp, safe_tolower(c));
       if ((c = next_char (dtp)) == EOF)
 	goto nml_err_ret;
     }
@@ -3551,7 +3548,6 @@ namelist_read (st_parameter_dt *dtp)
      name.  */
   namelist_info *prev_nl = NULL;
 
-  dtp->u.p.namelist_mode = 1;
   dtp->u.p.input_complete = 0;
   dtp->u.p.expanded_read = 0;
 
@@ -3617,11 +3613,7 @@ find_nml_name:
   while (!dtp->u.p.input_complete)
     {
       if (!nml_get_obj_data (dtp, &prev_nl, nml_err_msg, sizeof nml_err_msg))
-	{
-	  if (dtp->u.p.current_unit->unit_number != options.stdin_unit)
-	    goto nml_err_ret;
-	  generate_error (&dtp->common, LIBERROR_READ_VALUE, nml_err_msg);
-        }
+	goto nml_err_ret;
 
       /* Reset the previous namelist pointer if we know we are not going
 	 to be doing multiple reads within a single namelist object.  */

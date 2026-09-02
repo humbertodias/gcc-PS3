@@ -1,5 +1,5 @@
 # x86/x86_64 support for -fsplit-stack.
-# Copyright (C) 2009-2017 Free Software Foundation, Inc.
+# Copyright (C) 2009-2023 Free Software Foundation, Inc.
 # Contributed by Ian Lance Taylor <iant@google.com>.
 
 # This file is part of GCC.
@@ -23,6 +23,7 @@
 # see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 # <http://www.gnu.org/licenses/>.
 
+#include "auto-host.h"
 
 # Support for allocating more stack space when using -fsplit-stack.
 # When a function discovers that it needs more stack space, it will
@@ -75,11 +76,11 @@
 # The amount of extra space we ask for.  In general this has to be
 # enough for the dynamic loader to find a symbol and for a signal
 # handler to run.
-	
+
 #ifndef __x86_64__
 #define BACKOFF (1024)
 #else
-#define BACKOFF (1536)
+#define BACKOFF (3584)
 #endif
 
 
@@ -90,6 +91,8 @@
 # code.  When the linker sees this case, it converts the call to
 # __morestack to call __morestack_non_split instead.  We just bump the
 # requested stack space by 16K.
+
+#include <cet.h>
 
 	.global __morestack_non_split
 	.hidden	__morestack_non_split
@@ -158,7 +161,7 @@ __morestack_non_split:
 	cmpb	$0x55,1(%eax)
 	je	2f
 
-3:	
+3:
 	movl	%eax,4(%esp)		# Update return address.
 
 	popl	%eax			# Restore %eax and stack.
@@ -424,7 +427,7 @@ __morestack:
 
 # This is the cleanup code called by the stack unwinder when unwinding
 # through the code between .LEHB0 and .LEHE0 above.
-	
+
 .L1:
 	.cfi_restore_state
 	subl	$16,%esp		# Maintain 16 byte alignment.
@@ -598,7 +601,7 @@ __morestack:
 
 # This is the cleanup code called by the stack unwinder when unwinding
 # through the code between .LEHB0 and .LEHE0 above.
-	
+
 .L1:
 	.cfi_restore_state
 	subq	$16,%rsp		# Maintain 16 byte alignment.
@@ -701,6 +704,7 @@ DW.ref.__gcc_personality_v0:
 __morestack_large_model:
 
 	.cfi_startproc
+	_CET_ENDBR
 
 	movq	%r10, %r11
 	andl	$0xffffffff, %r10d
@@ -727,6 +731,7 @@ __morestack_large_model:
 #endif
 
 __stack_split_initialize:
+	_CET_ENDBR
 
 #ifndef __x86_64__
 
@@ -844,7 +849,11 @@ __morestack_make_guard:
 # Make __stack_split_initialize a high priority constructor.  FIXME:
 # This is ELF specific.
 
+#if HAVE_INITFINI_ARRAY_SUPPORT
+	.section	.init_array.00000,"aw",@progbits
+#else
 	.section	.ctors.65535,"aw",@progbits
+#endif
 
 #ifndef __LP64__
 	.align	4

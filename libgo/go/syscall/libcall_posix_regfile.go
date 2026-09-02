@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !aix && !hurd && !linux && (!solaris || !386) && (!solaris || !sparc)
+// +build !aix
+// +build !hurd
 // +build !linux
 // +build !solaris !386
 // +build !solaris !sparc
@@ -10,6 +13,9 @@
 // interface.
 
 package syscall
+
+//sys	Creat(path string, mode uint32) (fd int, err error)
+//creat(path *byte, mode Mode_t) _C_int
 
 //sys	Fstat(fd int, stat *Stat_t) (err error)
 //fstat(fd _C_int, stat *Stat_t) _C_int

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,30 +23,34 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;    use Atree;
-with Checks;   use Checks;
-with Einfo;    use Einfo;
-with Errout;   use Errout;
-with Lib;      use Lib;
-with Lib.Xref; use Lib.Xref;
-with Namet;    use Namet;
-with Nlists;   use Nlists;
-with Nmake;    use Nmake;
-with Opt;      use Opt;
-with Restrict; use Restrict;
-with Rident;   use Rident;
-with Rtsfind;  use Rtsfind;
-with Sem;      use Sem;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Ch5;  use Sem_Ch5;
-with Sem_Ch8;  use Sem_Ch8;
-with Sem_Ch13; use Sem_Ch13;
-with Sem_Res;  use Sem_Res;
-with Sem_Util; use Sem_Util;
-with Sem_Warn; use Sem_Warn;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
-with Stand;    use Stand;
+with Atree;          use Atree;
+with Checks;         use Checks;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Errout;         use Errout;
+with Lib;            use Lib;
+with Lib.Xref;       use Lib.Xref;
+with Namet;          use Namet;
+with Nlists;         use Nlists;
+with Nmake;          use Nmake;
+with Opt;            use Opt;
+with Restrict;       use Restrict;
+with Rident;         use Rident;
+with Rtsfind;        use Rtsfind;
+with Sem;            use Sem;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Ch5;        use Sem_Ch5;
+with Sem_Ch8;        use Sem_Ch8;
+with Sem_Ch13;       use Sem_Ch13;
+with Sem_Res;        use Sem_Res;
+with Sem_Util;       use Sem_Util;
+with Sem_Warn;       use Sem_Warn;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Stand;          use Stand;
+with Warnsw;         use Warnsw;
 
 package body Sem_Ch11 is
 
@@ -61,7 +65,7 @@ package body Sem_Ch11 is
    begin
       Generate_Definition         (Id);
       Enter_Name                  (Id);
-      Set_Ekind                   (Id, E_Exception);
+      Mutate_Ekind                (Id, E_Exception);
       Set_Etype                   (Id, Standard_Exception_Type);
       Set_Is_Statically_Allocated (Id);
       Set_Is_Pure                 (Id, PF);
@@ -127,7 +131,7 @@ package body Sem_Ch11 is
                        and then Comes_From_Source (Id)
                      then
                         Error_Msg_N
-                          ("(Ada 83): duplicate exception choice&", Id);
+                          ("(Ada 83) duplicate exception choice&", Id);
                      end if;
                   end if;
                end if;
@@ -165,8 +169,24 @@ package body Sem_Ch11 is
 
    begin
       Handler := First (L);
-      Check_Restriction (No_Exceptions, Handler);
-      Check_Restriction (No_Exception_Handlers, Handler);
+
+      --  Pragma Restriction_Warnings has more related semantics than pragma
+      --  Restrictions in that it flags exception handlers as violators. Note
+      --  that the compiler must still generate handlers for certain critical
+      --  scenarios such as finalization. As a result, these handlers should
+      --  not be subjected to the restriction check when in warnings mode.
+
+      if not Comes_From_Source (Handler)
+        and then (Restriction_Warnings (No_Exception_Handlers)
+                   or else Restriction_Warnings (No_Exception_Propagation)
+                   or else Restriction_Warnings (No_Exceptions))
+      then
+         null;
+
+      else
+         Check_Restriction (No_Exceptions, Handler);
+         Check_Restriction (No_Exception_Handlers, Handler);
+      end if;
 
       --  Kill current remembered values, since we don't know where we were
       --  when the exception was raised.
@@ -213,7 +233,7 @@ package body Sem_Ch11 is
                Set_Etype (H_Scope, Standard_Void_Type);
 
                Enter_Name (Choice);
-               Set_Ekind (Choice, E_Variable);
+               Mutate_Ekind (Choice, E_Variable);
 
                if RTE_Available (RE_Exception_Occurrence) then
                   Set_Etype (Choice, RTE (RE_Exception_Occurrence));
@@ -411,13 +431,10 @@ package body Sem_Ch11 is
 
       --  If the current scope is a subprogram, entry or task body or declare
       --  block then this is the right place to check for hanging useless
-      --  assignments from the statement sequence. Skip this in the body of a
-      --  postcondition, since in that case there are no source references, and
-      --  we need to preserve deferred references from the enclosing scope.
+      --  assignments from the statement sequence.
 
-      if ((Is_Subprogram (Current_Scope) or else Is_Entry (Current_Scope))
-           and then Chars (Current_Scope) /= Name_uPostconditions)
-         or else Ekind_In (Current_Scope, E_Block, E_Task_Type)
+      if Is_Subprogram_Or_Entry (Current_Scope)
+        or else Ekind (Current_Scope) in E_Block | E_Task_Type
       then
          Warn_On_Useless_Assignments (Current_Scope);
       end if;
@@ -440,12 +457,6 @@ package body Sem_Ch11 is
       Exception_Name : Entity_Id        := Empty;
 
    begin
-      if Comes_From_Source (N) then
-         Check_Compiler_Unit ("raise expression", N);
-      end if;
-
-      Check_SPARK_05_Restriction ("raise expression is not allowed", N);
-
       --  Check exception restrictions on the original source
 
       if Comes_From_Source (N) then
@@ -501,10 +512,6 @@ package body Sem_Ch11 is
       Par            : Node_Id;
 
    begin
-      if Comes_From_Source (N) then
-         Check_SPARK_05_Restriction ("raise statement is not allowed", N);
-      end if;
-
       Check_Unreachable_Code (N);
 
       --  Check exception restrictions on the original source
@@ -527,7 +534,7 @@ package body Sem_Ch11 is
             --  Skip past null statements and pragmas
 
             while Present (P)
-              and then Nkind_In (P, N_Null_Statement, N_Pragma)
+              and then Nkind (P) in N_Null_Statement | N_Pragma
             loop
                P := Prev (P);
             end loop;
@@ -584,11 +591,9 @@ package body Sem_Ch11 is
 
       if No (Exception_Id) then
          P := Parent (N);
-         while not Nkind_In (P, N_Exception_Handler,
-                                N_Subprogram_Body,
-                                N_Package_Body,
-                                N_Task_Body,
-                                N_Entry_Body)
+         while Nkind (P) not in
+                 N_Exception_Handler | N_Subprogram_Body | N_Package_Body |
+                 N_Task_Body         | N_Entry_Body
          loop
             P := Parent (P);
          end loop;
@@ -603,15 +608,7 @@ package body Sem_Ch11 is
 
          else
             Set_Local_Raise_Not_OK (P);
-
-            --  Do not check the restriction if the reraise statement is part
-            --  of the code generated for an AT-END handler. That's because
-            --  if the restriction is actually active, we never generate this
-            --  raise anyway, so the apparent violation is bogus.
-
-            if not From_At_End (N) then
-               Check_Restriction (No_Exception_Propagation, N);
-            end if;
+            Check_Restriction (No_Exception_Propagation, N);
          end if;
 
       --  Normal case with exception id present
@@ -649,6 +646,18 @@ package body Sem_Ch11 is
 
       Kill_Current_Values (Last_Assignment_Only => True);
    end Analyze_Raise_Statement;
+
+   ----------------------------------
+   -- Analyze_Raise_When_Statement --
+   ----------------------------------
+
+   procedure Analyze_Raise_When_Statement (N : Node_Id) is
+   begin
+      --  Verify the condition is a Boolean expression
+
+      Analyze_And_Resolve (Condition (N), Any_Boolean);
+      Check_Unset_Reference (Condition (N));
+   end Analyze_Raise_When_Statement;
 
    -----------------------------
    -- Analyze_Raise_xxx_Error --
@@ -706,10 +715,6 @@ package body Sem_Ch11 is
    --  Start of processing for Analyze_Raise_xxx_Error
 
    begin
-      if Nkind (Original_Node (N)) = N_Raise_Statement then
-         Check_SPARK_05_Restriction ("raise statement is not allowed", N);
-      end if;
-
       if No (Etype (N)) then
          Set_Etype (N, Standard_Void_Type);
       end if;

@@ -1,6 +1,6 @@
 // <shared_mutex> -*- C++ -*-
 
-// Copyright (C) 2013-2017 Free Software Foundation, Inc.
+// Copyright (C) 2013-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,35 +31,126 @@
 
 #pragma GCC system_header
 
-#if __cplusplus <= 201103L
-# include <bits/c++14_warning.h>
-#else
+#include <bits/requires_hosted.h> // concurrency
 
-#include <bits/c++config.h>
-#include <condition_variable>
+#if __cplusplus >= 201402L
+
+#include <bits/chrono.h>
+#include <bits/error_constants.h>
 #include <bits/functexcept.h>
+#include <bits/move.h>        // move, __exchange
+#include <bits/std_mutex.h>   // defer_lock_t
+
+#if ! (_GLIBCXX_USE_PTHREAD_RWLOCK_T && _GTHREAD_USE_MUTEX_TIMEDLOCK)
+# include <condition_variable>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /**
-   * @ingroup mutexes
+   * @addtogroup mutexes
    * @{
    */
 
-#ifdef _GLIBCXX_USE_C99_STDINT_TR1
 #ifdef _GLIBCXX_HAS_GTHREADS
 
-#if __cplusplus > 201402L
-#define __cpp_lib_shared_mutex 201505
+#if __cplusplus >= 201703L
+#define __cpp_lib_shared_mutex 201505L
   class shared_mutex;
 #endif
 
-#define __cpp_lib_shared_timed_mutex 201402
+#define __cpp_lib_shared_timed_mutex 201402L
   class shared_timed_mutex;
 
+  /// @cond undocumented
+
 #if _GLIBCXX_USE_PTHREAD_RWLOCK_T
+#ifdef __gthrw
+#define _GLIBCXX_GTHRW(name) \
+  __gthrw(pthread_ ## name); \
+  static inline int \
+  __glibcxx_ ## name (pthread_rwlock_t *__rwlock) \
+  { \
+    if (__gthread_active_p ()) \
+      return __gthrw_(pthread_ ## name) (__rwlock); \
+    else \
+      return 0; \
+  }
+  _GLIBCXX_GTHRW(rwlock_rdlock)
+  _GLIBCXX_GTHRW(rwlock_tryrdlock)
+  _GLIBCXX_GTHRW(rwlock_wrlock)
+  _GLIBCXX_GTHRW(rwlock_trywrlock)
+  _GLIBCXX_GTHRW(rwlock_unlock)
+# ifndef PTHREAD_RWLOCK_INITIALIZER
+  _GLIBCXX_GTHRW(rwlock_destroy)
+  __gthrw(pthread_rwlock_init);
+  static inline int
+  __glibcxx_rwlock_init (pthread_rwlock_t *__rwlock)
+  {
+    if (__gthread_active_p ())
+      return __gthrw_(pthread_rwlock_init) (__rwlock, NULL);
+    else
+      return 0;
+  }
+# endif
+# if _GTHREAD_USE_MUTEX_TIMEDLOCK
+   __gthrw(pthread_rwlock_timedrdlock);
+  static inline int
+  __glibcxx_rwlock_timedrdlock (pthread_rwlock_t *__rwlock,
+				const timespec *__ts)
+  {
+    if (__gthread_active_p ())
+      return __gthrw_(pthread_rwlock_timedrdlock) (__rwlock, __ts);
+    else
+      return 0;
+  }
+   __gthrw(pthread_rwlock_timedwrlock);
+  static inline int
+  __glibcxx_rwlock_timedwrlock (pthread_rwlock_t *__rwlock,
+				const timespec *__ts)
+  {
+    if (__gthread_active_p ())
+      return __gthrw_(pthread_rwlock_timedwrlock) (__rwlock, __ts);
+    else
+      return 0;
+  }
+# endif
+#else
+  static inline int
+  __glibcxx_rwlock_rdlock (pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_rdlock (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_tryrdlock (pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_tryrdlock (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_wrlock (pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_wrlock (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_trywrlock (pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_trywrlock (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_unlock (pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_unlock (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_destroy(pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_destroy (__rwlock); }
+  static inline int
+  __glibcxx_rwlock_init(pthread_rwlock_t *__rwlock)
+  { return pthread_rwlock_init (__rwlock, NULL); }
+# if _GTHREAD_USE_MUTEX_TIMEDLOCK
+  static inline int
+  __glibcxx_rwlock_timedrdlock (pthread_rwlock_t *__rwlock,
+				const timespec *__ts)
+  { return pthread_rwlock_timedrdlock (__rwlock, __ts); }
+  static inline int
+  __glibcxx_rwlock_timedwrlock (pthread_rwlock_t *__rwlock,
+				const timespec *__ts)
+  { return pthread_rwlock_timedwrlock (__rwlock, __ts); }
+# endif
+#endif
+
   /// A shared mutex type implemented using pthread_rwlock_t.
   class __shared_mutex_pthread
   {
@@ -77,7 +168,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   public:
     __shared_mutex_pthread()
     {
-      int __ret = pthread_rwlock_init(&_M_rwlock, NULL);
+      int __ret = __glibcxx_rwlock_init(&_M_rwlock);
       if (__ret == ENOMEM)
 	__throw_bad_alloc();
       else if (__ret == EAGAIN)
@@ -90,7 +181,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     ~__shared_mutex_pthread()
     {
-      int __ret __attribute((__unused__)) = pthread_rwlock_destroy(&_M_rwlock);
+      int __ret __attribute((__unused__)) = __glibcxx_rwlock_destroy(&_M_rwlock);
       // Errors not handled: EBUSY, EINVAL
       __glibcxx_assert(__ret == 0);
     }
@@ -102,7 +193,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     void
     lock()
     {
-      int __ret = pthread_rwlock_wrlock(&_M_rwlock);
+      int __ret = __glibcxx_rwlock_wrlock(&_M_rwlock);
       if (__ret == EDEADLK)
 	__throw_system_error(int(errc::resource_deadlock_would_occur));
       // Errors not handled: EINVAL
@@ -112,7 +203,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     bool
     try_lock()
     {
-      int __ret = pthread_rwlock_trywrlock(&_M_rwlock);
+      int __ret = __glibcxx_rwlock_trywrlock(&_M_rwlock);
       if (__ret == EBUSY) return false;
       // Errors not handled: EINVAL
       __glibcxx_assert(__ret == 0);
@@ -122,7 +213,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     void
     unlock()
     {
-      int __ret __attribute((__unused__)) = pthread_rwlock_unlock(&_M_rwlock);
+      int __ret __attribute((__unused__)) = __glibcxx_rwlock_unlock(&_M_rwlock);
       // Errors not handled: EPERM, EBUSY, EINVAL
       __glibcxx_assert(__ret == 0);
     }
@@ -138,7 +229,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // is okay based on the current specification of forward progress
       // guarantees by the standard.
       do
-	__ret = pthread_rwlock_rdlock(&_M_rwlock);
+	__ret = __glibcxx_rwlock_rdlock(&_M_rwlock);
       while (__ret == EAGAIN);
       if (__ret == EDEADLK)
 	__throw_system_error(int(errc::resource_deadlock_would_occur));
@@ -149,7 +240,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     bool
     try_lock_shared()
     {
-      int __ret = pthread_rwlock_tryrdlock(&_M_rwlock);
+      int __ret = __glibcxx_rwlock_tryrdlock(&_M_rwlock);
       // If the maximum number of read locks has been exceeded, we just fail
       // to acquire the lock.  Unlike for lock(), we are not allowed to throw
       // an exception.
@@ -314,8 +405,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     }
   };
 #endif
+  /// @endcond
 
-#if __cplusplus > 201402L
+#if __cplusplus >= 201703L
   /// The standard shared mutex type.
   class shared_mutex
   {
@@ -329,13 +421,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // Exclusive ownership
 
     void lock() { _M_impl.lock(); }
-    bool try_lock() { return _M_impl.try_lock(); }
+    [[nodiscard]] bool try_lock() { return _M_impl.try_lock(); }
     void unlock() { _M_impl.unlock(); }
 
     // Shared ownership
 
     void lock_shared() { _M_impl.lock_shared(); }
-    bool try_lock_shared() { return _M_impl.try_lock_shared(); }
+    [[nodiscard]] bool try_lock_shared() { return _M_impl.try_lock_shared(); }
     void unlock_shared() { _M_impl.unlock_shared(); }
 
 #if _GLIBCXX_USE_PTHREAD_RWLOCK_T
@@ -351,11 +443,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   };
 #endif // C++17
 
+  /// @cond undocumented
 #if _GLIBCXX_USE_PTHREAD_RWLOCK_T && _GTHREAD_USE_MUTEX_TIMEDLOCK
   using __shared_timed_mutex_base = __shared_mutex_pthread;
 #else
   using __shared_timed_mutex_base = __shared_mutex_cv;
 #endif
+  /// @endcond
 
   /// The standard shared timed mutex type.
   class shared_timed_mutex
@@ -364,7 +458,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     using _Base = __shared_timed_mutex_base;
 
     // Must use the same clock as condition_variable for __shared_mutex_cv.
-    typedef chrono::system_clock	__clock_t;
+#ifdef _GLIBCXX_USE_PTHREAD_RWLOCK_CLOCKLOCK
+    using __clock_t = chrono::steady_clock;
+#else
+    using __clock_t = chrono::system_clock;
+#endif
 
   public:
     shared_timed_mutex() = default;
@@ -376,27 +474,36 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // Exclusive ownership
 
     void lock() { _Base::lock(); }
-    bool try_lock() { return _Base::try_lock(); }
+    _GLIBCXX_NODISCARD bool try_lock() { return _Base::try_lock(); }
     void unlock() { _Base::unlock(); }
 
     template<typename _Rep, typename _Period>
+      _GLIBCXX_NODISCARD
       bool
-      try_lock_for(const chrono::duration<_Rep, _Period>& __rel_time)
+      try_lock_for(const chrono::duration<_Rep, _Period>& __rtime)
       {
-	return try_lock_until(__clock_t::now() + __rel_time);
+	auto __rt = chrono::duration_cast<__clock_t::duration>(__rtime);
+	if (ratio_greater<__clock_t::period, _Period>())
+	  ++__rt;
+	return try_lock_until(__clock_t::now() + __rt);
       }
 
     // Shared ownership
 
     void lock_shared() { _Base::lock_shared(); }
+    _GLIBCXX_NODISCARD
     bool try_lock_shared() { return _Base::try_lock_shared(); }
     void unlock_shared() { _Base::unlock_shared(); }
 
     template<typename _Rep, typename _Period>
+      _GLIBCXX_NODISCARD
       bool
-      try_lock_shared_for(const chrono::duration<_Rep, _Period>& __rel_time)
+      try_lock_shared_for(const chrono::duration<_Rep, _Period>& __rtime)
       {
-	return try_lock_shared_until(__clock_t::now() + __rel_time);
+	auto __rt = chrono::duration_cast<__clock_t::duration>(__rtime);
+	if (ratio_greater<__clock_t::period, _Period>())
+	  ++__rt;
+	return try_lock_shared_until(__clock_t::now() + __rt);
       }
 
 #if _GLIBCXX_USE_PTHREAD_RWLOCK_T && _GTHREAD_USE_MUTEX_TIMEDLOCK
@@ -404,8 +511,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // Exclusive ownership
 
     template<typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
-      try_lock_until(const chrono::time_point<__clock_t, _Duration>& __atime)
+      try_lock_until(const chrono::time_point<chrono::system_clock,
+		     _Duration>& __atime)
       {
 	auto __s = chrono::time_point_cast<chrono::seconds>(__atime);
 	auto __ns = chrono::duration_cast<chrono::nanoseconds>(__atime - __s);
@@ -416,7 +525,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    static_cast<long>(__ns.count())
 	  };
 
-	int __ret = pthread_rwlock_timedwrlock(&_M_rwlock, &__ts);
+	int __ret = __glibcxx_rwlock_timedwrlock(&_M_rwlock, &__ts);
 	// On self-deadlock, we just fail to acquire the lock.  Technically,
 	// the program violated the precondition.
 	if (__ret == ETIMEDOUT || __ret == EDEADLK)
@@ -426,23 +535,61 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return true;
       }
 
-    template<typename _Clock, typename _Duration>
+#ifdef _GLIBCXX_USE_PTHREAD_RWLOCK_CLOCKLOCK
+    template<typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
-      try_lock_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
+      try_lock_until(const chrono::time_point<chrono::steady_clock,
+		   _Duration>& __atime)
       {
-	// DR 887 - Sync unknown clock to known clock.
-	const typename _Clock::time_point __c_entry = _Clock::now();
-	const __clock_t::time_point __s_entry = __clock_t::now();
-	const auto __delta = __abs_time - __c_entry;
-	const auto __s_atime = __s_entry + __delta;
-	return try_lock_until(__s_atime);
+	auto __s = chrono::time_point_cast<chrono::seconds>(__atime);
+	auto __ns = chrono::duration_cast<chrono::nanoseconds>(__atime - __s);
+
+	__gthread_time_t __ts =
+	  {
+	    static_cast<std::time_t>(__s.time_since_epoch().count()),
+	    static_cast<long>(__ns.count())
+	  };
+
+	int __ret = pthread_rwlock_clockwrlock(&_M_rwlock, CLOCK_MONOTONIC,
+					       &__ts);
+	// On self-deadlock, we just fail to acquire the lock.  Technically,
+	// the program violated the precondition.
+	if (__ret == ETIMEDOUT || __ret == EDEADLK)
+	  return false;
+	// Errors not handled: EINVAL
+	__glibcxx_assert(__ret == 0);
+	return true;
+      }
+#endif
+
+    template<typename _Clock, typename _Duration>
+      _GLIBCXX_NODISCARD
+      bool
+      try_lock_until(const chrono::time_point<_Clock, _Duration>& __atime)
+      {
+#if __cplusplus > 201703L
+	static_assert(chrono::is_clock_v<_Clock>);
+#endif
+	// The user-supplied clock may not tick at the same rate as
+	// steady_clock, so we must loop in order to guarantee that
+	// the timeout has expired before returning false.
+	typename _Clock::time_point __now = _Clock::now();
+	do {
+	    auto __rtime = __atime - __now;
+	    if (try_lock_for(__rtime))
+	      return true;
+	    __now = _Clock::now();
+	} while (__atime > __now);
+	return false;
       }
 
     // Shared ownership
 
     template<typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
-      try_lock_shared_until(const chrono::time_point<__clock_t,
+      try_lock_shared_until(const chrono::time_point<chrono::system_clock,
 			    _Duration>& __atime)
       {
 	auto __s = chrono::time_point_cast<chrono::seconds>(__atime);
@@ -469,7 +616,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	// mistaken for a spurious failure, which might help users realise
 	// there is a deadlock.
 	do
-	  __ret = pthread_rwlock_timedrdlock(&_M_rwlock, &__ts);
+	  __ret = __glibcxx_rwlock_timedrdlock(&_M_rwlock, &__ts);
 	while (__ret == EAGAIN || __ret == EDEADLK);
 	if (__ret == ETIMEDOUT)
 	  return false;
@@ -478,17 +625,54 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return true;
       }
 
+#ifdef _GLIBCXX_USE_PTHREAD_RWLOCK_CLOCKLOCK
+    template<typename _Duration>
+      _GLIBCXX_NODISCARD
+      bool
+      try_lock_shared_until(const chrono::time_point<chrono::steady_clock,
+			    _Duration>& __atime)
+      {
+	auto __s = chrono::time_point_cast<chrono::seconds>(__atime);
+	auto __ns = chrono::duration_cast<chrono::nanoseconds>(__atime - __s);
+
+	__gthread_time_t __ts =
+	  {
+	    static_cast<std::time_t>(__s.time_since_epoch().count()),
+	    static_cast<long>(__ns.count())
+	  };
+
+	int __ret = pthread_rwlock_clockrdlock(&_M_rwlock, CLOCK_MONOTONIC,
+					       &__ts);
+	// On self-deadlock, we just fail to acquire the lock.  Technically,
+	// the program violated the precondition.
+	if (__ret == ETIMEDOUT || __ret == EDEADLK)
+	  return false;
+	// Errors not handled: EINVAL
+	__glibcxx_assert(__ret == 0);
+	return true;
+      }
+#endif
+
     template<typename _Clock, typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
       try_lock_shared_until(const chrono::time_point<_Clock,
-						     _Duration>& __abs_time)
+						     _Duration>& __atime)
       {
-	// DR 887 - Sync unknown clock to known clock.
-	const typename _Clock::time_point __c_entry = _Clock::now();
-	const __clock_t::time_point __s_entry = __clock_t::now();
-	const auto __delta = __abs_time - __c_entry;
-	const auto __s_atime = __s_entry + __delta;
-	return try_lock_shared_until(__s_atime);
+#if __cplusplus > 201703L
+	static_assert(chrono::is_clock_v<_Clock>);
+#endif
+	// The user-supplied clock may not tick at the same rate as
+	// steady_clock, so we must loop in order to guarantee that
+	// the timeout has expired before returning false.
+	typename _Clock::time_point __now = _Clock::now();
+	do {
+	    auto __rtime = __atime - __now;
+	    if (try_lock_shared_for(__rtime))
+	      return true;
+	    __now = _Clock::now();
+	} while (__atime > __now);
+	return false;
       }
 
 #else // ! (_GLIBCXX_USE_PTHREAD_RWLOCK_T && _GTHREAD_USE_MUTEX_TIMEDLOCK)
@@ -496,6 +680,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // Exclusive ownership
 
     template<typename _Clock, typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
       try_lock_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
       {
@@ -520,6 +705,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // Shared ownership
 
     template <typename _Clock, typename _Duration>
+      _GLIBCXX_NODISCARD
       bool
       try_lock_shared_until(const chrono::time_point<_Clock,
 						     _Duration>& __abs_time)
@@ -602,6 +788,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	_M_owns = true;
       }
 
+      _GLIBCXX_NODISCARD
       bool
       try_lock()
       {
@@ -610,6 +797,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
       template<typename _Rep, typename _Period>
+	_GLIBCXX_NODISCARD
 	bool
 	try_lock_for(const chrono::duration<_Rep, _Period>& __rel_time)
 	{
@@ -618,6 +806,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	}
 
       template<typename _Clock, typename _Duration>
+	_GLIBCXX_NODISCARD
 	bool
 	try_lock_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
 	{
@@ -647,15 +836,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       release() noexcept
       {
 	_M_owns = false;
-	return std::exchange(_M_pm, nullptr);
+	return std::__exchange(_M_pm, nullptr);
       }
 
       // Getters
 
+      _GLIBCXX_NODISCARD
       bool owns_lock() const noexcept { return _M_owns; }
 
       explicit operator bool() const noexcept { return _M_owns; }
 
+      _GLIBCXX_NODISCARD
       mutex_type* mutex() const noexcept { return _M_pm; }
 
     private:
@@ -673,14 +864,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     };
 
   /// Swap specialization for shared_lock
+  /// @relates shared_mutex
   template<typename _Mutex>
     void
     swap(shared_lock<_Mutex>& __x, shared_lock<_Mutex>& __y) noexcept
     { __x.swap(__y); }
 
-#endif // _GLIBCXX_USE_C99_STDINT_TR1
-
-  // @} group mutexes
+  /// @} group mutexes
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 

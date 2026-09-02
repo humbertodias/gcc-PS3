@@ -1,5 +1,5 @@
 /* Definitions for rtems targeting a PowerPC using elf.
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Contributed by Joel Sherrill (joel@OARcorp.com).
 
    This file is part of GCC.
@@ -23,6 +23,9 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
+/* Undef gnu-user.h macro we don't want.  */
+#undef CPLUSPLUS_CPP_SPEC
+
 /* Copy and paste from linux64.h and freebsd64.h */
 #ifdef IN_LIBGCC2
 #undef TARGET_64BIT
@@ -36,6 +39,15 @@
 /* Copy and paste from linux64.h and freebsd64.h */
 #undef	TARGET_AIX
 #define	TARGET_AIX TARGET_64BIT
+
+/* Simplified copy and paste from linux64.h and freebsd64.h */
+#undef DOT_SYMBOLS
+#define DOT_SYMBOLS 0
+
+/* Copy and paste from linux64.h and freebsd64.h */
+#undef TARGET_CMODEL
+#define TARGET_CMODEL rs6000_current_cmodel
+#define SET_CMODEL(opt) rs6000_current_cmodel = opt
 
 #undef TARGET_OS_CPP_BUILTINS
 #define TARGET_OS_CPP_BUILTINS()			\
@@ -64,7 +76,16 @@
   while (0)
 
 /* Copy and paste from linux64.h and freebsd64.h */
-#define INVALID_64BIT "-m%s not supported in this configuration"
+#undef RELOCATABLE_NEEDS_FIXUP
+#define RELOCATABLE_NEEDS_FIXUP \
+  (rs6000_isa_flags & rs6000_isa_flags_explicit & OPTION_MASK_RELOCATABLE)
+
+/* Copy and paste from linux64.h */
+#undef	RS6000_ABI_NAME
+#define	RS6000_ABI_NAME "linux"
+
+/* Copy and paste from linux64.h and freebsd64.h */
+#define INVALID_64BIT "%<-m%s%> not supported in this configuration"
 
 /* A lot of copy and paste from linux64.h and freebsd64.h */
 #undef	SUBSUBTARGET_OVERRIDE_OPTIONS
@@ -93,7 +114,25 @@
 	  if ((rs6000_isa_flags & OPTION_MASK_POWERPC64) == 0)	\
 	    {							\
 	      rs6000_isa_flags |= OPTION_MASK_POWERPC64;	\
-	      error ("-m64 requires a PowerPC64 cpu");		\
+	      error ("%<-m64%> requires a PowerPC64 cpu");		\
+	    }							\
+	  if ((rs6000_isa_flags_explicit			\
+		& OPTION_MASK_MINIMAL_TOC) != 0)		\
+	    {							\
+	      if (OPTION_SET_P (rs6000_current_cmodel)	\
+		  && rs6000_current_cmodel != CMODEL_SMALL)	\
+		error ("%<-mcmodel%> incompatible with other toc options"); \
+	      SET_CMODEL (CMODEL_SMALL);			\
+	    }							\
+	  else							\
+	    {							\
+	      if (!OPTION_SET_P (rs6000_current_cmodel))	\
+		SET_CMODEL (CMODEL_MEDIUM);			\
+	      if (rs6000_current_cmodel != CMODEL_SMALL)	\
+		{						\
+		  TARGET_NO_FP_IN_TOC = 0;			\
+		  TARGET_NO_SUM_IN_TOC = 0;			\
+		}						\
 	    }							\
 	}							\
     }								\
@@ -141,6 +180,30 @@
 #define RESTORE_FP_SUFFIX ""
 
 /* Copy and paste from linux64.h and freebsd64.h */
+#undef	ASM_PREFERRED_EH_DATA_FORMAT
+#define	ASM_PREFERRED_EH_DATA_FORMAT(CODE, GLOBAL) \
+  (TARGET_64BIT || flag_pic						\
+   ? (((GLOBAL) ? DW_EH_PE_indirect : 0) | DW_EH_PE_pcrel		\
+      | (TARGET_64BIT ? DW_EH_PE_udata8 : DW_EH_PE_sdata4))		\
+   : DW_EH_PE_absptr)
+
+/* Copy and paste from linux64.h and freebsd64.h */
+#undef  TOC_SECTION_ASM_OP
+#define TOC_SECTION_ASM_OP \
+  (TARGET_64BIT						\
+   ? "\t.section\t\".toc\",\"aw\""			\
+   : "\t.section\t\".got\",\"aw\"")
+
+/* Copy and paste from linux64.h and freebsd64.h */
+#undef  MINIMAL_TOC_SECTION_ASM_OP
+#define MINIMAL_TOC_SECTION_ASM_OP \
+  (TARGET_64BIT						\
+   ? "\t.section\t\".toc1\",\"aw\""			\
+   : (flag_pic						\
+      ? "\t.section\t\".got2\",\"aw\""			\
+      : "\t.section\t\".got1\",\"aw\""))
+
+/* Copy and paste from linux64.h and freebsd64.h */
 #undef	ASM_DECLARE_FUNCTION_SIZE
 #define	ASM_DECLARE_FUNCTION_SIZE(FILE, FNAME, DECL)			\
   do									\
@@ -162,13 +225,13 @@
 #undef  ASM_OUTPUT_SPECIAL_POOL_ENTRY_P
 #define ASM_OUTPUT_SPECIAL_POOL_ENTRY_P(X, MODE)			\
   (TARGET_TOC								\
-   && (GET_CODE (X) == SYMBOL_REF					\
+   && (SYMBOL_REF_P (X)							\
        || (GET_CODE (X) == CONST && GET_CODE (XEXP (X, 0)) == PLUS	\
-	   && GET_CODE (XEXP (XEXP (X, 0), 0)) == SYMBOL_REF)		\
+	   && SYMBOL_REF_P (XEXP (XEXP (X, 0), 0)))			\
        || GET_CODE (X) == LABEL_REF					\
-       || (GET_CODE (X) == CONST_INT 					\
+       || (CONST_INT_P (X)						\
 	   && GET_MODE_BITSIZE (MODE) <= GET_MODE_BITSIZE (Pmode))	\
-       || (GET_CODE (X) == CONST_DOUBLE					\
+       || (CONST_DOUBLE_P (X)						\
 	   && ((TARGET_64BIT						\
 		&& (TARGET_MINIMAL_TOC					\
 		    || (SCALAR_FLOAT_MODE_P (GET_MODE (X))		\
@@ -192,10 +255,8 @@
 %{mcpu=821:  %{!Dppc*: %{!Dmpc*: -Dmpc821}  } } \
 %{mcpu=860:  %{!Dppc*: %{!Dmpc*: -Dmpc860}  } } \
 %{mcpu=8540: %{!Dppc*: %{!Dmpc*: -Dppc8540}  } } \
-%{mcpu=e6500: -D__PPC_CPU_E6500__}"
-
-#undef	ASM_DEFAULT_SPEC
-#define	ASM_DEFAULT_SPEC "-mppc%{m64:64}"
+%{mcpu=e6500: -D__PPC_CPU_E6500__} \
+%{mvrsave: -D__PPC_VRSAVE__}"
 
 #undef	ASM_SPEC
 #define	ASM_SPEC "%{!m64:%(asm_spec32)}%{m64:%(asm_spec64)} %(asm_spec_common)"
@@ -228,3 +289,13 @@
   { "asm_spec64",		ASM_SPEC64 },				\
   { "link_os_spec32",		LINK_OS_SPEC32 },			\
   { "link_os_spec64",		LINK_OS_SPEC64 },
+
+/* Use gnu-user.h LINK_GCC_SEQUENCE_SPEC for rtems.  */
+#undef LINK_GCC_C_SEQUENCE_SPEC
+#define	LINK_GCC_C_SEQUENCE_SPEC \
+  "%{mads|myellowknife|mmvme|msim:%G %L %G;" \
+  "!mcall-*|mcall-linux:" GNU_USER_TARGET_LINK_GCC_C_SEQUENCE_SPEC ";" \
+  ":%G %L %G}"
+
+#define RTEMS_STARTFILE_SPEC "ecrti%O%s rtems_crti%O%s crtbegin%O%s"
+#define RTEMS_ENDFILE_SPEC "crtend%O%s rtems_crtn%O%s ecrtn%O%s"

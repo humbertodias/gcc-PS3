@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught and Janne Blomqvist
 
 This file is part of the GNU Fortran runtime library (libgfortran).
@@ -25,6 +25,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #include "io.h"
 #include "fbuf.h"
 #include "unix.h"
+#include "async.h"
 #include <string.h>
 
 /* file_pos.c-- Implement the file positioning statements, i.e. BACKSPACE,
@@ -103,6 +104,11 @@ unformatted_backspace (st_parameter_filepos *fpp, gfc_unit *u)
   ssize_t length;
   int continued;
   char p[sizeof (GFC_INTEGER_8)];
+  int convert = u->flags.convert;
+
+#ifdef HAVE_GFC_REAL_17
+  convert &= ~(GFC_CONVERT_R16_IEEE | GFC_CONVERT_R16_IBM);
+#endif
 
   if (compile_options.record_marker == 0)
     length = sizeof (GFC_INTEGER_4);
@@ -118,7 +124,7 @@ unformatted_backspace (st_parameter_filepos *fpp, gfc_unit *u)
         goto io_error;
 
       /* Only GFC_CONVERT_NATIVE and GFC_CONVERT_SWAP are valid here.  */
-      if (likely (u->flags.convert == GFC_CONVERT_NATIVE))
+      if (likely (convert == GFC_CONVERT_NATIVE))
 	{
 	  switch (length)
 	    {
@@ -187,6 +193,7 @@ void
 st_backspace (st_parameter_filepos *fpp)
 {
   gfc_unit *u;
+  bool needs_unlock = false;
 
   library_start (&fpp->common);
 
@@ -212,6 +219,17 @@ st_backspace (st_parameter_filepos *fpp)
       generate_error (&fpp->common, LIBERROR_OPTION_CONFLICT,
                       "Cannot BACKSPACE an unformatted stream file");
       goto done;
+    }
+
+  if (ASYNC_IO && u->au)
+    {
+      if (async_wait (&(fpp->common), u->au))
+	return;
+      else
+	{
+	  needs_unlock = true;
+	  LOCK (&u->au->io_lock);
+	}
     }
 
   /* Make sure format buffer is flushed and reset.  */
@@ -267,7 +285,12 @@ st_backspace (st_parameter_filepos *fpp)
 
  done:
   if (u != NULL)
-    unlock_unit (u);
+    {
+      unlock_unit (u);
+
+      if (ASYNC_IO && u->au && needs_unlock)
+	UNLOCK (&u->au->io_lock);
+    }
 
   library_end ();
 }
@@ -280,6 +303,7 @@ void
 st_endfile (st_parameter_filepos *fpp)
 {
   gfc_unit *u;
+  bool needs_unlock = false;
 
   library_start (&fpp->common);
 
@@ -292,6 +316,17 @@ st_endfile (st_parameter_filepos *fpp)
 			  "Cannot perform ENDFILE on a file opened "
 			  "for DIRECT access");
 	  goto done;
+	}
+
+      if (ASYNC_IO && u->au)
+	{
+	  if (async_wait (&(fpp->common), u->au))
+	    return;
+	  else
+	    {
+	      needs_unlock = true;
+	      LOCK (&u->au->io_lock);
+	    }
 	}
 
       if (u->flags.access == ACCESS_SEQUENTIAL
@@ -376,8 +411,11 @@ st_endfile (st_parameter_filepos *fpp)
 	}
     }
 
-  done:
-    unlock_unit (u);
+ done:
+  if (ASYNC_IO && u->au && needs_unlock)
+    UNLOCK (&u->au->io_lock);
+
+  unlock_unit (u);
 
   library_end ();
 }
@@ -390,6 +428,7 @@ void
 st_rewind (st_parameter_filepos *fpp)
 {
   gfc_unit *u;
+  bool needs_unlock = true;
 
   library_start (&fpp->common);
 
@@ -401,6 +440,17 @@ st_rewind (st_parameter_filepos *fpp)
 			"Cannot REWIND a file opened for DIRECT access");
       else
 	{
+	  if (ASYNC_IO && u->au)
+	    {
+	      if (async_wait (&(fpp->common), u->au))
+		return;
+	      else
+		{
+		  needs_unlock = true;
+		  LOCK (&u->au->io_lock);
+		}
+	    }
+
 	  /* If there are previously written bytes from a write with ADVANCE="no",
 	     add a record marker before performing the ENDFILE.  */
 
@@ -436,6 +486,10 @@ st_rewind (st_parameter_filepos *fpp)
 	}
       /* Update position for INQUIRE.  */
       u->flags.position = POSITION_REWIND;
+
+      if (ASYNC_IO && u->au && needs_unlock)
+	UNLOCK (&u->au->io_lock);
+
       unlock_unit (u);
     }
 
@@ -450,12 +504,24 @@ void
 st_flush (st_parameter_filepos *fpp)
 {
   gfc_unit *u;
+  bool needs_unlock = false;
 
   library_start (&fpp->common);
 
   u = find_unit (fpp->common.unit);
   if (u != NULL)
     {
+      if (ASYNC_IO && u->au)
+	{
+	  if (async_wait (&(fpp->common), u->au))
+	    return;
+	  else
+	    {
+	      needs_unlock = true;
+	      LOCK (&u->au->io_lock);
+	    }
+	}
+
       /* Make sure format buffer is flushed.  */
       if (u->flags.form == FORM_FORMATTED)
         fbuf_flush (u, u->mode);
@@ -466,8 +532,11 @@ st_flush (st_parameter_filepos *fpp)
     }
   else
     /* FLUSH on unconnected unit is illegal: F95 std., 9.3.5. */ 
-    generate_error (&fpp->common, LIBERROR_BAD_OPTION,
+    generate_error (&fpp->common, -LIBERROR_BAD_UNIT,
 			"Specified UNIT in FLUSH is not connected");
+
+  if (needs_unlock)
+    UNLOCK (&u->au->io_lock);
 
   library_end ();
 }

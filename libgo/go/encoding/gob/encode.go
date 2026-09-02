@@ -8,7 +8,9 @@ package gob
 
 import (
 	"encoding"
+	"encoding/binary"
 	"math"
+	"math/bits"
 	"reflect"
 	"sync"
 )
@@ -38,14 +40,14 @@ type encBuffer struct {
 }
 
 var encBufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		e := new(encBuffer)
 		e.data = e.scratch[0:0]
 		return e
 	},
 }
 
-func (e *encBuffer) WriteByte(c byte) {
+func (e *encBuffer) writeByte(c byte) {
 	e.data = append(e.data, c)
 }
 
@@ -104,17 +106,15 @@ func (enc *Encoder) freeEncoderState(e *encoderState) {
 // encodeUint writes an encoded unsigned integer to state.b.
 func (state *encoderState) encodeUint(x uint64) {
 	if x <= 0x7F {
-		state.b.WriteByte(uint8(x))
+		state.b.writeByte(uint8(x))
 		return
 	}
-	i := uint64Size
-	for x > 0 {
-		state.buf[i] = uint8(x)
-		x >>= 8
-		i--
-	}
-	state.buf[i] = uint8(i - uint64Size) // = loop count, negated
-	state.b.Write(state.buf[i : uint64Size+1])
+
+	binary.BigEndian.PutUint64(state.buf[1:], x)
+	bc := bits.LeadingZeros64(x) >> 3      // 8 - bytelen(x)
+	state.buf[bc] = uint8(bc - uint64Size) // and then we subtract 8 to get -bytelen(x)
+
+	state.b.Write(state.buf[bc : uint64Size+1])
 }
 
 // encodeInt writes an encoded signed integer to state.w.
@@ -209,13 +209,7 @@ func encUint(i *encInstr, state *encoderState, v reflect.Value) {
 // swizzling.
 func floatBits(f float64) uint64 {
 	u := math.Float64bits(f)
-	var v uint64
-	for i := 0; i < 8; i++ {
-		v <<= 8
-		v |= u & 0xFF
-		u >>= 8
-	}
-	return v
+	return bits.ReverseBytes64(u)
 }
 
 // encFloat encodes the floating point value (float32 float64) referenced by v.
@@ -285,7 +279,7 @@ func valid(v reflect.Value) bool {
 	switch v.Kind() {
 	case reflect.Invalid:
 		return false
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return !v.IsNil()
 	}
 	return true
@@ -374,11 +368,11 @@ func (enc *Encoder) encodeMap(b *encBuffer, mv reflect.Value, keyOp, elemOp encO
 	state := enc.newEncoderState(b)
 	state.fieldnum = -1
 	state.sendZero = true
-	keys := mv.MapKeys()
-	state.encodeUint(uint64(len(keys)))
-	for _, key := range keys {
-		encodeReflectValue(state, key, keyOp, keyIndir)
-		encodeReflectValue(state, mv.MapIndex(key), elemOp, elemIndir)
+	state.encodeUint(uint64(mv.Len()))
+	mi := mv.MapRange()
+	for mi.Next() {
+		encodeReflectValue(state, mi.Key(), keyOp, keyIndir)
+		encodeReflectValue(state, mi.Value(), elemOp, elemIndir)
 	}
 	enc.freeEncoderState(state)
 }
@@ -392,7 +386,7 @@ func (enc *Encoder) encodeInterface(b *encBuffer, iv reflect.Value) {
 	// Gobs can encode nil interface values but not typed interface
 	// values holding nil pointers, since nil pointers point to no value.
 	elem := iv.Elem()
-	if elem.Kind() == reflect.Ptr && elem.IsNil() {
+	if elem.Kind() == reflect.Pointer && elem.IsNil() {
 		errorf("gob: cannot encode nil pointer of type %s inside interface", iv.Elem().Type())
 	}
 	state := enc.newEncoderState(b)
@@ -404,12 +398,12 @@ func (enc *Encoder) encodeInterface(b *encBuffer, iv reflect.Value) {
 	}
 
 	ut := userType(iv.Elem().Type())
-	registerLock.RLock()
-	name, ok := concreteTypeToName[ut.base]
-	registerLock.RUnlock()
+	namei, ok := concreteTypeToName.Load(ut.base)
 	if !ok {
 		errorf("type not registered for interface: %s", ut.base)
 	}
+	name := namei.(string)
+
 	// Send the name.
 	state.encodeUint(uint64(len(name)))
 	state.b.WriteString(name)
@@ -452,7 +446,7 @@ func isZero(val reflect.Value) bool {
 		return !val.Bool()
 	case reflect.Complex64, reflect.Complex128:
 		return val.Complex() == 0
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Ptr:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Pointer:
 		return val.IsNil()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return val.Int() == 0
@@ -606,7 +600,7 @@ func encOpFor(rt reflect.Type, inProgress map[reflect.Type]*encOp, building map[
 func gobEncodeOpFor(ut *userTypeInfo) (*encOp, int) {
 	rt := ut.user
 	if ut.encIndir == -1 {
-		rt = reflect.PtrTo(rt)
+		rt = reflect.PointerTo(rt)
 	} else if ut.encIndir > 0 {
 		for i := int8(0); i < ut.encIndir; i++ {
 			rt = rt.Elem()

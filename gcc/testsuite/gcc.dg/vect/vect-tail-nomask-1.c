@@ -1,11 +1,10 @@
-/* { dg-do run } */
-/* { dg-require-weak "" } */
+/* { dg-skip-if "No undefined weak" { ! { posix_memalign } } } */
 /* { dg-additional-options "--param vect-epilogues-nomask=1 -mavx2" { target avx2_runtime } } */
 
 #define SIZE 1023
 #define ALIGN 64
 
-extern int posix_memalign(void **memptr, __SIZE_TYPE__ alignment, __SIZE_TYPE__ size) __attribute__((weak));
+extern int posix_memalign(void **memptr, __SIZE_TYPE__ alignment, __SIZE_TYPE__ size);
 extern void free (void *);
 
 void __attribute__((noinline))
@@ -95,12 +94,9 @@ run_test ()
 int
 main (int argc, const char **argv)
 {
-  if (!posix_memalign)
-    return 0;
-
   run_test ();
   return 0;
 }
 
 /* { dg-final { scan-tree-dump-times "LOOP VECTORIZED" 2 "vect" { target avx2_runtime } } } */
-/* { dg-final { scan-tree-dump-times "LOOP EPILOGUE VECTORIZED \\(VS=16\\)" 2 "vect" { target avx2_runtime } } } */
+/* { dg-final { scan-tree-dump-times "LOOP EPILOGUE VECTORIZED \\(MODE=V16QI\\)" 2 "vect" { target avx2_runtime } } } */

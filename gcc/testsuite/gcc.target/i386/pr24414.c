@@ -1,5 +1,7 @@
 /* { dg-do run } */
+/* { dg-require-effective-target nonpic } */
 /* { dg-options "-O2" } */
+/* { dg-skip-if "asm insert mismatches ABI for Darwin" { *-*-darwin* } } */
 int test;
 
 int

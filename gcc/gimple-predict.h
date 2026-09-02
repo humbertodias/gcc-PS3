@@ -1,6 +1,6 @@
 /* Gimple prediction routines.
 
-   Copyright (C) 2007-2017 Free Software Foundation, Inc.
+   Copyright (C) 2007-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -25,8 +25,8 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Return the predictor of GIMPLE_PREDICT statement GS.  */
 
-static inline enum br_predictor
-gimple_predict_predictor (gimple *gs)
+inline enum br_predictor
+gimple_predict_predictor (const gimple *gs)
 {
   GIMPLE_CHECK (gs, GIMPLE_PREDICT);
   return (enum br_predictor) (gs->subcode & ~GF_PREDICT_TAKEN);
@@ -35,7 +35,7 @@ gimple_predict_predictor (gimple *gs)
 
 /* Set the predictor of GIMPLE_PREDICT statement GS to PREDICT.  */
 
-static inline void
+inline void
 gimple_predict_set_predictor (gimple *gs, enum br_predictor predictor)
 {
   GIMPLE_CHECK (gs, GIMPLE_PREDICT);
@@ -46,8 +46,8 @@ gimple_predict_set_predictor (gimple *gs, enum br_predictor predictor)
 
 /* Return the outcome of GIMPLE_PREDICT statement GS.  */
 
-static inline enum prediction
-gimple_predict_outcome (gimple *gs)
+inline enum prediction
+gimple_predict_outcome (const gimple *gs)
 {
   GIMPLE_CHECK (gs, GIMPLE_PREDICT);
   return (gs->subcode & GF_PREDICT_TAKEN) ? TAKEN : NOT_TAKEN;
@@ -56,7 +56,7 @@ gimple_predict_outcome (gimple *gs)
 
 /* Set the outcome of GIMPLE_PREDICT statement GS to OUTCOME.  */
 
-static inline void
+inline void
 gimple_predict_set_outcome (gimple *gs, enum prediction outcome)
 {
   GIMPLE_CHECK (gs, GIMPLE_PREDICT);
@@ -78,6 +78,14 @@ gimple_build_predict (enum br_predictor predictor, enum prediction outcome)
   gimple_predict_set_predictor (p, predictor);
   gimple_predict_set_outcome (p, outcome);
   return p;
+}
+
+/* Return true if GS is a GIMPLE_PREDICT statement.  */
+
+inline bool
+is_gimple_predict (const gimple *gs)
+{
+  return gimple_code (gs) == GIMPLE_PREDICT;
 }
 
 #endif  /* GCC_GIMPLE_PREDICT_H */

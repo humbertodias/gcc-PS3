@@ -17,11 +17,19 @@ endif
 SUBDIRS += lsan asan ubsan
 nodist_saninclude_HEADERS += \
   include/sanitizer/lsan_interface.h \
-  include/sanitizer/asan_interface.h
+  include/sanitizer/asan_interface.h \
+  include/sanitizer/tsan_interface.h \
+  include/sanitizer/hwasan_interface.h
 if TSAN_SUPPORTED
 SUBDIRS += tsan
 endif
+if HWASAN_SUPPORTED
+SUBDIRS += hwasan
 endif
+endif
+
+## Force DIST_SUBDIRS so that make distclean works
+DIST_SUBDIRS = $(SUBDIRS)
 
 ## May be used by toolexeclibdir.
 gcc_version := $(shell @get_gcc_base_ver@ $(top_srcdir)/../gcc/BASE-VER)
@@ -70,3 +78,4 @@ nodist_toolexeclib_HEADERS = libsanitizer.spec
 
 ## ################################################################
 
+include $(top_srcdir)/../multilib.am

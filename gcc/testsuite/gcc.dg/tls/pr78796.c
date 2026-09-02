@@ -1,8 +1,8 @@
 /* PR target/78796 */
 /* { dg-do run } */
 /* { dg-options "-O2" } */
-/* { dg-additional-options "-mcmodel=large" { target aarch64-*-* } } */
-/* { dg-require-effective-target tls } */
+/* { dg-additional-options "-mcmodel=large -fno-pie -no-pie" { target aarch64-*-* } } */
+/* { dg-require-effective-target tls_runtime } */
 /* { dg-add-options tls } */
 
 struct S { int a, b, c, d, e; };

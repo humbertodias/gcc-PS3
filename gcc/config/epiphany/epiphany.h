@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, Argonaut EPIPHANY cpu.
-   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+   Copyright (C) 1994-2023 Free Software Foundation, Inc.
    Contributed by Embecosm on behalf of Adapteva, Inc.
 
 This file is part of GCC.
@@ -146,12 +146,6 @@ along with GCC; see the file COPYING3.  If not see
 #define FASTEST_ALIGNMENT 64
 
 #define MALLOC_ABI_ALIGNMENT BIGGEST_ALIGNMENT
-
-/* Make strings dword-aligned so strcpy from constants will be faster.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
-  ((TREE_CODE (EXP) == STRING_CST	\
-    && (ALIGN) < FASTEST_ALIGNMENT)	\
-   ? FASTEST_ALIGNMENT : (ALIGN))
 
 /* Make arrays of chars dword-aligned for the same reasons.
    Also, align arrays of SImode items.  */
@@ -302,28 +296,6 @@ along with GCC; see the file COPYING3.  If not see
 
 #define HARD_REGNO_RENAME_OK(SRC, DST) epiphany_regno_rename_ok (SRC, DST)
 
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.  */
-#define HARD_REGNO_NREGS(REGNO, MODE) \
-((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.  */
-extern const unsigned int epiphany_hard_regno_mode_ok[];
-extern unsigned int epiphany_mode_class[];
-#define HARD_REGNO_MODE_OK(REGNO, MODE) hard_regno_mode_ok((REGNO), (MODE))
-
-/* A C expression that is nonzero if it is desirable to choose
-   register allocation so as to avoid move instructions between a
-   value of mode MODE1 and a value of mode MODE2.
-
-   If `HARD_REGNO_MODE_OK (R, MODE1)' and `HARD_REGNO_MODE_OK (R,
-   MODE2)' are ever different for any R, then `MODES_TIEABLE_P (MODE1,
-   MODE2)' must be zero.  */
-
-#define MODES_TIEABLE_P(MODE1, MODE2) 1
-
 /* Register classes and constants.  */
 
 /* Define the classes of registers for register constraints in the
@@ -406,7 +378,7 @@ extern enum reg_class epiphany_regno_reg_class[FIRST_PSEUDO_REGISTER];
    They give nonzero only if REGNO is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in reginfo.c during register
+   has been allocated, which happens in reginfo.cc during register
    allocation.  */
 #define REGNO_OK_FOR_BASE_P(REGNO) \
 ((REGNO) < FIRST_PSEUDO_REGISTER || (unsigned) reg_renumber[REGNO] < FIRST_PSEUDO_REGISTER)
@@ -474,12 +446,6 @@ typedef struct GTY (()) machine_function
    that is, each additional local variable allocated
    goes at a more negative offset in the frame.  */
 #define FRAME_GROWS_DOWNWARD 1
-
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-#define STARTING_FRAME_OFFSET epiphany_stack_offset
 
 /* Offset from the stack pointer register to the first location at which
    outgoing arguments are placed.  */
@@ -585,7 +551,7 @@ typedef struct GTY (()) machine_function
     && epiphany_is_interrupt_p (current_function_decl)) \
    ? IRET_REGNUM : GPR_LR)
 /* This is not only for dwarf unwind info, but also for the benefit of
-   df-scan.c to tell it that LR is live at the function start.  */
+   df-scan.cc to tell it that LR is live at the function start.  */
 #define INCOMING_RETURN_ADDR_RTX gen_rtx_REG (Pmode, EPIPHANY_RETURN_REGNO)
 
 /* However, we haven't implemented the rest needed for dwarf2 unwind info.  */
@@ -641,7 +607,8 @@ typedef struct GTY (()) machine_function
 
 #define RTX_OK_FOR_OFFSET_P(MODE, X) \
   RTX_OK_FOR_OFFSET_1 (GET_MODE_CLASS (MODE) == MODE_VECTOR_INT \
-		       && epiphany_vect_align == 4 ? SImode : (MODE), X)
+		       && epiphany_vect_align == 4 \
+		       ? (machine_mode) SImode : (machine_mode) (MODE), X)
 #define RTX_OK_FOR_OFFSET_1(MODE, X) \
   (GET_CODE (X) == CONST_INT \
    && !(INTVAL (X) & (GET_MODE_SIZE (MODE) - 1)) \
@@ -695,7 +662,7 @@ typedef struct GTY (()) machine_function
 #define NO_FUNCTION_CSE 1
 
 /* Section selection.  */
-/* WARNING: These section names also appear in dwarf2out.c.  */
+/* WARNING: These section names also appear in dwarf2out.cc.  */
 
 #define TEXT_SECTION_ASM_OP	"\t.section .text"
 #define DATA_SECTION_ASM_OP	"\t.section .data"
@@ -828,14 +795,9 @@ do \
 
 /* Debugging information.  */
 
-/* Generate DBX and DWARF debugging information.  */
-#define DBX_DEBUGGING_INFO 1
-
+/* Generate DWARF debugging information.  */
 #undef PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
-
-/* Turn off splitting of long stabs.  */
-#define DBX_CONTIN_LENGTH 0
 
 /* Miscellaneous.  */
 
@@ -860,10 +822,6 @@ do \
 /* Define this to be nonzero if shift instructions ignore all but the low-order
    few bits.  */
 #define SHIFT_COUNT_TRUNCATED 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction
@@ -916,7 +874,7 @@ enum
 };
 
 extern int epiphany_normal_fp_rounding;
-#ifndef IN_LIBGCC2
+#ifndef USED_FOR_TARGET
 extern rtl_opt_pass *make_pass_mode_switch_use (gcc::context *ctxt);
 extern rtl_opt_pass *make_pass_resolve_sw_modes (gcc::context *ctxt);
 #endif

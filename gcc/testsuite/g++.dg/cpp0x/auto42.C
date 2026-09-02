@@ -5,5 +5,5 @@
 
 void foo(int i)
 {
-  auto x[1] = { 0 };		// { dg-error "array of .auto" }
+  auto x[1] = { 0 };		// { dg-error "19:unable to deduce" }
 }

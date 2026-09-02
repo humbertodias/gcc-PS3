@@ -6,23 +6,17 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
 -- ware  Foundation;  either version 3,  or (at your option) any later ver- --
 -- sion.  GNAT is distributed in the hope that it will be useful, but WITH- --
 -- OUT ANY WARRANTY;  without even the  implied warranty of MERCHANTABILITY --
--- or FITNESS FOR A PARTICULAR PURPOSE.                                     --
---                                                                          --
--- As a special exception under Section 7 of GPL version 3, you are granted --
--- additional permissions described in the GCC Runtime Library Exception,   --
--- version 3.1, as published by the Free Software Foundation.               --
---                                                                          --
--- You should have received a copy of the GNU General Public License and    --
--- a copy of the GCC Runtime Library Exception along with this program;     --
--- see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see    --
--- <http://www.gnu.org/licenses/>.                                          --
+-- or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License --
+-- for  more details.  You should have  received  a copy of the GNU General --
+-- Public License  distributed with GNAT; see file COPYING3.  If not, go to --
+-- http://www.gnu.org/licenses for a complete copy of the license.          --
 --                                                                          --
 -- GNAT was originally developed  by the GNAT team at  New York University. --
 -- Extensive contributions were provided by Ada Core Technologies Inc.      --
@@ -33,20 +27,20 @@ pragma Style_Checks (All_Checks);
 --  Subprogram ordering not enforced in this unit
 --  (because of some logical groupings).
 
-with Atree;    use Atree;
-with Csets;    use Csets;
-with Einfo;    use Einfo;
-with Fname;    use Fname;
-with Nlists;   use Nlists;
-with Opt;      use Opt;
-with Output;   use Output;
-with Sinfo;    use Sinfo;
-with Sinput;   use Sinput;
-with Stand;    use Stand;
-with Stringt;  use Stringt;
-with Tree_IO;  use Tree_IO;
-with Uname;    use Uname;
-with Widechar; use Widechar;
+with Atree;          use Atree;
+with Csets;          use Csets;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Nlists;         use Nlists;
+with Opt;            use Opt;
+with Output;         use Output;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinput;         use Sinput;
+with Stand;          use Stand;
+with Stringt;        use Stringt;
+with Uname;          use Uname;
+with Widechar;       use Widechar;
 
 package body Lib is
 
@@ -63,7 +57,9 @@ package body Lib is
       Yes_After,  -- S1 is in same extended unit as S2, and appears after it
       No);        -- S2 is not in same extended unit as S2
 
-   function Check_Same_Extended_Unit (S1, S2 : Source_Ptr) return SEU_Result;
+   function Check_Same_Extended_Unit
+     (S1 : Source_Ptr;
+      S2 : Source_Ptr) return SEU_Result;
    --  Used by In_Same_Extended_Unit and Earlier_In_Extended_Unit. Returns
    --  value as described above.
 
@@ -127,6 +123,21 @@ package body Lib is
       return Units.Table (U).Has_RACW;
    end Has_RACW;
 
+   function Is_Predefined_Renaming (U : Unit_Number_Type) return Boolean is
+   begin
+      return Units.Table (U).Is_Predefined_Renaming;
+   end Is_Predefined_Renaming;
+
+   function Is_Internal_Unit (U : Unit_Number_Type) return Boolean is
+   begin
+      return Units.Table (U).Is_Internal_Unit;
+   end Is_Internal_Unit;
+
+   function Is_Predefined_Unit (U : Unit_Number_Type) return Boolean is
+   begin
+      return Units.Table (U).Is_Predefined_Unit;
+   end Is_Predefined_Unit;
+
    function Ident_String (U : Unit_Number_Type) return Node_Id is
    begin
       return Units.Table (U).Ident_String;
@@ -161,6 +172,16 @@ package body Lib is
    begin
       return Units.Table (U).OA_Setting;
    end OA_Setting;
+
+   function Primary_Stack_Count (U : Unit_Number_Type) return Int is
+   begin
+      return Units.Table (U).Primary_Stack_Count;
+   end Primary_Stack_Count;
+
+   function Sec_Stack_Count  (U : Unit_Number_Type) return Int is
+   begin
+      return Units.Table (U).Sec_Stack_Count;
+   end Sec_Stack_Count;
 
    function Source_Index (U : Unit_Number_Type) return Source_File_Index is
    begin
@@ -251,15 +272,34 @@ package body Lib is
    end Set_OA_Setting;
 
    procedure Set_Unit_Name (U : Unit_Number_Type; N : Unit_Name_Type) is
+      Old_N : constant Unit_Name_Type := Units.Table (U).Unit_Name;
+
    begin
+      --  First unregister the old name, if any
+
+      if Present (Old_N) and then Unit_Names.Get (Old_N) = U then
+         Unit_Names.Set (Old_N, No_Unit);
+      end if;
+
+      --  Then set the new name
+
       Units.Table (U).Unit_Name := N;
+
+      --  Finally register the new name
+
+      if Unit_Names.Get (N) = No_Unit then
+         Unit_Names.Set (N, U);
+      end if;
    end Set_Unit_Name;
 
    ------------------------------
    -- Check_Same_Extended_Unit --
    ------------------------------
 
-   function Check_Same_Extended_Unit (S1, S2 : Source_Ptr) return SEU_Result is
+   function Check_Same_Extended_Unit
+     (S1 : Source_Ptr;
+      S2 : Source_Ptr) return SEU_Result
+   is
       Max_Iterations : constant Nat := Maximum_Instantiations * 2;
       --  Limit to prevent a potential infinite loop
 
@@ -280,15 +320,13 @@ package body Lib is
    begin
       if S1 = No_Location or else S2 = No_Location then
          return No;
+      end if;
 
-      elsif S1 = Standard_Location then
-         if S2 = Standard_Location then
-            return Yes_Same;
-         else
-            return No;
-         end if;
+      if S1 = S2 then
+         return Yes_Same;
+      end if;
 
-      elsif S2 = Standard_Location then
+      if S1 = Standard_Location or else S2 = Standard_Location then
          return No;
       end if;
 
@@ -318,6 +356,12 @@ package body Lib is
          --  Step 2: Check subunits. If a subunit is instantiated, follow the
          --  instantiation chain rather than the stub chain.
 
+         --  Note that we must handle the case where the subunit exists in the
+         --  same body as the main unit (which may happen when Naming gets
+         --  manually specified within a project file or through tools like
+         --  gprname). Otherwise, we will have an infinite loop jumping around
+         --  the same file.
+
          Unit1 := Unit (Cunit (Unum1));
          Unit2 := Unit (Cunit (Unum2));
          Inst1 := Instantiation (Sind1);
@@ -340,21 +384,35 @@ package body Lib is
                   Length_Of_Name (Unit_Name (Unum2))
                then
                   Sloc2 := Sloc (Corresponding_Stub (Unit2));
-                  Unum2 := Get_Source_Unit (Sloc2);
-                  goto Continue;
 
+                  if Unum2 /= Get_Source_Unit (Sloc2) then
+                     Unum2 := Get_Source_Unit (Sloc2);
+                     goto Continue;
+                  else
+                     null; --  Unum2 already designates the correct unit
+                  end if;
                else
                   Sloc1 := Sloc (Corresponding_Stub (Unit1));
-                  Unum1 := Get_Source_Unit (Sloc1);
-                  goto Continue;
+
+                  if Unum1 /= Get_Source_Unit (Sloc1) then
+                     Unum1 := Get_Source_Unit (Sloc1);
+                     goto Continue;
+                  else
+                     null; --  Unum1 already designates the correct unit
+                  end if;
                end if;
 
             --  Sloc1 in subunit, Sloc2 not
 
             else
                Sloc1 := Sloc (Corresponding_Stub (Unit1));
-               Unum1 := Get_Source_Unit (Sloc1);
-               goto Continue;
+
+               if Unum1 /= Get_Source_Unit (Sloc1) then
+                  Unum1 := Get_Source_Unit (Sloc1);
+                  goto Continue;
+               else
+                  null; --  Unum1 already designates the correct unit
+               end if;
             end if;
 
          --  Sloc2 in subunit, Sloc1 not
@@ -364,8 +422,13 @@ package body Lib is
            and then Inst2 = No_Location
          then
             Sloc2 := Sloc (Corresponding_Stub (Unit2));
-            Unum2 := Get_Source_Unit (Sloc2);
-            goto Continue;
+
+            if Unum2 /= Get_Source_Unit (Sloc2) then
+               Unum2 := Get_Source_Unit (Sloc2);
+               goto Continue;
+            else
+               null; --  Unum2 already designates the correct unit
+            end if;
          end if;
 
          --  Step 3: Check instances. The two locations may yield a common
@@ -417,18 +480,12 @@ package body Lib is
          --  body of the same unit. The location in the spec is considered
          --  earlier.
 
-         if Nkind (Unit1) = N_Subprogram_Body
-              or else
-            Nkind (Unit1) = N_Package_Body
-         then
+         if Nkind (Unit1) in N_Subprogram_Body | N_Package_Body then
             if Library_Unit (Cunit (Unum1)) = Cunit (Unum2) then
                return Yes_After;
             end if;
 
-         elsif Nkind (Unit2) = N_Subprogram_Body
-                 or else
-               Nkind (Unit2) = N_Package_Body
-         then
+         elsif Nkind (Unit2) in N_Subprogram_Body | N_Package_Body then
             if Library_Unit (Cunit (Unum2)) = Cunit (Unum1) then
                return Yes_Before;
             end if;
@@ -445,8 +502,9 @@ package body Lib is
          --  Prevent looping forever
 
          if Counter > Max_Iterations then
-            --  ??? Not quite right, but return a value to be able to generate
-            --  SCIL files and hope for the best.
+
+            --  In CodePeer_Mode, return a value to be able to generate SCIL
+            --  files and hope for the best.
 
             if CodePeer_Mode then
                return No;
@@ -488,9 +546,20 @@ package body Lib is
    -- Earlier_In_Extended_Unit --
    ------------------------------
 
-   function Earlier_In_Extended_Unit (S1, S2 : Source_Ptr) return Boolean is
+   function Earlier_In_Extended_Unit
+     (S1 : Source_Ptr;
+      S2 : Source_Ptr) return Boolean
+   is
    begin
       return Check_Same_Extended_Unit (S1, S2) = Yes_Before;
+   end Earlier_In_Extended_Unit;
+
+   function Earlier_In_Extended_Unit
+     (N1 : Node_Or_Entity_Id;
+      N2 : Node_Or_Entity_Id) return Boolean
+   is
+   begin
+      return Earlier_In_Extended_Unit (Sloc (N1), Sloc (N2));
    end Earlier_In_Extended_Unit;
 
    -----------------------
@@ -576,7 +645,7 @@ package body Lib is
    -- Generic_May_Lack_ALI --
    --------------------------
 
-   function Generic_May_Lack_ALI (Sfile : File_Name_Type) return Boolean is
+   function Generic_May_Lack_ALI (Unum : Unit_Number_Type) return Boolean is
    begin
       --  We allow internal generic units to be used without having a
       --  corresponding ALI files to help bootstrapping with older compilers
@@ -585,9 +654,7 @@ package body Lib is
       --  is the elaboration boolean, and we are careful to elaborate all
       --  predefined units first anyway.
 
-      return Is_Internal_File_Name
-               (Fname              => Sfile,
-                Renamings_Included => True);
+      return Is_Internal_Unit (Unum);
    end Generic_May_Lack_ALI;
 
    -----------------------------
@@ -614,7 +681,7 @@ package body Lib is
             Source_File := Get_Source_File_Index (S);
 
             if Unwind_Instances then
-               while Template (Source_File) /= No_Source_File loop
+               while Template (Source_File) > No_Source_File loop
                   Source_File := Template (Source_File);
                end loop;
             end if;
@@ -735,7 +802,9 @@ package body Lib is
    begin
       return
         Get_Code_Or_Source_Unit
-          (S, Unwind_Instances => True, Unwind_Subunits => False);
+          (S                => S,
+           Unwind_Instances => True,
+           Unwind_Subunits  => False);
    end Get_Source_Unit;
 
    function Get_Source_Unit (N : Node_Or_Entity_Id) return Unit_Number_Type is
@@ -770,55 +839,36 @@ package body Lib is
      (N : Node_Or_Entity_Id) return Boolean
    is
    begin
-      if Sloc (N) = Standard_Location then
-         return False;
-
-      elsif Sloc (N) = No_Location then
-         return False;
-
       --  Special case Itypes to test the Sloc of the associated node. The
       --  reason we do this is for possible calls from gigi after -gnatD
       --  processing is complete in sprint. This processing updates the
       --  sloc fields of all nodes in the tree, but itypes are not in the
       --  tree so their slocs do not get updated.
 
-      elsif Nkind (N) = N_Defining_Identifier
-        and then Is_Itype (N)
-      then
+      if Nkind (N) = N_Defining_Identifier and then Is_Itype (N) then
          return In_Extended_Main_Code_Unit (Associated_Node_For_Itype (N));
-
-      --  Otherwise see if we are in the main unit
-
-      elsif Get_Code_Unit (Sloc (N)) = Get_Code_Unit (Cunit (Main_Unit)) then
-         return True;
-
-      --  Node may be in spec (or subunit etc) of main unit
-
-      else
-         return
-           In_Same_Extended_Unit (N, Cunit (Main_Unit));
       end if;
+
+      return In_Extended_Main_Code_Unit (Sloc (N));
    end In_Extended_Main_Code_Unit;
 
    function In_Extended_Main_Code_Unit (Loc : Source_Ptr) return Boolean is
    begin
-      if Loc = Standard_Location then
-         return False;
+      --  Special value cases
 
-      elsif Loc = No_Location then
+      if Loc in No_Location | Standard_Location then
          return False;
+      end if;
 
       --  Otherwise see if we are in the main unit
 
-      elsif Get_Code_Unit (Loc) = Get_Code_Unit (Cunit (Main_Unit)) then
+      if Get_Code_Unit (Loc) = Get_Code_Unit (Cunit (Main_Unit)) then
          return True;
+      end if;
 
       --  Location may be in spec (or subunit etc) of main unit
 
-      else
-         return
-           In_Same_Extended_Unit (Loc, Sloc (Cunit (Main_Unit)));
-      end if;
+      return In_Same_Extended_Unit (Loc, Sloc (Cunit (Main_Unit)));
    end In_Extended_Main_Code_Unit;
 
    ----------------------------------
@@ -828,70 +878,82 @@ package body Lib is
    function In_Extended_Main_Source_Unit
      (N : Node_Or_Entity_Id) return Boolean
    is
-      Nloc : constant Source_Ptr := Sloc (N);
-      Mloc : constant Source_Ptr := Sloc (Cunit (Main_Unit));
-
    begin
-      --  If parsing, then use the global flag to indicate result
-
-      if Compiler_State = Parsing then
-         return Parsing_Main_Extended_Source;
-
-      --  Special value cases
-
-      elsif Nloc = Standard_Location then
-         return False;
-
-      elsif Nloc = No_Location then
-         return False;
-
       --  Special case Itypes to test the Sloc of the associated node. The
       --  reason we do this is for possible calls from gigi after -gnatD
       --  processing is complete in sprint. This processing updates the
       --  sloc fields of all nodes in the tree, but itypes are not in the
       --  tree so their slocs do not get updated.
 
-      elsif Nkind (N) = N_Defining_Identifier
-        and then Is_Itype (N)
-      then
+      if Nkind (N) = N_Defining_Identifier and then Is_Itype (N) then
+         pragma Assert (Compiler_State /= Parsing);
          return In_Extended_Main_Source_Unit (Associated_Node_For_Itype (N));
-
-      --  Otherwise compare original locations to see if in same unit
-
-      else
-         return
-           In_Same_Extended_Unit
-             (Original_Location (Nloc), Original_Location (Mloc));
       end if;
+
+      return In_Extended_Main_Source_Unit (Sloc (N));
    end In_Extended_Main_Source_Unit;
 
    function In_Extended_Main_Source_Unit
      (Loc : Source_Ptr) return Boolean
    is
-      Mloc : constant Source_Ptr := Sloc (Cunit (Main_Unit));
-
    begin
       --  If parsing, then use the global flag to indicate result
 
       if Compiler_State = Parsing then
          return Parsing_Main_Extended_Source;
+      end if;
 
       --  Special value cases
 
-      elsif Loc = Standard_Location then
+      if Loc in No_Location | Standard_Location then
          return False;
-
-      elsif Loc = No_Location then
-         return False;
-
-      --  Otherwise compare original locations to see if in same unit
-
-      else
-         return
-           In_Same_Extended_Unit
-             (Original_Location (Loc), Original_Location (Mloc));
       end if;
+
+      --  Otherwise compare original locations
+
+      return In_Same_Extended_Unit
+        (Original_Location (Loc),
+         Original_Location (Sloc (Cunit (Main_Unit))));
    end In_Extended_Main_Source_Unit;
+
+   ----------------------
+   -- In_Internal_Unit --
+   ----------------------
+
+   function In_Internal_Unit (N : Node_Or_Entity_Id) return Boolean is
+   begin
+      return In_Internal_Unit (Sloc (N));
+   end In_Internal_Unit;
+
+   function In_Internal_Unit (S : Source_Ptr) return Boolean is
+      Unit : constant Unit_Number_Type := Get_Source_Unit (S);
+   begin
+      return Is_Internal_Unit (Unit);
+   end In_Internal_Unit;
+
+   ----------------------------
+   -- In_Predefined_Renaming --
+   ----------------------------
+
+   function In_Predefined_Renaming (N : Node_Or_Entity_Id) return Boolean is
+   begin
+      return In_Predefined_Renaming (Sloc (N));
+   end In_Predefined_Renaming;
+
+   function In_Predefined_Renaming (S : Source_Ptr) return Boolean is
+      Unit : constant Unit_Number_Type := Get_Source_Unit (S);
+   begin
+      return Is_Predefined_Renaming (Unit);
+   end In_Predefined_Renaming;
+
+   ---------
+   -- ipu --
+   ---------
+
+   function ipu (N : Node_Or_Entity_Id) return Boolean is
+   begin
+      return In_Predefined_Unit (N);
+   end ipu;
 
    ------------------------
    -- In_Predefined_Unit --
@@ -904,9 +966,8 @@ package body Lib is
 
    function In_Predefined_Unit (S : Source_Ptr) return Boolean is
       Unit : constant Unit_Number_Type := Get_Source_Unit (S);
-      File : constant File_Name_Type   := Unit_File_Name (Unit);
    begin
-      return Is_Predefined_File_Name (File);
+      return Is_Predefined_Unit (Unit);
    end In_Predefined_Unit;
 
    -----------------------
@@ -969,6 +1030,26 @@ package body Lib is
       return Get_Source_Unit (N1) = Get_Source_Unit (N2);
    end In_Same_Source_Unit;
 
+   -----------------------------------
+   -- Increment_Primary_Stack_Count --
+   -----------------------------------
+
+   procedure Increment_Primary_Stack_Count (Increment : Int) is
+      PSC : Int renames Units.Table (Current_Sem_Unit).Primary_Stack_Count;
+   begin
+      PSC := PSC + Increment;
+   end Increment_Primary_Stack_Count;
+
+   -------------------------------
+   -- Increment_Sec_Stack_Count --
+   -------------------------------
+
+   procedure Increment_Sec_Stack_Count (Increment : Int) is
+      SSC : Int renames Units.Table (Current_Sem_Unit).Sec_Stack_Count;
+   begin
+      SSC := SSC + Increment;
+   end Increment_Sec_Stack_Count;
+
    -----------------------------
    -- Increment_Serial_Number --
    -----------------------------
@@ -979,6 +1060,16 @@ package body Lib is
       TSN := TSN + 1;
       return TSN;
    end Increment_Serial_Number;
+
+   ----------------------
+   --  Init_Unit_Name  --
+   ----------------------
+
+   procedure Init_Unit_Name (U : Unit_Number_Type; N : Unit_Name_Type) is
+   begin
+      Units.Table (U).Unit_Name := N;
+      Unit_Names.Set (N, U);
+   end Init_Unit_Name;
 
    ----------------
    -- Initialize --
@@ -999,13 +1090,7 @@ package body Lib is
 
    function Is_Loaded (Uname : Unit_Name_Type) return Boolean is
    begin
-      for Unum in Units.First .. Units.Last loop
-         if Uname = Unit_Name (Unum) then
-            return True;
-         end if;
-      end loop;
-
-      return False;
+      return Unit_Names.Get (Uname) /= No_Unit;
    end Is_Loaded;
 
    ---------------
@@ -1029,12 +1114,12 @@ package body Lib is
 
    procedure Lock is
    begin
-      Linker_Option_Lines.Locked := True;
-      Load_Stack.Locked := True;
-      Units.Locked := True;
       Linker_Option_Lines.Release;
+      Linker_Option_Lines.Locked := True;
       Load_Stack.Release;
+      Load_Stack.Locked := True;
       Units.Release;
+      Units.Locked := True;
    end Lock;
 
    ---------------
@@ -1052,9 +1137,9 @@ package body Lib is
 
    procedure Remove_Unit (U : Unit_Number_Type) is
    begin
-      if U = Units.Last then
-         Units.Decrement_Last;
-      end if;
+      pragma Assert (U = Units.Last);
+      Unit_Names.Set (Unit_Name (U), No_Unit);
+      Units.Decrement_Last;
    end Remove_Unit;
 
    ----------------------------------
@@ -1139,55 +1224,26 @@ package body Lib is
    -- Synchronize_Serial_Number --
    -------------------------------
 
-   procedure Synchronize_Serial_Number is
+   procedure Synchronize_Serial_Number (SN : Nat) is
       TSN : Int renames Units.Table (Current_Sem_Unit).Serial_Number;
    begin
-      TSN := TSN + 1;
+      --  We should not be trying to synchronize downward
+
+      pragma Assert (TSN <= SN);
+
+      if TSN < SN then
+         TSN := SN;
+      end if;
    end Synchronize_Serial_Number;
 
-   ---------------
-   -- Tree_Read --
-   ---------------
+   --------------------
+   -- Unit_Name_Hash --
+   --------------------
 
-   procedure Tree_Read is
-      N : Nat;
-      S : String_Ptr;
-
+   function Unit_Name_Hash (Id : Unit_Name_Type) return Unit_Name_Header_Num is
    begin
-      Units.Tree_Read;
-
-      --  Read Compilation_Switches table. First release the memory occupied
-      --  by the previously loaded switches.
-
-      for J in Compilation_Switches.First .. Compilation_Switches.Last loop
-         Free (Compilation_Switches.Table (J));
-      end loop;
-
-      Tree_Read_Int (N);
-      Compilation_Switches.Set_Last (N);
-
-      for J in 1 .. N loop
-         Tree_Read_Str (S);
-         Compilation_Switches.Table (J) := S;
-      end loop;
-   end Tree_Read;
-
-   ----------------
-   -- Tree_Write --
-   ----------------
-
-   procedure Tree_Write is
-   begin
-      Units.Tree_Write;
-
-      --  Write Compilation_Switches table
-
-      Tree_Write_Int (Compilation_Switches.Last);
-
-      for J in 1 .. Compilation_Switches.Last loop
-         Tree_Write_Str (Compilation_Switches.Table (J));
-      end loop;
-   end Tree_Write;
+      return Unit_Name_Header_Num (Id mod Unit_Name_Table_Size);
+   end Unit_Name_Hash;
 
    ------------
    -- Unlock --
@@ -1238,7 +1294,7 @@ package body Lib is
       Write_Str ("=");
       Write_Str (Node_Kind'Image (Nkind (Item)));
 
-      if Item /= Original_Node (Item) then
+      if Is_Rewrite_Substitution (Item) then
          Write_Str (", orig = ");
          Write_Int (Int (Original_Node (Item)));
          Write_Str ("=");
@@ -1262,7 +1318,7 @@ package body Lib is
            and then (Nkind (Context_Item) /= N_With_Clause
                       or else Limited_Present (Context_Item))
          loop
-            Context_Item := Next (Context_Item);
+            Next (Context_Item);
          end loop;
 
          if Present (Context_Item) then
@@ -1286,7 +1342,7 @@ package body Lib is
                   Write_Eol;
                end if;
 
-               Context_Item := Next (Context_Item);
+               Next (Context_Item);
             end loop;
 
             Outdent;

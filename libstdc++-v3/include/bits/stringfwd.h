@@ -1,6 +1,6 @@
 // <string> Forward declarations -*- C++ -*-
 
-// Copyright (C) 2001-2017 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -54,12 +54,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<> struct char_traits<char>;
 
-#ifdef _GLIBCXX_USE_WCHAR_T
   template<> struct char_traits<wchar_t>;
+
+#ifdef _GLIBCXX_USE_CHAR8_T
+  template<> struct char_traits<char8_t>;
 #endif
 
-#if ((__cplusplus >= 201103L) \
-     && defined(_GLIBCXX_USE_C99_STDINT_TR1))
+#if __cplusplus >= 201103L
   template<> struct char_traits<char16_t>;
   template<> struct char_traits<char32_t>;
 #endif
@@ -70,24 +71,26 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
            typename _Alloc = allocator<_CharT> >
     class basic_string;
 
+_GLIBCXX_END_NAMESPACE_CXX11
+
   /// A string of @c char
   typedef basic_string<char>    string;   
 
-#ifdef _GLIBCXX_USE_WCHAR_T
   /// A string of @c wchar_t
   typedef basic_string<wchar_t> wstring;   
+
+#ifdef _GLIBCXX_USE_CHAR8_T
+  /// A string of @c char8_t
+  typedef basic_string<char8_t> u8string;
 #endif
 
-#if ((__cplusplus >= 201103L) \
-     && defined(_GLIBCXX_USE_C99_STDINT_TR1))
+#if __cplusplus >= 201103L
   /// A string of @c char16_t
   typedef basic_string<char16_t> u16string; 
 
   /// A string of @c char32_t
   typedef basic_string<char32_t> u32string; 
 #endif
-
-_GLIBCXX_END_NAMESPACE_CXX11
 
   /** @}  */
 

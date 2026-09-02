@@ -1,5 +1,7 @@
 /* { dg-do compile } */
 /* { dg-options "-O2 -mno-tbm" } */
+/* { dg-additional-options "-fno-PIE" { target ia32 } } */
+/* { dg-additional-options "-mdynamic-no-pic" { target { *-*-darwin* && ia32 } } } */
 
 unsigned array[4];
 

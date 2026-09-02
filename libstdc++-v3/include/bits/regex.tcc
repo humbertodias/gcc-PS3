@@ -1,6 +1,6 @@
 // class template regex -*- C++ -*-
 
-// Copyright (C) 2013-2017 Free Software Foundation, Inc.
+// Copyright (C) 2013-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -30,9 +30,11 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace __detail
 {
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+  /// @cond undocumented
 
   // Result of merging regex_match and regex_search.
   //
@@ -41,24 +43,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   //
   // That __match_mode is true means regex_match, else regex_search.
   template<typename _BiIter, typename _Alloc,
-	   typename _CharT, typename _TraitsT,
-	   _RegexExecutorPolicy __policy,
-	   bool __match_mode>
+	   typename _CharT, typename _TraitsT>
     bool
     __regex_algo_impl(_BiIter                              __s,
 		      _BiIter                              __e,
 		      match_results<_BiIter, _Alloc>&      __m,
 		      const basic_regex<_CharT, _TraitsT>& __re,
-		      regex_constants::match_flag_type     __flags)
+		      regex_constants::match_flag_type     __flags,
+		      _RegexExecutorPolicy		   __policy,
+		      bool				   __match_mode)
     {
       if (__re._M_automaton == nullptr)
 	return false;
 
-      typename match_results<_BiIter, _Alloc>::_Base_type& __res = __m;
+      typename match_results<_BiIter, _Alloc>::_Unchecked& __res = __m;
       __m._M_begin = __s;
       __m._M_resize(__re._M_automaton->_M_sub_count());
-      for (auto& __it : __res)
-	__it.matched = false;
 
       bool __ret;
       if ((__re.flags() & regex_constants::__polynomial)
@@ -66,7 +66,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      && !__re._M_automaton->_M_has_backref))
 	{
 	  _Executor<_BiIter, _Alloc, _TraitsT, false>
-	    __executor(__s, __e, __m, __re, __flags);
+	    __executor(__s, __e, __res, __re, __flags);
 	  if (__match_mode)
 	    __ret = __executor._M_match();
 	  else
@@ -75,7 +75,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       else
 	{
 	  _Executor<_BiIter, _Alloc, _TraitsT, true>
-	    __executor(__s, __e, __m, __re, __flags);
+	    __executor(__s, __e, __res, __re, __flags);
 	  if (__match_mode)
 	    __ret = __executor._M_match();
 	  else
@@ -109,20 +109,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	}
       else
 	{
-	  __m._M_resize(0);
-	  for (auto& __it : __res)
-	    {
-	      __it.matched = false;
-	      __it.first = __it.second = __e;
-	    }
+	  __m._M_establish_failed_match(__e);
 	}
       return __ret;
     }
-
-_GLIBCXX_END_NAMESPACE_VERSION
-}
-
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+  /// @endcond
+} // namespace __detail
 
   template<typename _Ch_type>
   template<typename _Fwd_iter>
@@ -356,7 +348,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Bi_iter, typename _Alloc>
   template<typename _Out_iter>
-    _Out_iter match_results<_Bi_iter, _Alloc>::
+    _Out_iter
+    match_results<_Bi_iter, _Alloc>::
     format(_Out_iter __out,
 	   const match_results<_Bi_iter, _Alloc>::char_type* __fmt_first,
 	   const match_results<_Bi_iter, _Alloc>::char_type* __fmt_last,
@@ -377,22 +370,32 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       if (__flags & regex_constants::format_sed)
 	{
-	  for (; __fmt_first != __fmt_last;)
-	    if (*__fmt_first == '&')
-	      {
-		__output(0);
-		++__fmt_first;
-	      }
-	    else if (*__fmt_first == '\\')
-	      {
-		if (++__fmt_first != __fmt_last
-		    && __fctyp.is(__ctype_type::digit, *__fmt_first))
-		  __output(__traits.value(*__fmt_first++, 10));
-		else
-		  *__out++ = '\\';
-	      }
-	    else
-	      *__out++ = *__fmt_first++;
+	  bool __escaping = false;
+	  for (; __fmt_first != __fmt_last; __fmt_first++)
+	    {
+	      if (__escaping)
+		{
+		  __escaping = false;
+		  if (__fctyp.is(__ctype_type::digit, *__fmt_first))
+		    __output(__traits.value(*__fmt_first, 10));
+		  else
+		    *__out++ = *__fmt_first;
+		  continue;
+		}
+	      if (*__fmt_first == '\\')
+		{
+		  __escaping = true;
+		  continue;
+		}
+	      if (*__fmt_first == '&')
+		{
+		  __output(0);
+		  continue;
+		}
+	      *__out++ = *__fmt_first;
+	    }
+	  if (__escaping)
+	    *__out++ = '\\';
 	}
       else
 	{
@@ -456,10 +459,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Out_iter, typename _Bi_iter,
 	   typename _Rx_traits, typename _Ch_type>
     _Out_iter
-    regex_replace(_Out_iter __out, _Bi_iter __first, _Bi_iter __last,
-		  const basic_regex<_Ch_type, _Rx_traits>& __e,
-		  const _Ch_type* __fmt,
-		  regex_constants::match_flag_type __flags)
+    __regex_replace(_Out_iter __out, _Bi_iter __first, _Bi_iter __last,
+		    const basic_regex<_Ch_type, _Rx_traits>& __e,
+		    const _Ch_type* __fmt, size_t __len,
+		    regex_constants::match_flag_type __flags)
     {
       typedef regex_iterator<_Bi_iter, _Ch_type, _Rx_traits> _IterT;
       _IterT __i(__first, __last, __e, __flags);
@@ -472,7 +475,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       else
 	{
 	  sub_match<_Bi_iter> __last;
-	  auto __len = char_traits<_Ch_type>::length(__fmt);
 	  for (; __i != __end; ++__i)
 	    {
 	      if (!(__flags & regex_constants::format_no_copy))
@@ -494,7 +496,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	   typename _Rx_traits>
     bool
     regex_iterator<_Bi_iter, _Ch_type, _Rx_traits>::
-    operator==(const regex_iterator& __rhs) const
+    operator==(const regex_iterator& __rhs) const noexcept
     {
       if (_M_pregex == nullptr && __rhs._M_pregex == nullptr)
 	return true;
@@ -663,4 +665,3 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
-

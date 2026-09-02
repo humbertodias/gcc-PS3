@@ -1,7 +1,8 @@
 //===-- sanitizer_symbolizer.h ----------------------------------*- C++ -*-===//
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -19,6 +20,7 @@
 
 #include "sanitizer_common.h"
 #include "sanitizer_mutex.h"
+#include "sanitizer_vector.h"
 
 namespace __sanitizer {
 
@@ -29,6 +31,9 @@ struct AddressInfo {
 
   char *module;
   uptr module_offset;
+  ModuleArch module_arch;
+  u8 uuid[kModuleUUIDSize];
+  uptr uuid_size;
 
   static const uptr kUnknown = ~(uptr)0;
   char *function;
@@ -41,7 +46,9 @@ struct AddressInfo {
   AddressInfo();
   // Deletes all strings and resets all fields.
   void Clear();
-  void FillModuleInfo(const char *mod_name, uptr mod_offset);
+  void FillModuleInfo(const char *mod_name, uptr mod_offset, ModuleArch arch);
+  void FillModuleInfo(const LoadedModule &mod);
+  uptr module_base() const { return address - module_offset; }
 };
 
 // Linked list of symbolized frames (each frame is described by AddressInfo).
@@ -63,6 +70,8 @@ struct DataInfo {
   // (de)allocated using sanitizer internal allocator.
   char *module;
   uptr module_offset;
+  ModuleArch module_arch;
+
   char *file;
   uptr line;
   char *name;
@@ -70,6 +79,32 @@ struct DataInfo {
   uptr size;
 
   DataInfo();
+  void Clear();
+};
+
+struct LocalInfo {
+  char *function_name = nullptr;
+  char *name = nullptr;
+  char *decl_file = nullptr;
+  unsigned decl_line = 0;
+
+  bool has_frame_offset = false;
+  bool has_size = false;
+  bool has_tag_offset = false;
+
+  sptr frame_offset;
+  uptr size;
+  uptr tag_offset;
+
+  void Clear();
+};
+
+struct FrameInfo {
+  char *module;
+  uptr module_offset;
+  ModuleArch module_arch;
+
+  InternalMmapVector<LocalInfo> locals;
   void Clear();
 };
 
@@ -85,6 +120,7 @@ class Symbolizer final {
   // all inlined functions, if necessary).
   SymbolizedStack *SymbolizePC(uptr address);
   bool SymbolizeData(uptr address, DataInfo *info);
+  bool SymbolizeFrame(uptr address, FrameInfo *info);
 
   // The module names Symbolizer returns are stable and unique for every given
   // module.  It is safe to store and compare them as pointers.
@@ -102,7 +138,6 @@ class Symbolizer final {
   void Flush();
   // Attempts to demangle the provided C++ mangled name.
   const char *Demangle(const char *name);
-  void PrepareForSandboxing();
 
   // Allow user to install hooks that would be called before/after Symbolizer
   // does the actual file/line info fetching. Specific sanitizers may need this
@@ -114,7 +149,10 @@ class Symbolizer final {
   void AddHooks(StartSymbolizationHook start_hook,
                 EndSymbolizationHook end_hook);
 
+  void RefreshModules();
   const LoadedModule *FindModuleForAddress(uptr address);
+
+  void InvalidateModuleList();
 
  private:
   // GetModuleNameAndOffsetForPC has to return a string to the caller.
@@ -124,9 +162,10 @@ class Symbolizer final {
   // its method should be protected by |mu_|.
   class ModuleNameOwner {
    public:
-    explicit ModuleNameOwner(BlockingMutex *synchronized_by)
-        : storage_(kInitialCapacity), last_match_(nullptr),
-          mu_(synchronized_by) {}
+    explicit ModuleNameOwner(Mutex *synchronized_by)
+        : last_match_(nullptr), mu_(synchronized_by) {
+      storage_.reserve(kInitialCapacity);
+    }
     const char *GetOwnedCopy(const char *str);
 
    private:
@@ -134,21 +173,22 @@ class Symbolizer final {
     InternalMmapVector<const char*> storage_;
     const char *last_match_;
 
-    BlockingMutex *mu_;
+    Mutex *mu_;
   } module_names_;
 
   /// Platform-specific function for creating a Symbolizer object.
   static Symbolizer *PlatformInit();
 
   bool FindModuleNameAndOffsetForAddress(uptr address, const char **module_name,
-                                         uptr *module_offset);
+                                         uptr *module_offset,
+                                         ModuleArch *module_arch);
   ListOfModules modules_;
+  ListOfModules fallback_modules_;
   // If stale, need to reload the modules before looking up addresses.
   bool modules_fresh_;
 
   // Platform-specific default demangler, must not return nullptr.
   const char *PlatformDemangle(const char *name);
-  void PlatformPrepareForSandboxing();
 
   static Symbolizer *symbolizer_;
   static StaticSpinMutex init_mu_;
@@ -156,7 +196,7 @@ class Symbolizer final {
   // Mutex locked from public methods of |Symbolizer|, so that the internals
   // (including individual symbolizer tools and platform-specific methods) are
   // always synchronized.
-  BlockingMutex mu_;
+  Mutex mu_;
 
   IntrusiveList<SymbolizerTool> tools_;
 

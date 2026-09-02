@@ -1,6 +1,6 @@
 // TR1 cwchar -*- C++ -*-
 
-// Copyright (C) 2006-2017 Free Software Foundation, Inc.
+// Copyright (C) 2006-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,12 +31,16 @@
 
 #pragma GCC system_header
 
+#include <bits/requires_hosted.h> // TR1
+
 #include <cwchar>
 
 #ifdef _GLIBCXX_USE_WCHAR_T
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace tr1
 {
 #if _GLIBCXX_HAVE_WCSTOF
@@ -58,6 +62,8 @@ namespace tr1
   using std::wcstoull;
 #endif
 }
+
+_GLIBCXX_END_NAMESPACE_VERSION
 }
 
 #endif // _GLIBCXX_USE_WCHAR_T

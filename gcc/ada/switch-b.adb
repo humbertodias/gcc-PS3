@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2001-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 2001-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -50,6 +50,9 @@ package body Switch.B is
       function Get_Stack_Size (S : Character) return Int;
       --  Used for -d and -D to scan stack size including handling k/m. S is
       --  set to 'd' or 'D' to indicate the switch being scanned.
+
+      procedure Scan_Debug_Switches;
+      --  Scan out debug switches
 
       ---------------------------
       -- Get_Optional_Filename --
@@ -114,6 +117,91 @@ package body Switch.B is
          return Result;
       end Get_Stack_Size;
 
+      -------------------------
+      -- Scan_Debug_Switches --
+      -------------------------
+
+      procedure Scan_Debug_Switches is
+         Dot        : Boolean := False;
+         Underscore : Boolean := False;
+
+      begin
+         while Ptr <= Max loop
+            C := Switch_Chars (Ptr);
+
+            --  Binder debug flags come in the following forms:
+            --
+            --       letter
+            --     . letter
+            --     _ letter
+            --
+            --       digit
+            --     . digit
+            --     _ digit
+            --
+            --  Note that the processing of switch -d aleady takes care of the
+            --  case where the first flag is a digit (default stack size).
+
+            if C in '1' .. '9' or else
+               C in 'a' .. 'z' or else
+               C in 'A' .. 'Z'
+            then
+               --  . letter
+               --  . digit
+
+               if Dot then
+                  Set_Dotted_Debug_Flag (C);
+                  Dot := False;
+
+               --  _ letter
+               --  _ digit
+
+               elsif Underscore then
+                  Set_Underscored_Debug_Flag (C);
+
+                  if Debug_Flag_Underscore_C then
+                     Enable_CUDA_Expansion := True;
+                  end if;
+                  if Debug_Flag_Underscore_D then
+                     Enable_CUDA_Device_Expansion := True;
+                  end if;
+                  if Enable_CUDA_Expansion and Enable_CUDA_Device_Expansion
+                  then
+                     Bad_Switch (Switch_Chars);
+                  elsif C = 'c' then
+                     --  specify device library name
+                     if Ptr >= Max or else Switch_Chars (Ptr + 1) /= '=' then
+                        Bad_Switch (Switch_Chars);
+                     else
+                        CUDA_Device_Library_Name :=
+                           new String'(Switch_Chars (Ptr + 2 .. Max));
+                        Ptr := Max;
+                     end if;
+                  end if;
+
+                  Underscore := False;
+
+               --    letter
+               --    digit
+
+               else
+                  Set_Debug_Flag (C);
+               end if;
+
+            elsif C = '.' then
+               Dot := True;
+
+            elsif C = '_' then
+               Underscore := True;
+
+            else
+               Bad_Switch (Switch_Chars);
+            end if;
+
+            Ptr := Ptr + 1;
+         end loop;
+      end Scan_Debug_Switches;
+
    --  Start of processing for Scan_Binder_Switches
 
    begin
@@ -170,7 +258,6 @@ package body Switch.B is
          --  Processing for d switch
 
          when 'd' =>
-
             if Ptr = Max then
                Bad_Switch (Switch_Chars);
             end if;
@@ -189,26 +276,7 @@ package body Switch.B is
             --  Case where character after -d is not digit (debug flags)
 
             else
-               --  Note: for the debug switch, the remaining characters in this
-               --  switch field must all be debug flags, since all valid switch
-               --  characters are also valid debug characters. This switch is
-               --  not documented on purpose because it is only used by the
-               --  implementors.
-
-               --  Loop to scan out debug flags
-
-               loop
-                  C := Switch_Chars (Ptr);
-
-                  if C in 'a' .. 'z' or else C in 'A' .. 'Z' then
-                     Set_Debug_Flag (C);
-                  else
-                     Bad_Switch (Switch_Chars);
-                  end if;
-
-                  Ptr := Ptr + 1;
-                  exit when Ptr > Max;
-               end loop;
+               Scan_Debug_Switches;
             end if;
 
          --  Processing for D switch
@@ -265,7 +333,7 @@ package body Switch.B is
 
             Ptr := Max + 1;
 
-            if not Is_Read_Accessible_File (Force_Elab_Order_File.all) then
+            if not Is_Regular_File (Force_Elab_Order_File.all) then
                Osint.Fail (Force_Elab_Order_File.all & ": file not found");
             end if;
 
@@ -294,11 +362,23 @@ package body Switch.B is
                Debugger_Level := 2;
             end if;
 
+         --  Processing for G switch
+
+         when 'G' =>
+            Ptr := Ptr + 1;
+            Generate_C_Code := True;
+
          --  Processing for h switch
 
          when 'h' =>
             Ptr := Ptr + 1;
             Usage_Requested := True;
+
+         --  Processing for H switch
+
+         when 'H' =>
+            Ptr := Ptr + 1;
+            Legacy_Elaboration_Order := True;
 
          --  Processing for i switch
 
@@ -310,18 +390,18 @@ package body Switch.B is
             Ptr := Ptr + 1;
             C := Switch_Chars (Ptr);
 
-            if C in '1' .. '5'
-              or else C = '8'
-              or else C = 'p'
-              or else C = 'f'
-              or else C = 'n'
-              or else C = 'w'
-            then
+            if C in '1' .. '5' | '9' | 'p' | '8' | 'f' | 'n' | 'w' then
                Identifier_Character_Set := C;
                Ptr := Ptr + 1;
             else
                Bad_Switch (Switch_Chars);
             end if;
+
+         --  Processing for k switch
+
+         when 'k' =>
+            Ptr := Ptr + 1;
+            Check_Elaboration_Flags := False;
 
          --  Processing for K switch
 
@@ -390,6 +470,18 @@ package body Switch.B is
          when 'q' =>
             Ptr := Ptr + 1;
             Quiet_Output := True;
+
+         --  Processing for Q switch
+
+         when 'Q' =>
+            if Ptr = Max then
+               Bad_Switch (Switch_Chars);
+            end if;
+
+            Ptr := Ptr + 1;
+            Scan_Nat
+              (Switch_Chars, Max, Ptr,
+               Quantity_Of_Default_Size_Sec_Stacks, C);
 
          --  Processing for r switch
 
@@ -489,6 +581,9 @@ package body Switch.B is
             case Switch_Chars (Ptr) is
                when 'e' =>
                   Warning_Mode := Treat_As_Error;
+
+               when 'E' =>
+                  Warning_Mode := Treat_Run_Time_Warnings_As_Errors;
 
                when 's' =>
                   Warning_Mode := Suppress;

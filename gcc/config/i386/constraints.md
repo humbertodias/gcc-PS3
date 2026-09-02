@@ -1,5 +1,5 @@
 ;; Constraint definitions for IA-32 and x86-64.
-;; Copyright (C) 2006-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -78,10 +78,10 @@
  "TARGET_80387 || TARGET_FLOAT_RETURNS_IN_80387 ? FP_SECOND_REG : NO_REGS"
  "Second from top of 80387 floating-point stack (@code{%st(1)}).")
 
-(define_register_constraint "Yk" "TARGET_AVX512F ? MASK_EVEX_REGS : NO_REGS"
+(define_register_constraint "Yk" "TARGET_AVX512F ? MASK_REGS : NO_REGS"
 "@internal Any mask register that can be used as predicate, i.e. k1-k7.")
 
-(define_register_constraint "k" "TARGET_AVX512F ? MASK_REGS : NO_REGS"
+(define_register_constraint "k" "TARGET_AVX512F ? ALL_MASK_REGS : NO_REGS"
 "@internal Any mask register.")
 
 ;; Vector registers (also used for plain floating point nowadays).
@@ -94,44 +94,32 @@
 (define_register_constraint "v" "TARGET_SSE ? ALL_SSE_REGS : NO_REGS"
  "Any EVEX encodable SSE register (@code{%xmm0-%xmm31}).")
 
-(define_register_constraint "w" "TARGET_MPX ? BND_REGS : NO_REGS"
- "@internal Any bound register.")
-
 ;; We use the Y prefix to denote any number of conditional register sets:
 ;;  z	First SSE register.
-;;  i	SSE2 inter-unit moves to SSE register enabled
-;;  j	SSE2 inter-unit moves from SSE register enabled
-;;  m	MMX inter-unit moves to MMX register enabled
-;;  n	MMX inter-unit moves from MMX register enabled
+;;  d	any EVEX encodable SSE register for AVX512DQ target or
+;;	any SSE register for SSE4_1 target.
+;;  p	Integer register when TARGET_PARTIAL_REG_STALL is disabled
 ;;  a	Integer register when zero extensions with AND are disabled
 ;;  b	Any register that can be used as the GOT base when calling
 ;;	___tls_get_addr: that is, any general register except EAX
 ;;	and ESP, for -fno-plt if linker supports it.  Otherwise,
 ;;	EBX.
-;;  p	Integer register when TARGET_PARTIAL_REG_STALL is disabled
 ;;  f	x87 register when 80387 floating point arithmetic is enabled
 ;;  r	SSE regs not requiring REX prefix when prefixes avoidance is enabled
 ;;	and all SSE regs otherwise
-;;  h   EVEX encodable SSE register with number factor of four
+;;  v	any EVEX encodable SSE register for AVX512VL target,
+;;	otherwise any SSE register
+;;  w	any EVEX encodable SSE register for AVX512BW with TARGET_AVX512VL
+;;	target, otherwise any SSE register.
+;;  W   any EVEX encodable SSE register for AVX512BW target,
+;;	otherwise any SSE register.
 
 (define_register_constraint "Yz" "TARGET_SSE ? SSE_FIRST_REG : NO_REGS"
  "First SSE register (@code{%xmm0}).")
 
-(define_register_constraint "Yi"
- "TARGET_SSE2 && TARGET_INTER_UNIT_MOVES_TO_VEC ? ALL_SSE_REGS : NO_REGS"
- "@internal Any SSE register, when SSE2 and inter-unit moves to vector registers are enabled.")
-
-(define_register_constraint "Yj"
- "TARGET_SSE2 && TARGET_INTER_UNIT_MOVES_FROM_VEC ? ALL_SSE_REGS : NO_REGS"
- "@internal Any SSE register, when SSE2 and inter-unit moves from vector registers are enabled.")
-
-(define_register_constraint "Ym"
- "TARGET_MMX && TARGET_INTER_UNIT_MOVES_TO_VEC ? MMX_REGS : NO_REGS"
- "@internal Any MMX register, when inter-unit moves to vector registers are enabled.")
-
-(define_register_constraint "Yn"
- "TARGET_MMX && TARGET_INTER_UNIT_MOVES_FROM_VEC ? MMX_REGS : NO_REGS"
- "@internal Any MMX register, when inter-unit moves from vector registers are enabled.")
+(define_register_constraint "Yd"
+ "TARGET_AVX512DQ ? ALL_SSE_REGS : TARGET_SSE4_1 ? SSE_REGS : NO_REGS"
+ "@internal Any EVEX encodable SSE register (@code{%xmm0-%xmm31}) for AVX512DQ target or any SSE register for SSE4_1 target.")
 
 (define_register_constraint "Yp"
  "TARGET_PARTIAL_REG_STALL ? NO_REGS : GENERAL_REGS"
@@ -161,8 +149,13 @@
  "TARGET_AVX512VL ? ALL_SSE_REGS : TARGET_SSE ? SSE_REGS : NO_REGS"
  "@internal For AVX512VL, any EVEX encodable SSE register (@code{%xmm0-%xmm31}), otherwise any SSE register.")
 
-(define_register_constraint "Yh" "TARGET_AVX512F ? MOD4_SSE_REGS : NO_REGS"
- "@internal Any EVEX encodable SSE register, which has number factor of four.")
+(define_register_constraint "Yw"
+ "TARGET_AVX512BW && TARGET_AVX512VL ? ALL_SSE_REGS : TARGET_SSE ? SSE_REGS : NO_REGS"
+ "@internal Any EVEX encodable SSE register (@code{%xmm0-%xmm31}) for AVX512BW with TARGET_AVX512VL target, otherwise any SSE register.")
+
+(define_register_constraint "YW"
+ "TARGET_AVX512BW ? ALL_SSE_REGS : TARGET_SSE ? SSE_REGS : NO_REGS"
+ "@internal Any EVEX encodable SSE register (@code{%xmm0-%xmm31}) for AVX512BW target, otherwise any SSE register.")
 
 ;; We use the B prefix to denote any number of internal operands:
 ;;  f  FLAGS_REG
@@ -173,7 +166,12 @@
 ;;  s  Sibcall memory operand, not valid for TARGET_X32
 ;;  w  Call memory operand, not valid for TARGET_X32
 ;;  z  Constant call address operand.
-;;  C  SSE constant operand.
+;;  C  Integer SSE constant with all bits set operand.
+;;  F  Floating-point SSE constant with all bits set operand.
+;;  H  Integer SSE constant that is 128/256bit all ones
+;;     and zero-extand to 256/512bit, or 128bit all ones
+;;     and zero-extend to 512bit.
+;;  M  x86-64 memory operand.
 
 (define_constraint "Bf"
   "@internal Flags register operand."
@@ -192,22 +190,35 @@
   (and (match_operand 0 "memory_operand")
        (match_test "constant_address_p (XEXP (op, 0))")))
 
+(define_memory_constraint "Bk"
+  "@internal TLS address that allows insn using non-integer registers."
+  (and (match_operand 0 "memory_operand")
+       (not (match_test "ix86_gpr_tls_address_pattern_p (op)"))))
+
 (define_special_memory_constraint "Bn"
   "@internal Memory operand without REX prefix."
   (match_operand 0 "norex_memory_operand"))
 
+(define_special_memory_constraint "Br"
+  "@internal bcst memory operand."
+  (match_operand 0 "bcst_mem_operand"))
+
 (define_constraint "Bs"
   "@internal Sibcall memory operand."
-  (ior (and (not (match_test "TARGET_X32"))
+  (ior (and (not (match_test "TARGET_INDIRECT_BRANCH_REGISTER"))
+	    (not (match_test "TARGET_X32"))
 	    (match_operand 0 "sibcall_memory_operand"))
-       (and (match_test "TARGET_X32 && Pmode == DImode")
+       (and (match_test "TARGET_X32")
+	    (match_test "Pmode == DImode")
 	    (match_operand 0 "GOT_memory_operand"))))
 
 (define_constraint "Bw"
   "@internal Call memory operand."
-  (ior (and (not (match_test "TARGET_X32"))
+  (ior (and (not (match_test "TARGET_INDIRECT_BRANCH_REGISTER"))
+	    (not (match_test "TARGET_X32"))
 	    (match_operand 0 "memory_operand"))
-       (and (match_test "TARGET_X32 && Pmode == DImode")
+       (and (match_test "TARGET_X32")
+	    (match_test "Pmode == DImode")
 	    (match_operand 0 "GOT_memory_operand"))))
 
 (define_constraint "Bz"
@@ -215,12 +226,41 @@
   (match_operand 0 "constant_call_address_operand"))
 
 (define_constraint "BC"
-  "@internal SSE constant -1 operand."
+  "@internal integer SSE constant with all bits set operand."
   (and (match_test "TARGET_SSE")
        (ior (match_test "op == constm1_rtx")
 	    (match_operand 0 "vector_all_ones_operand"))))
 
+(define_constraint "BF"
+  "@internal floating-point SSE constant with all bits set operand."
+  (and (match_test "TARGET_SSE")
+       (match_operand 0 "float_vector_all_ones_operand")))
+
+(define_constraint "BH"
+  "@internal integer constant with last half/quarter bits set operand."
+  (ior (match_operand 0 "vector_all_ones_zero_extend_half_operand")
+       (match_operand 0 "vector_all_ones_zero_extend_quarter_operand")))
+
+;; NB: Similar to 'm', but don't use define_memory_constraint on x86-64
+;; to prevent LRA from converting the operand to the form '(mem (reg X))'
+;; where X is a base register.
+(define_constraint "BM"
+  "@internal x86-64 memory operand."
+  (and (match_code "mem")
+       (match_test "memory_address_addr_space_p (GET_MODE (op), XEXP (op, 0),
+						 MEM_ADDR_SPACE (op))")))
+
 ;; Integer constant constraints.
+(define_constraint "Wb"
+  "Integer constant in the range 0 @dots{} 7, for 8-bit shifts."
+  (and (match_code "const_int")
+       (match_test "IN_RANGE (ival, 0, 7)")))
+
+(define_constraint "Ww"
+  "Integer constant in the range 0 @dots{} 15, for 16-bit shifts."
+  (and (match_code "const_int")
+       (match_test "IN_RANGE (ival, 0, 15)")))
+
 (define_constraint "I"
   "Integer constant in the range 0 @dots{} 31, for 32-bit shifts."
   (and (match_code "const_int")
@@ -240,8 +280,9 @@
   "@code{0xFF}, @code{0xFFFF} or @code{0xFFFFFFFF}
    for AND as a zero-extending move."
   (and (match_code "const_int")
-       (match_test "ival == 0xff || ival == 0xffff
-		    || ival == (HOST_WIDE_INT) 0xffffffff")))
+       (ior (match_test "ival == 0xff")
+	    (match_test "ival == 0xffff")
+	    (match_test "ival == (HOST_WIDE_INT) 0xffffffff"))))
 
 (define_constraint "M"
   "0, 1, 2, or 3 (shifts for the @code{lea} instruction)."
@@ -270,10 +311,9 @@
 
 ;; This can theoretically be any mode's CONST0_RTX.
 (define_constraint "C"
-  "SSE constant zero operand."
-  (and (match_test "TARGET_SSE")
-       (ior (match_test "op == const0_rtx")
-	    (match_operand 0 "const0_operand"))))
+  "Constant zero operand."
+  (ior (match_test "op == const0_rtx")
+       (match_operand 0 "const0_operand")))
 
 ;; Constant-or-symbol-reference constraints.
 
@@ -291,19 +331,24 @@
    to fit that range (for sign-extending conversion operations that
    require non-VOIDmode immediate operands)."
   (and (match_operand 0 "x86_64_immediate_operand")
-       (match_test "GET_MODE (op) != VOIDmode")))
+       (match_test "mode != VOIDmode")))
 
 (define_constraint "Wz"
   "32-bit unsigned integer constant, or a symbolic reference known
    to fit that range (for zero-extending conversion operations that
    require non-VOIDmode immediate operands)."
   (and (match_operand 0 "x86_64_zext_immediate_operand")
-       (match_test "GET_MODE (op) != VOIDmode")))
+       (match_test "mode != VOIDmode")))
 
 (define_constraint "Wd"
   "128-bit integer constant where both the high and low 64-bit word
    of it satisfies the e constraint."
   (match_operand 0 "x86_64_hilo_int_operand"))
+
+(define_constraint "Wf"
+  "32-bit signed integer constant zero extended from word size
+   to double word size."
+  (match_operand 0 "x86_64_dwzext_immediate_operand"))
 
 (define_constraint "Z"
   "32-bit unsigned integer constant, or a symbolic reference known
@@ -324,11 +369,3 @@
 (define_address_constraint "Ts"
   "Address operand without segment register"
   (match_operand 0 "address_no_seg_operand"))
-
-(define_address_constraint "Ti"
-  "MPX address operand without index"
-  (match_operand 0 "address_mpx_no_index_operand"))
-
-(define_address_constraint "Tb"
-  "MPX address operand without base"
-  (match_operand 0 "address_mpx_no_base_operand"))

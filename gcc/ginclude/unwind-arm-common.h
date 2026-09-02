@@ -1,5 +1,5 @@
 /* Header file for the ARM EABI and C6X unwinders
-   Copyright (C) 2003-2017 Free Software Foundation, Inc.
+   Copyright (C) 2003-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook
 
    This file is free software; you can redistribute it and/or modify it
@@ -91,7 +91,7 @@ extern "C" {
 	  _uw reserved2;  /* Personality routine address */
 	  _uw reserved3;  /* Saved callsite address */
 	  _uw reserved4;  /* Forced unwind stop arg */
-	  _uw reserved5;
+	  _uw reserved5;  /* Personality routine GOT value in FDPIC mode.  */
 	}
       unwinder_cache;
       /* Propagation barrier cache (valid after phase 1): */
@@ -127,7 +127,8 @@ extern "C" {
       _UVRSC_VFP = 1,       /* vfp */
       _UVRSC_FPA = 2,       /* fpa */
       _UVRSC_WMMXD = 3,     /* Intel WMMX data register */
-      _UVRSC_WMMXC = 4      /* Intel WMMX control register */
+      _UVRSC_WMMXC = 4,     /* Intel WMMX control register */
+      _UVRSC_PAC = 5        /* Armv8.1-M Mainline PAC/AUTH pseudo-register */
     }
   _Unwind_VRS_RegClass;
 

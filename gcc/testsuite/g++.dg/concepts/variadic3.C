@@ -1,6 +1,6 @@
 // PR c++/70036
-// { dg-do compile { target c++14 } }
-// { dg-options "-fconcepts" }
+// { dg-do compile { target c++17_only } }
+// { dg-options "-fconcepts-ts" }
 
 template <class T> concept bool C = true;
 

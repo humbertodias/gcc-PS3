@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1999-2015, Free Software Foundation, Inc.         --
+--          Copyright (C) 1999-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -101,9 +101,6 @@ package Targparm is
    --  policy name, and Opt.Task_Dispatching_Policy_Sloc is set to
    --  System_Location.
 
-   --  If a pragma Polling (On) appears, then the flag Opt.Polling_Required
-   --  is set to True.
-
    --  If a pragma Detect_Blocking appears, then the flag Opt.Detect_Blocking
    --  is set to True.
 
@@ -180,28 +177,17 @@ package Targparm is
    --  The default values here are used if no value is found in system.ads.
    --  This should normally happen if the special version of system.ads used
    --  by the compiler itself is in use or if the value is only relevant to a
-   --  particular target (e.g. AAMP). The default values are suitable for use
-   --  in normal environments. This approach allows the possibility of new
-   --  versions of the compiler (possibly with new system parameters added)
-   --  being used to compile older versions of the compiler sources, as well as
-   --  avoiding duplicating values in all system-*.ads files for flags that are
-   --  used on a few platforms only.
+   --  particular target. The default values are suitable for use in normal
+   --  environments. This approach allows the possibility of new versions of
+   --  the compiler (possibly with new system parameters added) being used to
+   --  compile older versions of the compiler sources, as well as avoiding
+   --  duplicating values in all system-*.ads files for flags that are used on
+   --  a few platforms only.
 
    --  All these parameters should be regarded as read only by all clients
    --  of the package. The only way they get modified is by calling the
    --  Get_Target_Parameters routine which reads the values from a provided
    --  text buffer containing the source of the system package.
-
-   ----------------------------
-   -- Special Target Control --
-   ----------------------------
-
-   --  The great majority of GNAT ports are based on GCC. The switches in
-   --  this section indicate the use of some non-standard target back end
-   --  or other special targetting requirements.
-
-   AAMP_On_Target : Boolean := False;
-   --  Set to True if target is AAMP
 
    -------------------------------
    -- Backend Arithmetic Checks --
@@ -276,9 +262,6 @@ package Targparm is
 
    ZCX_By_Default_On_Target : Boolean := False;
    --  Indicates if zero cost scheme for exceptions
-
-   Frontend_Exceptions_On_Target : Boolean := True;
-   --  Indicates if we're using a front-end scheme for exceptions
 
    ------------------------------------
    -- Run-Time Library Configuration --
@@ -379,12 +362,12 @@ package Targparm is
    --  this flag is False, and the use of aggregates is not permitted.
 
    Support_Atomic_Primitives_On_Target : Boolean := False;
-   --  If this flag is True, then the back-end support GCC built-in atomic
-   --  operations for memory model such as atomic load or atomic compare
+   --  If this flag is True, then the back end supports GCC built-in atomic
+   --  operations for memory model, such as atomic load or atomic compare
    --  exchange (see the GCC manual for more information). If the flag is
-   --  False, then the back-end doesn't provide this support. Note this flag is
-   --  set to True only if the target supports all atomic primitives up to 64
-   --  bits. ??? To be modified.
+   --  False, then the back end doesn't provide this support. Note that this
+   --  flag is set to True only if the target supports all atomic primitives
+   --  up to 64 bits.
 
    Support_Composite_Assign_On_Target : Boolean := True;
    --  The assignment of composite objects other than small records and
@@ -466,11 +449,15 @@ package Targparm is
    Stack_Check_Probes_On_Target : Boolean := False;
    --  Indicates if the GCC probing mechanism is used
 
+   --  WARNING: There is a matching C declaration of this variable in fe.h
+
    Stack_Check_Limits_On_Target : Boolean := False;
    --  Indicates if the GCC stack-limit mechanism is used
 
    --  Both flags cannot be simultaneously set to True. If neither
    --  is, the target independent fallback method is used.
+
+   --  WARNING: There is a matching C declaration of this variable in fe.h
 
    Stack_Check_Default_On_Target : Boolean := False;
    --  Indicates if stack checking is on by default
@@ -479,10 +466,10 @@ package Targparm is
    -- Command Line Arguments --
    ----------------------------
 
-   --  For most ports of GNAT, command line arguments are supported. The
-   --  following flag is set to False for targets that do not support
-   --  command line arguments (VxWorks and AAMP). Note that support of
-   --  command line arguments is not required on such targets (RM A.15(13)).
+   --  Command line arguments are supported on most targets. The following flag
+   --  is set to False for targets that do not support command line arguments
+   --  (i.e. VxWorks). Note that support for command line arguments is not
+   --  required on such targets (RM A.15(13)).
 
    Command_Line_Args_On_Target : Boolean := True;
    --  Set False if no command line arguments on target. Note that if this
@@ -490,8 +477,8 @@ package Targparm is
    --  this causes suppression of generation of the argv/argc variables
    --  used to record command line arguments.
 
-   --  Similarly, most ports support the use of an exit status, but AAMP
-   --  is an exception (as allowed by RM A.15(18-20))
+   --  Similarly, most targets support the use of an exit status, but other
+   --  targets might not, as allowed by RM A.15(18-20).
 
    Exit_Status_Supported_On_Target : Boolean := True;
    --  Set False if returning of an exit status is not supported on target.
@@ -547,30 +534,12 @@ package Targparm is
    Machine_Overflows_On_Target : Boolean := False;
    --  Set to True for targets where S'Machine_Overflows is True
 
+   --  WARNING: There is a matching C declaration of this variable in fe.h
+
    Signed_Zeros_On_Target : Boolean := True;
    --  Set to False on targets that do not reliably support signed zeros
 
-   -------------------------------------------
-   -- Boolean-Valued Fixed-Point Attributes --
-   -------------------------------------------
-
-   Fractional_Fixed_Ops_On_Target : Boolean := False;
-   --  Set to True for targets that support fixed-by-fixed multiplication
-   --  and division for fixed-point types with a small value equal to
-   --  2 ** (-(T'Object_Size - 1)) and whose values have an absolute
-   --  value less than 1.0.
-
-   -----------------
-   -- Data Layout --
-   -----------------
-
-   --  Normally when using the GCC backend, Gigi and GCC perform much of the
-   --  data layout using the standard layout capabilities of GCC. If the
-   --  parameter Backend_Layout is set to False, then the front end must
-   --  perform all data layout. For further details see the package Layout.
-
-   Frontend_Layout_On_Target : Boolean := False;
-   --  Set True if front end does layout
+   --  WARNING: There is a matching C declaration of this variable in fe.h
 
    -----------------
    -- Subprograms --

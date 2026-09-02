@@ -1,5 +1,5 @@
 ;; Predicate definitions for Xtensa.
-;; Copyright (C) 2005-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -25,9 +25,7 @@
 
 (define_predicate "addsubx_operand"
   (and (match_code "const_int")
-       (match_test "INTVAL (op) == 2
-		    || INTVAL (op) == 4
-		    || INTVAL (op) == 8")))
+       (match_test "IN_RANGE (INTVAL (op), 1, 3)")))
 
 (define_predicate "arith_operand"
   (ior (and (match_code "const_int")
@@ -54,9 +52,19 @@
 	    (match_test "xtensa_mask_immediate (INTVAL (op))"))
        (match_operand 0 "register_operand")))
 
+(define_predicate "shifted_mask_operand"
+  (match_code "const_int")
+{
+  HOST_WIDE_INT mask = INTVAL (op);
+  int shift = ctz_hwi (mask);
+
+  return IN_RANGE (shift, 1, 31)
+	 && xtensa_mask_immediate ((uint32_t)mask >> shift);
+})
+
 (define_predicate "extui_fldsz_operand"
   (and (match_code "const_int")
-       (match_test "xtensa_mask_immediate ((1 << INTVAL (op)) - 1)")))
+       (match_test "IN_RANGE (INTVAL (op), 1, 16)")))
 
 (define_predicate "sext_operand"
   (if_then_else (match_test "TARGET_SEXT")
@@ -65,7 +73,7 @@
 
 (define_predicate "sext_fldsz_operand"
   (and (match_code "const_int")
-       (match_test "INTVAL (op) >= 8 && INTVAL (op) <= 23")))
+       (match_test "IN_RANGE (INTVAL (op), 8, 23)")))
 
 (define_predicate "lsbitnum_operand"
   (and (match_code "const_int")
@@ -139,8 +147,9 @@
 	       (match_test "!constantpool_mem_p (op)
 			    || GET_MODE_SIZE (mode) % UNITS_PER_WORD == 0")))
      (ior (and (match_code "const_int")
-	       (match_test "GET_MODE_CLASS (mode) == MODE_INT
-			    && xtensa_simm12b (INTVAL (op))"))
+	       (match_test "(GET_MODE_CLASS (mode) == MODE_INT
+			     && xtensa_simm12b (INTVAL (op)))
+			    || ! xtensa_split1_finished_p ()"))
 	  (and (match_code "const_int,const_double,const,symbol_ref,label_ref")
 	       (match_test "(TARGET_CONST16 || TARGET_AUTO_LITPOOLS)
 			    && CONSTANT_P (op)
@@ -157,6 +166,19 @@
   (and (match_code "const_int")
        (match_test "xtensa_mem_offset (INTVAL (op), SFmode)")))
 
+(define_predicate "reload_operand"
+  (match_code "mem")
+{
+  const_rtx addr = XEXP (op, 0);
+  if (REG_P (addr))
+    return REGNO (addr) == A1_REG;
+  if (GET_CODE (addr) == PLUS)
+    return REG_P (XEXP (addr, 0))
+	   && REGNO (XEXP (addr, 0)) == A1_REG
+	   && CONST_INT_P (XEXP (addr, 1));
+  return false;
+})
+
 (define_predicate "branch_operator"
   (match_code "eq,ne,lt,ge"))
 
@@ -166,8 +188,14 @@
 (define_predicate "boolean_operator"
   (match_code "eq,ne"))
 
+(define_predicate "logical_shift_operator"
+  (match_code "ashift,lshiftrt"))
+
 (define_predicate "xtensa_cstoresi_operator"
   (match_code "eq,ne,gt,ge,lt,le"))
+
+(define_predicate "xtensa_shift_per_byte_operator"
+  (match_code "ashift,ashiftrt,lshiftrt"))
 
 (define_predicate "tls_symbol_operand"
   (and (match_code "symbol_ref")

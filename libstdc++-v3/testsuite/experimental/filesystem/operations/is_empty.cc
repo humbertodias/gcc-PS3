@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2017 Free Software Foundation, Inc.
+// Copyright (C) 2016-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -15,7 +15,7 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// { dg-options "-lstdc++fs" }
+// { dg-options "-DUSE_FILESYSTEM_TS -lstdc++fs" }
 // { dg-do run { target c++11 } }
 // { dg-require-filesystem-ts "" }
 
@@ -28,6 +28,9 @@ namespace fs = std::experimental::filesystem;
 void
 test01()
 {
+  if (!__gnu_test::permissions_are_testable())
+    return;
+
   auto p = __gnu_test::nonexistent_path();
   create_directory(p);
   permissions(p, fs::perms::none);
@@ -38,7 +41,7 @@ test01()
   VERIFY( !result );
 
   try {
-    fs::is_empty(p);
+    (void) fs::is_empty(p);
   } catch (const fs::filesystem_error& e) {
     ec2 = e.code();
   }
@@ -49,7 +52,7 @@ test01()
   VERIFY( !result );
 
   try {
-    fs::is_empty(p/"f");
+    (void) fs::is_empty(p/"f");
   } catch (const fs::filesystem_error& e) {
     ec2 = e.code();
   }
@@ -82,7 +85,7 @@ test02()
   empty = is_empty(f.path);
   VERIFY( empty );
 
-  std::ofstream{f.path.native()} << "data";
+  std::ofstream{f.path.c_str()} << "data";
   ec = bad_ec;
   empty = is_empty(p, ec);
   VERIFY( !ec );

@@ -1,6 +1,6 @@
 // wstring_convert implementation -*- C++ -*-
 
-// Copyright (C) 2015-2017 Free Software Foundation, Inc.
+// Copyright (C) 2015-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -35,10 +35,9 @@
 #else
 
 #include <streambuf>
-#include "stringfwd.h"
-#include "allocator.h"
-#include "codecvt.h"
-#include "unique_ptr.h"
+#include <bits/stringfwd.h>
+#include <bits/allocator.h>
+#include <bits/codecvt.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -78,7 +77,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __outchars = __outnext - &__outstr.front();
 	}
       while (__result == codecvt_base::partial && __next != __last
-	     && (__outstr.size() - __outchars) < __maxlen);
+	     && ptrdiff_t(__outstr.size() - __outchars) < __maxlen);
 
       if (__result == codecvt_base::error)
 	{
@@ -86,17 +85,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  return false;
 	}
 
-      if (__result == codecvt_base::noconv)
-	{
-	  __outstr.assign(__first, __last);
-	  __count = __last - __first;
-	}
-      else
-	{
-	  __outstr.resize(__outchars);
-	  __count = __next - __first;
-	}
+      // The codecvt facet will only return noconv when the types are
+      // the same, so avoid instantiating basic_string::assign otherwise
+      if _GLIBCXX17_CONSTEXPR (is_same<typename _Codecvt::intern_type,
+				       typename _Codecvt::extern_type>())
+	if (__result == codecvt_base::noconv)
+	  {
+	    __outstr.assign(__first, __last);
+	    __count = __last - __first;
+	    return true;
+	  }
 
+      __outstr.resize(__outchars);
+      __count = __next - __first;
       return true;
     }
 
@@ -118,6 +119,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			      __count, __fn);
     }
 
+  // As above, but with no __count parameter
   template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
     inline bool
     __str_codecvt_in(const char* __first, const char* __last,
@@ -127,6 +129,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _State __state = {};
       size_t __n;
       return __str_codecvt_in(__first, __last, __outstr, __cvt, __state, __n);
+    }
+
+  // As above, but returns false for partial conversion
+  template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
+    inline bool
+    __str_codecvt_in_all(const char* __first, const char* __last,
+			 basic_string<_CharT, _Traits, _Alloc>& __outstr,
+			 const codecvt<_CharT, char, _State>& __cvt)
+    {
+      _State __state = {};
+      size_t __n;
+      return __str_codecvt_in(__first, __last, __outstr, __cvt, __state, __n)
+	&& (__n == size_t(__last - __first));
     }
 
   // Convert wide character string to narrow.
@@ -147,6 +162,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			      __count, __fn);
     }
 
+  // As above, but with no __count parameter
   template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
     inline bool
     __str_codecvt_out(const _CharT* __first, const _CharT* __last,
@@ -158,7 +174,84 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __str_codecvt_out(__first, __last, __outstr, __cvt, __state, __n);
     }
 
-#ifdef _GLIBCXX_USE_WCHAR_T
+  // As above, but returns false for partial conversions
+  template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
+    inline bool
+    __str_codecvt_out_all(const _CharT* __first, const _CharT* __last,
+			  basic_string<char, _Traits, _Alloc>& __outstr,
+			  const codecvt<_CharT, char, _State>& __cvt)
+    {
+      _State __state = {};
+      size_t __n;
+      return __str_codecvt_out(__first, __last, __outstr, __cvt, __state, __n)
+	&& (__n == size_t(__last - __first));
+    }
+
+#ifdef _GLIBCXX_USE_CHAR8_T
+
+  // Convert wide character string to narrow.
+  template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
+    inline bool
+    __str_codecvt_out(const _CharT* __first, const _CharT* __last,
+		      basic_string<char8_t, _Traits, _Alloc>& __outstr,
+		      const codecvt<_CharT, char8_t, _State>& __cvt,
+		      _State& __state, size_t& __count)
+    {
+      using _Codecvt = codecvt<_CharT, char8_t, _State>;
+      using _ConvFn
+	= codecvt_base::result
+	  (_Codecvt::*)(_State&, const _CharT*, const _CharT*, const _CharT*&,
+			char8_t*, char8_t*, char8_t*&) const;
+      _ConvFn __fn = &codecvt<_CharT, char8_t, _State>::out;
+      return __do_str_codecvt(__first, __last, __outstr, __cvt, __state,
+			      __count, __fn);
+    }
+
+  template<typename _CharT, typename _Traits, typename _Alloc, typename _State>
+    inline bool
+    __str_codecvt_out(const _CharT* __first, const _CharT* __last,
+		      basic_string<char8_t, _Traits, _Alloc>& __outstr,
+		      const codecvt<_CharT, char8_t, _State>& __cvt)
+    {
+      _State __state = {};
+      size_t __n;
+      return __str_codecvt_out(__first, __last, __outstr, __cvt, __state, __n);
+    }
+
+#endif  // _GLIBCXX_USE_CHAR8_T
+
+  namespace __detail
+  {
+    template<typename _Tp>
+      struct _Scoped_ptr
+      {
+	__attribute__((__nonnull__(2)))
+	explicit
+	_Scoped_ptr(_Tp* __ptr) noexcept
+	: _M_ptr(__ptr)
+	{ }
+
+	_Scoped_ptr(_Tp* __ptr, const char* __msg)
+	: _M_ptr(__ptr)
+	{
+	  if (!__ptr)
+	    __throw_logic_error(__msg);
+	}
+
+	~_Scoped_ptr() { delete _M_ptr; }
+
+	_Scoped_ptr(const _Scoped_ptr&) = delete;
+	_Scoped_ptr& operator=(const _Scoped_ptr&) = delete;
+
+	__attribute__((__returns_nonnull__))
+	_Tp* operator->() const noexcept { return _M_ptr; }
+
+	_Tp& operator*() const noexcept { return *_M_ptr; }
+
+      private:
+	_Tp* _M_ptr;
+      };
+  }
 
 _GLIBCXX_BEGIN_NAMESPACE_CXX11
 
@@ -174,18 +267,18 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       typedef typename _Codecvt::state_type 			   state_type;
       typedef typename wide_string::traits_type::int_type	   int_type;
 
-      /** Default constructor.
+      /// Default constructor.
+      wstring_convert() : _M_cvt(new _Codecvt()) { }
+
+      /** Constructor.
        *
        * @param  __pcvt The facet to use for conversions.
        *
        * Takes ownership of @p __pcvt and will delete it in the destructor.
        */
       explicit
-      wstring_convert(_Codecvt* __pcvt = new _Codecvt()) : _M_cvt(__pcvt)
-      {
-	if (!_M_cvt)
-	  __throw_logic_error("wstring_convert");
-      }
+      wstring_convert(_Codecvt* __pcvt) : _M_cvt(__pcvt, "wstring_convert")
+      { }
 
       /** Construct with an initial converstion state.
        *
@@ -196,11 +289,9 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        * The object's conversion state will persist between conversions.
        */
       wstring_convert(_Codecvt* __pcvt, state_type __state)
-      : _M_cvt(__pcvt), _M_state(__state), _M_with_cvtstate(true)
-      {
-	if (!_M_cvt)
-	  __throw_logic_error("wstring_convert");
-      }
+      : _M_cvt(__pcvt, "wstring_convert"),
+	_M_state(__state), _M_with_cvtstate(true)
+      { }
 
       /** Construct with error strings.
        *
@@ -213,10 +304,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       : _M_cvt(new _Codecvt),
 	_M_byte_err_string(__byte_err), _M_wide_err_string(__wide_err),
 	_M_with_strings(true)
-      {
-	if (!_M_cvt)
-	  __throw_logic_error("wstring_convert");
-      }
+      { }
 
       ~wstring_convert() = default;
 
@@ -304,7 +392,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       state_type state() const { return _M_state; }
 
     private:
-      unique_ptr<_Codecvt>	_M_cvt;
+      __detail::_Scoped_ptr<_Codecvt>	_M_cvt;
       byte_string		_M_byte_err_string;
       wide_string		_M_wide_err_string;
       state_type		_M_state = state_type();
@@ -325,7 +413,10 @@ _GLIBCXX_END_NAMESPACE_CXX11
     public:
       typedef typename _Codecvt::state_type state_type;
 
-      /** Default constructor.
+      /// Default constructor.
+      wbuffer_convert() : wbuffer_convert(nullptr) { }
+
+      /** Constructor.
        *
        * @param  __bytebuf The underlying byte stream buffer.
        * @param  __pcvt    The facet to use for conversions.
@@ -334,15 +425,11 @@ _GLIBCXX_END_NAMESPACE_CXX11
        * Takes ownership of @p __pcvt and will delete it in the destructor.
        */
       explicit
-      wbuffer_convert(streambuf* __bytebuf = 0, _Codecvt* __pcvt = new _Codecvt,
+      wbuffer_convert(streambuf* __bytebuf, _Codecvt* __pcvt = new _Codecvt,
 		      state_type __state = state_type())
-      : _M_buf(__bytebuf), _M_cvt(__pcvt), _M_state(__state)
+      : _M_buf(__bytebuf), _M_cvt(__pcvt, "wbuffer_convert"),
+	_M_state(__state), _M_always_noconv(_M_cvt->always_noconv())
       {
-	if (!_M_cvt)
-	  __throw_logic_error("wbuffer_convert");
-
-	_M_always_noconv = _M_cvt->always_noconv();
-
 	if (_M_buf)
 	  {
 	    this->setp(_M_put_area, _M_put_area + _S_buffer_length);
@@ -431,7 +518,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
 	streamsize __nbytes = sizeof(_M_get_buf) - _M_unconv;
 	__nbytes = std::min(__nbytes, _M_buf->in_avail());
 	if (__nbytes < 1)
-	  __nbytes == 1;
+	  __nbytes = 1;
 	__nbytes = _M_buf->sgetn(_M_get_buf + _M_unconv, __nbytes);
 	if (__nbytes < 1)
 	  return false;
@@ -524,9 +611,9 @@ _GLIBCXX_END_NAMESPACE_CXX11
 	return __next != __first;
       }
 
-      streambuf*		_M_buf;
-      unique_ptr<_Codecvt>	_M_cvt;
-      state_type		_M_state;
+      streambuf*			_M_buf;
+      __detail::_Scoped_ptr<_Codecvt>	_M_cvt;
+      state_type			_M_state;
 
       static const streamsize	_S_buffer_length = 32;
       static const streamsize	_S_putback_length = 3;
@@ -536,8 +623,6 @@ _GLIBCXX_END_NAMESPACE_CXX11
       char			_M_get_buf[_S_buffer_length-_S_putback_length];
       bool			_M_always_noconv;
     };
-
-#endif  // _GLIBCXX_USE_WCHAR_T
 
   /// @} group locales
 

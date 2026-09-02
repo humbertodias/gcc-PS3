@@ -1,5 +1,5 @@
 /* Inline functions to test validity of reg classes for addressing modes.
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -24,21 +24,22 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_ADDRESSES_H
 #define GCC_ADDRESSES_H
 
-static inline enum reg_class
+inline enum reg_class
 base_reg_class (machine_mode mode ATTRIBUTE_UNUSED,
 		addr_space_t as ATTRIBUTE_UNUSED,
 		enum rtx_code outer_code ATTRIBUTE_UNUSED,
 		enum rtx_code index_code ATTRIBUTE_UNUSED)
 {
 #ifdef MODE_CODE_BASE_REG_CLASS
-  return MODE_CODE_BASE_REG_CLASS (mode, as, outer_code, index_code);
+  return MODE_CODE_BASE_REG_CLASS (MACRO_MODE (mode), as, outer_code,
+				   index_code);
 #else
 #ifdef MODE_BASE_REG_REG_CLASS
   if (index_code == REG)
-    return MODE_BASE_REG_REG_CLASS (mode);
+    return MODE_BASE_REG_REG_CLASS (MACRO_MODE (mode));
 #endif
 #ifdef MODE_BASE_REG_CLASS
-  return MODE_BASE_REG_CLASS (mode);
+  return MODE_BASE_REG_CLASS (MACRO_MODE (mode));
 #else
   return BASE_REG_CLASS;
 #endif
@@ -50,7 +51,7 @@ base_reg_class (machine_mode mode ATTRIBUTE_UNUSED,
    REGNO_OK_FOR_BASE_P.
    Arguments as for the REGNO_MODE_CODE_OK_FOR_BASE_P macro.  */
 
-static inline bool
+inline bool
 ok_for_base_p_1 (unsigned regno ATTRIBUTE_UNUSED,
 		 machine_mode mode ATTRIBUTE_UNUSED,
 		 addr_space_t as ATTRIBUTE_UNUSED,
@@ -58,15 +59,15 @@ ok_for_base_p_1 (unsigned regno ATTRIBUTE_UNUSED,
 		 enum rtx_code index_code ATTRIBUTE_UNUSED)
 {
 #ifdef REGNO_MODE_CODE_OK_FOR_BASE_P
-  return REGNO_MODE_CODE_OK_FOR_BASE_P (regno, mode, as,
+  return REGNO_MODE_CODE_OK_FOR_BASE_P (regno, MACRO_MODE (mode), as,
 					outer_code, index_code);
 #else
 #ifdef REGNO_MODE_OK_FOR_REG_BASE_P
   if (index_code == REG)
-    return REGNO_MODE_OK_FOR_REG_BASE_P (regno, mode);
+    return REGNO_MODE_OK_FOR_REG_BASE_P (regno, MACRO_MODE (mode));
 #endif
 #ifdef REGNO_MODE_OK_FOR_BASE_P
-  return REGNO_MODE_OK_FOR_BASE_P (regno, mode);
+  return REGNO_MODE_OK_FOR_BASE_P (regno, MACRO_MODE (mode));
 #else
   return REGNO_OK_FOR_BASE_P (regno);
 #endif
@@ -76,7 +77,7 @@ ok_for_base_p_1 (unsigned regno ATTRIBUTE_UNUSED,
 /* Wrapper around ok_for_base_p_1, for use after register allocation is
    complete.  Arguments as for the called function.  */
 
-static inline bool
+inline bool
 regno_ok_for_base_p (unsigned regno, machine_mode mode, addr_space_t as,
 		     enum rtx_code outer_code, enum rtx_code index_code)
 {

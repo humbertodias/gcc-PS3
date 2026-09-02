@@ -11,13 +11,12 @@ package math
 //	Exp(NaN) = NaN
 // Very large values overflow to 0 or +Inf.
 // Very small values underflow to 1.
-
-//extern exp
-func libc_exp(float64) float64
-
 func Exp(x float64) float64 {
 	return libc_exp(x)
 }
+
+//extern exp
+func libc_exp(float64) float64
 
 // The original C code, the long comment, and the constants
 // below are from FreeBSD's /usr/src/lib/msun/src/e_exp.c
@@ -50,7 +49,7 @@ func Exp(x float64) float64 {
 //      the interval [0,0.34658]:
 //      Write
 //          R(r**2) = r*(exp(r)+1)/(exp(r)-1) = 2 + r*r/6 - r**4/360 + ...
-//      We use a special Remes algorithm on [0,0.34658] to generate
+//      We use a special Remez algorithm on [0,0.34658] to generate
 //      a polynomial of degree 5 to approximate R. The maximum error
 //      of this polynomial approximation is bounded by 2**-59. In
 //      other words,
@@ -139,6 +138,9 @@ func exp(x float64) float64 {
 //
 // Special cases are the same as Exp.
 func Exp2(x float64) float64 {
+	if haveArchExp2 {
+		return archExp2(x)
+	}
 	return exp2(x)
 }
 
@@ -183,7 +185,7 @@ func exp2(x float64) float64 {
 // exp1 returns e**r × 2**k where r = hi - lo and |r| ≤ ln(2)/2.
 func expmulti(hi, lo float64, k int) float64 {
 	const (
-		P1 = 1.66666666666666019037e-01  /* 0x3FC55555; 0x5555553E */
+		P1 = 1.66666666666666657415e-01  /* 0x3FC55555; 0x55555555 */
 		P2 = -2.77777777770155933842e-03 /* 0xBF66C16C; 0x16BEBD93 */
 		P3 = 6.61375632143793436117e-05  /* 0x3F11566A; 0xAF25DE2C */
 		P4 = -1.65339022054652515390e-06 /* 0xBEBBBD41; 0xC5D26BF1 */

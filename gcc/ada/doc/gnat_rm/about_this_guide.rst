@@ -96,6 +96,9 @@ This reference manual contains the following chapters:
 * :ref:`Implementation_of_Ada_2012_Features`, describes the status of the
   GNAT implementation of the Ada 2012 language standard.
 
+* :ref:`Security_Hardening_Features` documents GNAT extensions aimed
+  at security hardening.
+
 * :ref:`Obsolescent_Features` documents implementation dependent features,
   including pragmas and attributes, which are considered obsolescent, since
   there are other preferred ways of achieving the same results. These
@@ -130,14 +133,14 @@ Conventions
 Following are examples of the typographical and graphic conventions used
 in this guide:
 
-* `Functions`, `utility program names`, `standard names`,
-  and `classes`.
+* ``Functions``, ``utility program names``, ``standard names``,
+  and ``classes``.
 
-* `Option flags`
+* ``Option flags``
 
 * :file:`File names`
 
-* `Variables`
+* ``Variables``
 
 * *Emphasis*
 

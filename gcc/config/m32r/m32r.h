@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, Renesas M32R cpu.
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -260,12 +260,6 @@
 /* The best alignment to use in cases where we have a choice.  */
 #define FASTEST_ALIGNMENT 32
 
-/* Make strings word-aligned so strcpy from constants will be faster.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN)	\
-  ((TREE_CODE (EXP) == STRING_CST	\
-    && (ALIGN) < FASTEST_ALIGNMENT)	\
-   ? FASTEST_ALIGNMENT : (ALIGN))
-
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN)					\
   (TREE_CODE (TYPE) == ARRAY_TYPE					\
@@ -354,15 +348,13 @@
 #define SUBTARGET_CALL_USED_REGISTERS
 #endif
 
-#define CALL_USED_REGISTERS	\
+#define CALL_REALLY_USED_REGISTERS \
 {				\
   1, 1, 1, 1, 1, 1, 1, 1,	\
   0, 0, 0, 0, 0, 0, 1, 1,	\
   1, 1, 1			\
   SUBTARGET_CALL_USED_REGISTERS	\
 }
-
-#define CALL_REALLY_USED_REGISTERS CALL_USED_REGISTERS
 
 /* If defined, an initializer for a vector of integers, containing the
    numbers of hard registers in the order in which GCC should
@@ -388,34 +380,6 @@
   SUBTARGET_REG_ALLOC_ORDER			\
 }
 #endif
-
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.  */
-#define HARD_REGNO_NREGS(REGNO, MODE) \
-  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.  */
-extern const unsigned int m32r_hard_regno_mode_ok[FIRST_PSEUDO_REGISTER];
-extern unsigned int m32r_mode_class[];
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
-  ((m32r_hard_regno_mode_ok[REGNO] & m32r_mode_class[MODE]) != 0)
-
-/* A C expression that is nonzero if it is desirable to choose
-   register allocation so as to avoid move instructions between a
-   value of mode MODE1 and a value of mode MODE2.
-
-   If `HARD_REGNO_MODE_OK (R, MODE1)' and `HARD_REGNO_MODE_OK (R,
-   MODE2)' are ever different for any R, then `MODES_TIEABLE_P (MODE1,
-   MODE2)' must be zero.  */
-
-/* Tie QI/HI/SI modes together.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) 		\
-  (   GET_MODE_CLASS (MODE1) == MODE_INT	\
-   && GET_MODE_CLASS (MODE2) == MODE_INT	\
-   && GET_MODE_SIZE (MODE1) <= UNITS_PER_WORD	\
-   && GET_MODE_SIZE (MODE2) <= UNITS_PER_WORD)
 
 #define HARD_REGNO_RENAME_OK(OLD_REG, NEW_REG) \
   m32r_hard_regno_rename_ok (OLD_REG, NEW_REG)
@@ -500,7 +464,7 @@ extern enum reg_class m32r_regno_reg_class[FIRST_PSEUDO_REGISTER];
    They give nonzero only if REGNO is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in reginfo.c during register
+   has been allocated, which happens in reginfo.cc during register
    allocation.  */
 #define REGNO_OK_FOR_BASE_P(REGNO) \
   ((REGNO) < FIRST_PSEUDO_REGISTER			\
@@ -525,15 +489,6 @@ extern enum reg_class m32r_regno_reg_class[FIRST_PSEUDO_REGISTER];
 /* Define this macro if pushing a word onto the stack moves the stack
    pointer to a smaller address.  */
 #define STACK_GROWS_DOWNWARD 1
-
-/* Offset from frame pointer to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-/* The frame pointer points at the same place as the stack pointer, except if
-   alloca has been called.  */
-#define STARTING_FRAME_OFFSET \
-  M32R_STACK_ALIGN (crtl->outgoing_args_size)
 
 /* Offset from the stack pointer register to the first location at which
    outgoing arguments are placed.  */
@@ -814,29 +769,6 @@ L2:     .word STATIC
 /* Globalizing directive for a label.  */
 #define GLOBAL_ASM_OP "\t.global\t"
 
-/* We do not use DBX_LINES_FUNCTION_RELATIVE or
-   dbxout_stab_value_internal_label_diff here because
-   we need to use .debugsym for the line label.  */
-
-#define DBX_OUTPUT_SOURCE_LINE(file, line, counter)			\
-  do									\
-    {									\
-      const char * begin_label =					\
-	XSTR (XEXP (DECL_RTL (current_function_decl), 0), 0);		\
-      char label[64];							\
-      ASM_GENERATE_INTERNAL_LABEL (label, "LM", counter);		\
-									\
-      dbxout_begin_stabn_sline (line);					\
-      assemble_name (file, label);					\
-      putc ('-', file);							\
-      assemble_name (file, begin_label);				\
-      fputs ("\n\t.debugsym ", file);					\
-      assemble_name (file, label);					\
-      putc ('\n', file);						\
-      counter += 1;							\
-     }									\
-  while (0)
-
 /* How to refer to registers in assembler output.
    This sequence is indexed by compiler's hard-register-number (see above).  */
 #ifndef SUBTARGET_REGISTER_NAMES
@@ -869,7 +801,7 @@ L2:     .word STATIC
 }
 
 /* If defined, C string expressions to be used for the `%R', `%L',
-   `%U', and `%I' options of `asm_fprintf' (see `final.c').  These
+   `%U', and `%I' options of `asm_fprintf' (see `final.cc').  These
    are useful when a single `md' file must support multiple assembler
    formats.  In that case, the various `tm.h' files can define these
    macros differently.  */
@@ -909,7 +841,8 @@ L2:     .word STATIC
    of a loop.  */
 /* On the M32R, align loops to 32 byte boundaries (cache line size)
    if -malign-loops.  */
-#define LOOP_ALIGN(LABEL) (TARGET_ALIGN_LOOPS ? 5 : 0)
+#define LOOP_ALIGN(LABEL) ((TARGET_ALIGN_LOOPS \
+			    ? align_flags (5) : align_flags ()))
 
 /* Define this to be the maximum number of insns to move around when moving
    a loop test from the top of a loop to the bottom
@@ -974,16 +907,13 @@ L2:     .word STATIC
 
 /* Debugging information.  */
 
-/* Generate DBX and DWARF debugging information.  */
-#define DBX_DEBUGGING_INFO    1
+/* Generate DWARF debugging information.  */
 #define DWARF2_DEBUGGING_INFO 1
 
 /* Use DWARF2 debugging info by default.  */
 #undef  PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
 
-/* Turn off splitting of long stabs.  */
-#define DBX_CONTIN_LENGTH 0
 
 /* Miscellaneous.  */
 
@@ -1008,10 +938,6 @@ L2:     .word STATIC
 /* Define this to be nonzero if shift instructions ignore all but the low-order
    few bits.  */
 #define SHIFT_COUNT_TRUNCATED 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction

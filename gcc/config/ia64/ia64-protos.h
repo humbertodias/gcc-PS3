@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler for IA-64.
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -20,7 +20,7 @@ along with GCC; see the file COPYING3.  If not see
 /* Shared between the driver and cc1.  */
 extern enum unwind_info_type ia64_except_unwind_info (struct gcc_options *);
 
-/* Functions defined in ia64.c */
+/* Functions defined in ia64.cc */
 
 extern int bundling_p;
 #ifdef RTX_CODE
@@ -62,7 +62,6 @@ extern const char *get_bundle_name (int);
 extern const char *output_probe_stack_range (rtx, rtx);
 
 extern void ia64_expand_vec_perm_even_odd (rtx, rtx, rtx, int);
-extern bool ia64_expand_vec_perm_const (rtx op[4]);
 extern void ia64_expand_vec_setv2sf (rtx op[3]);
 #endif /* RTX_CODE */
 
@@ -84,15 +83,10 @@ extern int ia64_epilogue_uses (int);
 extern int ia64_eh_uses (int);
 extern void emit_safe_across_calls (void);
 extern void ia64_init_builtins (void);
-extern int ia64_dbx_register_number (int);
+extern int ia64_debugger_regno (int);
 
 extern rtx ia64_return_addr_rtx (HOST_WIDE_INT, rtx);
 extern void ia64_split_return_addr_rtx (rtx);
-
-#ifdef ARGS_SIZE_RTX
-/* expr.h defines ARGS_SIZE_RTX and `enum direction'.  */
-extern enum direction ia64_hpux_function_arg_padding (machine_mode, const_tree);
-#endif /* ARGS_SIZE_RTX */
 
 extern void ia64_hpux_handle_builtin_pragma (struct cpp_reader *);
 extern void ia64_output_function_profiler (FILE *, int);

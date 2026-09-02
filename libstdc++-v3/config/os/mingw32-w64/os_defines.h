@@ -1,6 +1,6 @@
 // Specific definitions for generic platforms  -*- C++ -*-
 
-// Copyright (C) 2000-2017 Free Software Foundation, Inc.
+// Copyright (C) 2000-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -76,6 +76,8 @@
 
 #ifdef __x86_64__
 #define _GLIBCXX_LLP64 1
+// See libstdc++/69506
+#define _GLIBCXX_USE_WEAK_REF 0
 #endif
 
 // Enable use of GetModuleHandleEx (requires Windows XP/2003) in
@@ -83,7 +85,15 @@
 // their dtors are called
 #define _GLIBCXX_THREAD_ATEXIT_WIN32 1
 
+// Enable use of GetSystemInfo to implement get_nprocs
+#define _GLIBCXX_USE_GET_NPROCS_WIN32 1
+
 // See libstdc++/59807
 #define _GTHREAD_USE_MUTEX_INIT_FUNC 1
+
+#define _GLIBCXX_USE_CRT_RAND_S 1
+
+// See libstdc++/94268
+#define _GLIBCXX_BUFSIZ 4096
 
 #endif

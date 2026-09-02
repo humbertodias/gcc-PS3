@@ -6,23 +6,17 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2015, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
 -- ware  Foundation;  either version 3,  or (at your option) any later ver- --
 -- sion.  GNAT is distributed in the hope that it will be useful, but WITH- --
 -- OUT ANY WARRANTY;  without even the  implied warranty of MERCHANTABILITY --
--- or FITNESS FOR A PARTICULAR PURPOSE.                                     --
---                                                                          --
--- As a special exception under Section 7 of GPL version 3, you are granted --
--- additional permissions described in the GCC Runtime Library Exception,   --
--- version 3.1, as published by the Free Software Foundation.               --
---                                                                          --
--- You should have received a copy of the GNU General Public License and    --
--- a copy of the GCC Runtime Library Exception along with this program;     --
--- see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see    --
--- <http://www.gnu.org/licenses/>.                                          --
+-- or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License --
+-- for  more details.  You should have  received  a copy of the GNU General --
+-- Public License  distributed with GNAT; see file COPYING3.  If not, go to --
+-- http://www.gnu.org/licenses for a complete copy of the license.          --
 --                                                                          --
 -- GNAT was originally developed  by the GNAT team at  New York University. --
 -- Extensive contributions were provided by Ada Core Technologies Inc.      --
@@ -44,6 +38,13 @@ package body Output is
 
    Current_FD : File_Descriptor := Standout;
    --  File descriptor for current output
+
+   type FD_Array is array (Nat range 1 .. 3) of File_Descriptor;
+   FD_Stack     : FD_Array;
+   FD_Stack_Idx : Nat := FD_Array'First - 1;
+   --  Maintain a small stack for Push_Output and Pop_Output. We'd normally
+   --  use Table for this and allow an unlimited depth, but we're the target
+   --  of a pragma Elaborate_All in Table, so we can't use it here.
 
    Special_Output_Proc : Output_Proc := null;
    --  Record argument to last call to Set_Special_Output. If this is
@@ -228,6 +229,29 @@ package body Output is
         (Cur_Indentation - Indentation_Amount) mod Indentation_Limit;
    end Outdent;
 
+   ----------------
+   -- Pop_Output --
+   ----------------
+
+   procedure Pop_Output is
+   begin
+      Flush_Buffer;
+      pragma Assert (FD_Stack_Idx >= FD_Array'First);
+      Current_FD := FD_Stack (FD_Stack_Idx);
+      FD_Stack_Idx := FD_Stack_Idx - 1;
+   end Pop_Output;
+
+   -----------------
+   -- Push_Output --
+   -----------------
+
+   procedure Push_Output is
+   begin
+      pragma Assert (FD_Stack_Idx < FD_Array'Last);
+      FD_Stack_Idx := FD_Stack_Idx + 1;
+      FD_Stack (FD_Stack_Idx) := Current_FD;
+   end Push_Output;
+
    ---------------------------
    -- Restore_Output_Buffer --
    ---------------------------
@@ -269,10 +293,7 @@ package body Output is
 
    procedure Set_Output (FD : File_Descriptor) is
    begin
-      if Special_Output_Proc = null then
-         Flush_Buffer;
-      end if;
-
+      Flush_Buffer;
       Current_FD := FD;
    end Set_Output;
 
@@ -300,59 +321,99 @@ package body Output is
 
    procedure w (C : Character) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Char (''');
       Write_Char (C);
       Write_Char (''');
       Write_Eol;
+
+      Pop_Output;
    end w;
 
    procedure w (S : String) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Str (S);
       Write_Eol;
+
+      Pop_Output;
    end w;
 
    procedure w (V : Int) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Int (V);
       Write_Eol;
+
+      Pop_Output;
    end w;
 
    procedure w (B : Boolean) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       if B then
          w ("True");
       else
          w ("False");
       end if;
+
+      Pop_Output;
    end w;
 
    procedure w (L : String; C : Character) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Str (L);
       Write_Char (' ');
       w (C);
+
+      Pop_Output;
    end w;
 
    procedure w (L : String; S : String) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Str (L);
       Write_Char (' ');
       w (S);
+
+      Pop_Output;
    end w;
 
    procedure w (L : String; V : Int) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Str (L);
       Write_Char (' ');
       w (V);
+
+      Pop_Output;
    end w;
 
    procedure w (L : String; B : Boolean) is
    begin
+      Push_Output;
+      Set_Standard_Error;
+
       Write_Str (L);
       Write_Char (' ');
       w (B);
+
+      Pop_Output;
    end w;
 
    ----------------
@@ -361,10 +422,10 @@ package body Output is
 
    procedure Write_Char (C : Character) is
    begin
-      pragma Assert (Next_Col in Buffer'Range);
-      if Next_Col = Buffer'Length then
-         Write_Eol;
+      if Next_Col > Buffer'Length then
+         Flush_Buffer;
       end if;
+      pragma Assert (Next_Col in Buffer'Range);
 
       if C = ASCII.LF then
          Write_Eol;
@@ -443,6 +504,32 @@ package body Output is
          Write_Abs (-Val);
       end if;
    end Write_Int;
+
+   ------------------
+   -- Write_Int_64 --
+   ------------------
+
+   procedure Write_Int_64 (Val : Int_64) is
+      subtype Nonpositive is Int_64 range Int_64'First .. 0;
+      procedure Write_Abs (Val : Nonpositive);
+
+      procedure Write_Abs (Val : Nonpositive) is
+      begin
+         if Val < -9 then
+            Write_Abs (Val / 10);
+         end if;
+
+         Write_Char (Character'Val (-(Val rem 10) + Character'Pos ('0')));
+      end Write_Abs;
+
+   begin
+      if Val < 0 then
+         Write_Char ('-');
+         Write_Abs (Val);
+      else
+         Write_Abs (-Val);
+      end if;
+   end Write_Int_64;
 
    ----------------
    -- Write_Line --

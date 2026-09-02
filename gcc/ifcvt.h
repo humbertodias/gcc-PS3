@@ -1,5 +1,5 @@
 /* If-conversion header file.
-   Copyright (C) 2014-2017 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -86,6 +86,14 @@ struct noce_if_info
      form as well.  */
   bool then_else_reversed;
 
+  /* True if THEN_BB is conditional on !COND rather than COND.
+     This is used if:
+
+     - JUMP branches to THEN_BB on COND
+     - JUMP falls through to JOIN_BB on !COND
+     - COND cannot be reversed.  */
+  bool cond_inverted;
+
   /* True if the contents of then_bb and else_bb are a
      simple single set instruction.  */
   bool then_simple;
@@ -97,8 +105,8 @@ struct noce_if_info
 
   /* An estimate of the original costs.  When optimizing for size, this is the
      combined cost of COND, JUMP and the costs for THEN_BB and ELSE_BB.
-     When optimizing for speed, we use the costs of COND plus the minimum of
-     the costs for THEN_BB and ELSE_BB, as computed in the next field.  */
+     When optimizing for speed, we use the costs of COND plus weighted average
+     of the costs for THEN_BB and ELSE_BB, as computed in the next field.  */
   unsigned int original_cost;
 
   /* Maximum permissible cost for the unconditional sequence we should

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2003-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 2003-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -193,9 +193,9 @@ package body Prepcomp is
       end if;
    end Check_Symbols;
 
-   ------------------------------
-   -- Parse_Preprocessing_Data --
-   ------------------------------
+   -----------------------------------
+   -- Parse_Preprocessing_Data_File --
+   -----------------------------------
 
    procedure Parse_Preprocessing_Data_File (N : File_Name_Type) is
       OK            : Boolean := False;
@@ -311,7 +311,7 @@ package body Prepcomp is
 
          --  Check the switches that may follow
 
-         while Token /= Tok_End_Of_Line and then Token /= Tok_EOF loop
+         while Token not in Tok_End_Of_Line | Tok_EOF loop
             if Token /= Tok_Minus then
                Error_Msg -- CODEFIX
                  ("`'-` expected", Token_Ptr);
@@ -630,17 +630,16 @@ package body Prepcomp is
          String_To_Name_Buffer (Current_Data.Deffile);
 
          declare
-            N           : constant File_Name_Type    := Name_Find;
-            Deffile     : constant Source_File_Index :=
-                            Load_Definition_File (N);
-            Add_Deffile : Boolean                    := True;
-            T           : constant Nat               := Total_Errors_Detected;
+            N       : constant File_Name_Type    := Name_Find;
+            Deffile : constant Source_File_Index := Load_Definition_File (N);
+            T       : constant Nat               := Total_Errors_Detected;
+
+            Add_Deffile : Boolean := True;
 
          begin
-            if Deffile = No_Source_File then
-               Fail ("definition file """
-                     & Get_Name_String (N)
-                     & """ not found");
+            if Deffile <= No_Source_File then
+               Fail
+                 ("definition file """ & Get_Name_String (N) & """ not found");
             end if;
 
             --  Initialize the preprocessor and set the characteristics of the
@@ -756,7 +755,7 @@ package body Prepcomp is
    begin
       Set_Ignore_Errors (To => True);
 
-      while Token /= Tok_End_Of_Line and then Token /= Tok_EOF loop
+      while Token not in Tok_End_Of_Line | Tok_EOF loop
          Scan;
       end loop;
 

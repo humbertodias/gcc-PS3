@@ -1,6 +1,6 @@
 // <vstring.h> Forward declarations -*- C++ -*-
 
-// Copyright (C) 2005-2017 Free Software Foundation, Inc.
+// Copyright (C) 2005-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -32,6 +32,8 @@
 
 #pragma GCC system_header
 
+#include <bits/requires_hosted.h> // GNU extensions are currently omitted
+
 #include <bits/c++config.h>
 #include <bits/char_traits.h>
 #include <bits/allocator.h>
@@ -58,17 +60,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   __versa_string<char, std::char_traits<char>,
 		 std::allocator<char>, __rc_string_base>    __rc_string;
 
-#ifdef _GLIBCXX_USE_WCHAR_T
   typedef __versa_string<wchar_t>                           __wvstring;
   typedef __wvstring                                        __wsso_string;
   typedef
   __versa_string<wchar_t, std::char_traits<wchar_t>,
 		 std::allocator<wchar_t>, __rc_string_base> __wrc_string;
-#endif  
 
-#if ((__cplusplus >= 201103L) \
-     && defined(_GLIBCXX_USE_C99_STDINT_TR1))
-
+#if __cplusplus >= 201103L
   typedef __versa_string<char16_t>                          __u16vstring;
   typedef __u16vstring                                      __u16sso_string;
   typedef 
@@ -80,8 +78,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   typedef 
   __versa_string<char32_t, std::char_traits<char32_t>,
 		 std::allocator<char32_t>, __rc_string_base> __u32rc_string;
-
-#endif
+#endif // C++11
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace

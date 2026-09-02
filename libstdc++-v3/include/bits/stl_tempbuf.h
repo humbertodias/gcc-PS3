@@ -1,6 +1,6 @@
 // Temporary buffer implementation -*- C++ -*-
 
-// Copyright (C) 2001-2017 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -56,12 +56,30 @@
 #ifndef _STL_TEMPBUF_H
 #define _STL_TEMPBUF_H 1
 
-#include <bits/stl_algobase.h>
+#include <new>
+#include <bits/exception_defines.h>
 #include <bits/stl_construct.h>
+#include <bits/stl_pair.h>
+#include <ext/numeric_traits.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  namespace __detail
+  {
+    template<typename _Tp>
+      inline void
+      __return_temporary_buffer(_Tp* __p,
+				size_t __len __attribute__((__unused__)))
+      {
+#if __cpp_sized_deallocation
+	::operator delete(__p, __len * sizeof(_Tp));
+#else
+	::operator delete(__p);
+#endif
+      }
+  }
 
   /**
    *  @brief Allocates a temporary buffer.
@@ -81,6 +99,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * Provides the nothrow exception guarantee.
    */
   template<typename _Tp>
+    _GLIBCXX17_DEPRECATED
     pair<_Tp*, ptrdiff_t>
     get_temporary_buffer(ptrdiff_t __len) _GLIBCXX_NOEXCEPT
     {
@@ -88,14 +107,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	__gnu_cxx::__numeric_traits<ptrdiff_t>::__max / sizeof(_Tp);
       if (__len > __max)
 	__len = __max;
-      
-      while (__len > 0) 
+
+      while (__len > 0)
 	{
-	  _Tp* __tmp = static_cast<_Tp*>(::operator new(__len * sizeof(_Tp), 
+	  _Tp* __tmp = static_cast<_Tp*>(::operator new(__len * sizeof(_Tp),
 							std::nothrow));
 	  if (__tmp != 0)
 	    return std::pair<_Tp*, ptrdiff_t>(__tmp, __len);
-	  __len /= 2;
+	  __len = __len == 1 ? 0 : ((__len + 1) / 2);
 	}
       return std::pair<_Tp*, ptrdiff_t>(static_cast<_Tp*>(0), 0);
     }
@@ -110,8 +129,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp>
     inline void
     return_temporary_buffer(_Tp* __p)
-    { ::operator delete(__p, std::nothrow); }
-
+    { ::operator delete(__p); }
 
   /**
    *  This class is used in two places: stl_algo.h and ext/memory,
@@ -158,14 +176,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       /**
        * Constructs a temporary buffer of a size somewhere between
-       * zero and the size of the given range.
+       * zero and the given length.
        */
-      _Temporary_buffer(_ForwardIterator __first, _ForwardIterator __last);
+      _Temporary_buffer(_ForwardIterator __seed, size_type __original_len);
 
       ~_Temporary_buffer()
       {
 	std::_Destroy(_M_buffer, _M_buffer + _M_len);
-	std::return_temporary_buffer(_M_buffer);
+	std::__detail::__return_temporary_buffer(_M_buffer, _M_len);
       }
 
     private:
@@ -185,7 +203,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         __ucr(_Pointer __first, _Pointer __last,
 	      _ForwardIterator __seed)
         {
-	  if(__first == __last)
+	  if (__first == __last)
 	    return;
 
 	  _Pointer __cur = __first;
@@ -239,33 +257,35 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __ucr(__first, __last, __seed);
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
   template<typename _ForwardIterator, typename _Tp>
     _Temporary_buffer<_ForwardIterator, _Tp>::
-    _Temporary_buffer(_ForwardIterator __first, _ForwardIterator __last)
-    : _M_original_len(std::distance(__first, __last)),
-      _M_len(0), _M_buffer(0)
+    _Temporary_buffer(_ForwardIterator __seed, size_type __original_len)
+    : _M_original_len(__original_len), _M_len(0), _M_buffer(0)
     {
-      __try
+      std::pair<pointer, size_type> __p(
+		std::get_temporary_buffer<value_type>(_M_original_len));
+
+      if (__p.first)
 	{
-	  std::pair<pointer, size_type> __p(std::get_temporary_buffer<
-					    value_type>(_M_original_len));
-	  _M_buffer = __p.first;
-	  _M_len = __p.second;
-	  if (_M_buffer)
-	    std::__uninitialized_construct_buf(_M_buffer, _M_buffer + _M_len,
-					       __first);
-	}
-      __catch(...)
-	{
-	  std::return_temporary_buffer(_M_buffer);
-	  _M_buffer = 0;
-	  _M_len = 0;
-	  __throw_exception_again;
+	  __try
+	    {
+	      std::__uninitialized_construct_buf(__p.first, __p.first + __p.second,
+						 __seed);
+	      _M_buffer = __p.first;
+	      _M_len = __p.second;
+	    }
+	  __catch(...)
+	    {
+	      std::__detail::__return_temporary_buffer(__p.first, __p.second);
+	      __throw_exception_again;
+	    }
 	}
     }
+#pragma GCC diagnostic pop
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 
 #endif /* _STL_TEMPBUF_H */
-

@@ -11,11 +11,18 @@ package math
 //	Dim(-Inf, -Inf) = NaN
 //	Dim(x, NaN) = Dim(NaN, x) = NaN
 func Dim(x, y float64) float64 {
-	return dim(x, y)
-}
-
-func dim(x, y float64) float64 {
-	return max(x-y, 0)
+	// The special cases result in NaN after the subtraction:
+	//      +Inf - +Inf = NaN
+	//      -Inf - -Inf = NaN
+	//       NaN - y    = NaN
+	//         x - NaN  = NaN
+	v := x - y
+	if v <= 0 {
+		// v is negative or 0
+		return 0
+	}
+	// v is positive or NaN
+	return v
 }
 
 // Max returns the larger of x or y.
@@ -26,6 +33,9 @@ func dim(x, y float64) float64 {
 //	Max(+0, ±0) = Max(±0, +0) = +0
 //	Max(-0, -0) = -0
 func Max(x, y float64) float64 {
+	if haveArchMax {
+		return archMax(x, y)
+	}
 	return max(x, y)
 }
 
@@ -55,6 +65,9 @@ func max(x, y float64) float64 {
 //	Min(x, NaN) = Min(NaN, x) = NaN
 //	Min(-0, ±0) = Min(±0, -0) = -0
 func Min(x, y float64) float64 {
+	if haveArchMin {
+		return archMin(x, y)
+	}
 	return min(x, y)
 }
 

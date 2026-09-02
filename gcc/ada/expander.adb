@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,31 +23,33 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;     use Atree;
-with Debug;     use Debug;
-with Debug_A;   use Debug_A;
-with Exp_Aggr;  use Exp_Aggr;
-with Exp_SPARK; use Exp_SPARK;
-with Exp_Attr;  use Exp_Attr;
-with Exp_Ch2;   use Exp_Ch2;
-with Exp_Ch3;   use Exp_Ch3;
-with Exp_Ch4;   use Exp_Ch4;
-with Exp_Ch5;   use Exp_Ch5;
-with Exp_Ch6;   use Exp_Ch6;
-with Exp_Ch7;   use Exp_Ch7;
-with Exp_Ch8;   use Exp_Ch8;
-with Exp_Ch9;   use Exp_Ch9;
-with Exp_Ch11;  use Exp_Ch11;
-with Exp_Ch12;  use Exp_Ch12;
-with Exp_Ch13;  use Exp_Ch13;
-with Exp_Prag;  use Exp_Prag;
-with Ghost;     use Ghost;
-with Opt;       use Opt;
-with Rtsfind;   use Rtsfind;
-with Sem;       use Sem;
-with Sem_Ch8;   use Sem_Ch8;
-with Sem_Util;  use Sem_Util;
-with Sinfo;     use Sinfo;
+with Atree;          use Atree;
+with Debug;          use Debug;
+with Debug_A;        use Debug_A;
+with Exp_Aggr;       use Exp_Aggr;
+with Exp_SPARK;      use Exp_SPARK;
+with Exp_Attr;       use Exp_Attr;
+with Exp_Ch2;        use Exp_Ch2;
+with Exp_Ch3;        use Exp_Ch3;
+with Exp_Ch4;        use Exp_Ch4;
+with Exp_Ch5;        use Exp_Ch5;
+with Exp_Ch6;        use Exp_Ch6;
+with Exp_Ch7;        use Exp_Ch7;
+with Exp_Ch8;        use Exp_Ch8;
+with Exp_Ch9;        use Exp_Ch9;
+with Exp_Ch11;       use Exp_Ch11;
+with Exp_Ch12;       use Exp_Ch12;
+with Exp_Ch13;       use Exp_Ch13;
+with Exp_Prag;       use Exp_Prag;
+with Ghost;          use Ghost;
+with Opt;            use Opt;
+with Rtsfind;        use Rtsfind;
+with Sem;            use Sem;
+with Sem_Ch8;        use Sem_Ch8;
+with Sem_Util;       use Sem_Util;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Stand;          use Stand;
 with Table;
 
 package body Expander is
@@ -82,7 +84,9 @@ package body Expander is
    --  Ghost mode.
 
    procedure Expand (N : Node_Id) is
-      Mode : Ghost_Mode_Type;
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
    begin
       --  If we were analyzing a default expression (or other spec expression)
@@ -98,7 +102,7 @@ package body Expander is
       --  Establish the Ghost mode of the context to ensure that any generated
       --  nodes during expansion are marked as Ghost.
 
-      Set_Ghost_Mode (N, Mode);
+      Set_Ghost_Mode (N);
 
       --  The GNATprove_Mode flag indicates that a light expansion for formal
       --  verification should be used. This expansion is never done inside
@@ -110,7 +114,12 @@ package body Expander is
             Expand_SPARK (N);
          end if;
 
-         Set_Analyzed (N, Full_Analysis);
+         --  Do not reset the Analyzed flag if it has been set on purpose
+         --  during preanalysis.
+
+         if Full_Analysis then
+            Set_Analyzed (N);
+         end if;
 
          --  Regular expansion is normally followed by special handling for
          --  transient scopes for unconstrained results, etc. but this is not
@@ -123,12 +132,12 @@ package body Expander is
 
       --  The first is when are not generating code. In this mode the
       --  Full_Analysis flag indicates whether we are performing a complete
-      --  analysis, in which case Full_Analysis = True or a pre-analysis in
+      --  analysis, in which case Full_Analysis = True or a preanalysis in
       --  which case Full_Analysis = False. See the spec of Sem for more info
       --  on this.
 
       --  The second reason for the Expander_Active flag to be False is that
-      --  we are performing a pre-analysis. During pre-analysis all expansion
+      --  we are performing a preanalysis. During preanalysis all expansion
       --  activity is turned off to make sure nodes are semantically decorated
       --  but no extra nodes are generated. This is for instance needed for
       --  the first pass of aggregate semantic processing. Note that in this
@@ -144,7 +153,19 @@ package body Expander is
       --  not take place. This prevents cascaded errors due to stack mismatch.
 
       elsif not Expander_Active then
-         Set_Analyzed (N, Full_Analysis);
+
+         --  Do not clear the Analyzed flag if it has been set on purpose
+         --  during preanalysis in Fold_Ureal. In that case, the Etype field
+         --  in N_Real_Literal will be set to something different than
+         --  Universal_Real.
+
+         if Full_Analysis
+           or else not (Nkind (N) = N_Real_Literal
+                          and then Present (Etype (N))
+                          and then Etype (N) /= Universal_Real)
+         then
+            Set_Analyzed (N, Full_Analysis);
+         end if;
 
          if Serious_Errors_Detected > 0 and then Scope_Is_Transient then
             Scope_Stack.Table
@@ -266,8 +287,8 @@ package body Expander is
                when N_Generic_Instantiation =>
                   Expand_N_Generic_Instantiation (N);
 
-               when N_Goto_Statement =>
-                  Expand_N_Goto_Statement (N);
+               when N_Goto_When_Statement =>
+                  Expand_N_Goto_When_Statement (N);
 
                when N_Handled_Sequence_Of_Statements =>
                   Expand_N_Handled_Sequence_Of_Statements (N);
@@ -416,6 +437,9 @@ package body Expander is
                when N_Raise_Statement =>
                   Expand_N_Raise_Statement (N);
 
+               when N_Raise_When_Statement =>
+                  Expand_N_Raise_When_Statement (N);
+
                when N_Raise_Constraint_Error =>
                   Expand_N_Raise_Constraint_Error (N);
 
@@ -436,6 +460,9 @@ package body Expander is
 
                when N_Requeue_Statement =>
                   Expand_N_Requeue_Statement (N);
+
+               when N_Return_When_Statement =>
+                  Expand_N_Return_When_Statement (N);
 
                when N_Simple_Return_Statement =>
                   Expand_N_Simple_Return_Statement (N);
@@ -488,6 +515,9 @@ package body Expander is
                when N_Variant_Part =>
                   Expand_N_Variant_Part (N);
 
+               when N_Interpolated_String_Literal =>
+                  Expand_N_Interpolated_String_Literal (N);
+
                --  For all other node kinds, no expansion activity required
 
                when others =>
@@ -529,7 +559,7 @@ package body Expander is
       end if;
 
    <<Leave>>
-      Restore_Ghost_Mode (Mode);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
    end Expand;
 
    ---------------------------
@@ -538,10 +568,10 @@ package body Expander is
 
    procedure Expander_Mode_Restore is
    begin
-      --  Not active (has no effect) in ASIS and GNATprove modes (see comments
+      --  Not active (has no effect) in GNATprove mode (see comments
       --  in spec of Expander_Mode_Save_And_Set).
 
-      if ASIS_Mode or GNATprove_Mode then
+      if GNATprove_Mode then
          return;
       end if;
 
@@ -565,10 +595,10 @@ package body Expander is
 
    procedure Expander_Mode_Save_And_Set (Status : Boolean) is
    begin
-      --  Not active (has no effect) in ASIS and GNATprove modes (see comments
+      --  Not active (has no effect) in GNATprove modes (see comments
       --  in spec of Expander_Mode_Save_And_Set).
 
-      if ASIS_Mode or GNATprove_Mode then
+      if GNATprove_Mode then
          return;
       end if;
 

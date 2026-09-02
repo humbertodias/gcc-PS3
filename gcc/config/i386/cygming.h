@@ -1,6 +1,6 @@
 /* Operating system specific defines to be used when targeting GCC for
    hosting on Windows32, using a Unix style C library and tools.
-   Copyright (C) 1995-2017 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -18,18 +18,10 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#define DBX_DEBUGGING_INFO 1
-#define SDB_DEBUGGING_INFO 1
-#if TARGET_64BIT_DEFAULT || defined (HAVE_GAS_PE_SECREL32_RELOC)
 #define DWARF2_DEBUGGING_INFO 1
-#endif
 
 #undef PREFERRED_DEBUGGING_TYPE
-#if (DWARF2_DEBUGGING_INFO)
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
-#else
-#define PREFERRED_DEBUGGING_TYPE DBX_DEBUG
-#endif
 
 #undef TARGET_SEH
 #define TARGET_SEH  (TARGET_64BIT_MS_ABI && flag_unwind_tables)
@@ -80,25 +72,24 @@ along with GCC; see the file COPYING3.  If not see
 
 #endif
 
-#undef DBX_REGISTER_NUMBER
-#define DBX_REGISTER_NUMBER(n)				\
-  (TARGET_64BIT ? dbx64_register_map[n]			\
-   : (write_symbols == DWARF2_DEBUG			\
-      ? svr4_dbx_register_map[n] : dbx_register_map[n]))
+#undef DEBUGGER_REGNO
+#define DEBUGGER_REGNO(n)				\
+  (TARGET_64BIT ? debugger64_register_map[n]			\
+   : (dwarf_debuginfo_p ()				\
+      ? svr4_debugger_register_map[n] : debugger_register_map[n]))
 
 /* Map gcc register number to DWARF 2 CFA column number. For 32 bit
-   target, always use the svr4_dbx_register_map for DWARF .eh_frame
+   target, always use the svr4_debugger_register_map for DWARF .eh_frame
    even if we don't use DWARF .debug_frame. */
 #undef DWARF_FRAME_REGNUM
 #define DWARF_FRAME_REGNUM(n)				\
-  (TARGET_64BIT ? dbx64_register_map[(n)]		\
-		: svr4_dbx_register_map[(n)])
+  (TARGET_64BIT ? debugger64_register_map[(n)]		\
+		: svr4_debugger_register_map[(n)])
 
 /* The 64-bit MS_ABI changes the set of call-used registers.  */
 #undef DWARF_FRAME_REGISTERS
 #define DWARF_FRAME_REGISTERS (TARGET_64BIT ? 33 : 17)
 
-#ifdef HAVE_GAS_PE_SECREL32_RELOC
 /* Use section relative relocations for debugging offsets.  Unlike
    other targets that fake this by putting the section VMA at 0, PE
    won't allow it.  */
@@ -130,7 +121,6 @@ along with GCC; see the file COPYING3.  If not see
 	gcc_unreachable ();					\
       }								\
   } while (0)
-#endif
 
 #define TARGET_EXECUTABLE_SUFFIX ".exe"
 
@@ -161,7 +151,7 @@ along with GCC; see the file COPYING3.  If not see
   }									\
   while (0)
 
-/* Get tree.c to declare a target-specific specialization of
+/* Get tree.cc to declare a target-specific specialization of
    merge_decl_attributes.  */
 #define TARGET_DLLIMPORT_DECL_ATTRIBUTES 1
 
@@ -269,9 +259,6 @@ do {						\
    bytes in one go.  */
 #define CHECK_STACK_LIMIT 4000
 
-#undef STACK_BOUNDARY
-#define STACK_BOUNDARY	(TARGET_64BIT && ix86_abi == MS_ABI ? 128 : BITS_PER_WORD)
-
 /* By default, target has a 80387, uses IEEE compatible arithmetic,
    returns float values in the 387 and needs stack probes.
    We also align doubles to 64-bits for MSVC default compatibility.  */
@@ -291,7 +278,7 @@ do {						\
 
 #undef ASM_OUTPUT_ALIGN
 #define ASM_OUTPUT_ALIGN(FILE,LOG)	\
-    if ((LOG)!=0) fprintf ((FILE), "\t.align %d\n", 1<<(LOG))
+    if ((LOG) != 0) fprintf ((FILE), "\t.align %d\n", 1 << (LOG))
 
 /* Windows uses explicit import from shared libraries.  */
 #define MULTIPLE_SYMBOL_SPACES 1
@@ -308,15 +295,31 @@ do {						\
 #define TARGET_SECTION_TYPE_FLAGS  i386_pe_section_type_flags
 
 /* Write the extra assembler code needed to declare a function
-   properly.  If we are generating SDB debugging information, this
-   will happen automatically, so we only need to handle other cases.  */
+   properly.  */
 #undef ASM_DECLARE_FUNCTION_NAME
 #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL) \
   i386_pe_start_function (FILE, NAME, DECL)
 
+/* Write the extra assembler code needed to declare the name of a
+   cold function partition properly.  */
+
+#undef ASM_DECLARE_COLD_FUNCTION_NAME
+#define ASM_DECLARE_COLD_FUNCTION_NAME(FILE, NAME, DECL)	\
+  do								\
+    {								\
+      i386_pe_declare_function_type (FILE, NAME, 0);		\
+      i386_pe_seh_cold_init (FILE, NAME);			\
+      ASM_OUTPUT_LABEL (FILE, NAME);				\
+    }								\
+  while (0)
+
 #undef ASM_DECLARE_FUNCTION_SIZE
 #define ASM_DECLARE_FUNCTION_SIZE(FILE,NAME,DECL) \
   i386_pe_end_function (FILE, NAME, DECL)
+
+#undef ASM_DECLARE_COLD_FUNCTION_SIZE
+#define ASM_DECLARE_COLD_FUNCTION_SIZE(FILE,NAME,DECL) \
+  i386_pe_end_cold_function (FILE, NAME, DECL)
 
 /* Add an external function to the list of functions to be declared at
    the end of the file.  */
@@ -341,6 +344,12 @@ do {						\
 #undef TARGET_ASM_FILE_END
 #define TARGET_ASM_FILE_END i386_pe_file_end
 
+/* Kludge because of missing PE-COFF support for early LTO debug.  */
+#undef  TARGET_ASM_LTO_START
+#define TARGET_ASM_LTO_START i386_pe_asm_lto_start
+#undef  TARGET_ASM_LTO_END
+#define TARGET_ASM_LTO_END i386_pe_asm_lto_end
+
 #undef ASM_COMMENT_START
 #define ASM_COMMENT_START " #"
 
@@ -357,9 +366,6 @@ do {						\
 #endif
 #endif
 
-/* Don't assume anything about the header files.  */
-#define NO_IMPLICIT_EXTERN_C
-
 #undef PROFILE_HOOK
 #define PROFILE_HOOK(LABEL)						\
   if (MAIN_NAME_P (DECL_NAME (current_function_decl)))			\
@@ -370,20 +376,12 @@ do {						\
 	const0_rtx));							\
     }
 
-/* Java Native Interface (JNI) methods on Win32 are invoked using the
-   stdcall calling convention.  */
-#undef MODIFY_JNI_METHOD_CALL
-#define MODIFY_JNI_METHOD_CALL(MDECL)					      \
-  build_type_attribute_variant ((MDECL),				      \
-			       build_tree_list (get_identifier ("stdcall"),   \
-						NULL))
-
 /* For Win32 ABI compatibility */
 #undef DEFAULT_PCC_STRUCT_RETURN
 #define DEFAULT_PCC_STRUCT_RETURN 0
 
 /* MSVC returns aggregate types of up to 8 bytes via registers.
-   See i386.c:ix86_return_in_memory.  */
+   See i386.cc:ix86_return_in_memory.  */
 #undef MS_AGGREGATE_RETURN
 #define MS_AGGREGATE_RETURN 1
 
@@ -404,11 +402,6 @@ do {						\
 #undef	BIGGEST_FIELD_ALIGNMENT
 #define BIGGEST_FIELD_ALIGNMENT 64
 #endif
-
-/* A bit-field declared as `int' forces `int' alignment for the struct.  */
-#undef PCC_BITFIELD_TYPE_MATTERS
-#define PCC_BITFIELD_TYPE_MATTERS 1
-#define GROUP_BITFIELDS_BY_ALIGN TYPE_NATIVE(rec)
 
 /* Enable alias attribute support.  */
 #ifndef SET_ASM_OP
@@ -449,10 +442,10 @@ do {						\
 #define TARGET_USE_LOCAL_THUNK_ALIAS_P(DECL) (!DECL_ONE_ONLY (DECL))
 
 #define SUBTARGET_ATTRIBUTE_TABLE \
-  { "selectany", 0, 0, true, false, false, ix86_handle_selectany_attribute, \
-    false }
-  /* { name, min_len, max_len, decl_req, type_req, fn_type_req, handler,
-       affects_type_identity } */
+  { "selectany", 0, 0, true, false, false, false, \
+    ix86_handle_selectany_attribute, NULL }
+  /* { name, min_len, max_len, decl_req, type_req, fn_type_req,
+       affects_type_identity, handler, exclude } */
 
 /*  mcount() does not need a counter variable.  */
 #undef NO_PROFILE_COUNTERS
@@ -470,3 +463,7 @@ do {						\
 
 /* Static stack checking is supported by means of probes.  */
 #define STACK_CHECK_STATIC_BUILTIN 1
+
+#ifndef HAVE_GAS_ALIGNED_COMM
+# define HAVE_GAS_ALIGNED_COMM 0
+#endif

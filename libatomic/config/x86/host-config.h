@@ -1,4 +1,4 @@
-/* Copyright (C) 2012-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2012-2023 Free Software Foundation, Inc.
    Contributed by Richard Henderson <rth@redhat.com>.
 
    This file is part of the GNU Atomic Library (libatomic).
@@ -25,34 +25,66 @@
 #if HAVE_IFUNC
 #include <cpuid.h>
 
-extern unsigned int libat_feat1_ecx HIDDEN;
-extern unsigned int libat_feat1_edx HIDDEN;
+#ifdef __x86_64__
+# define FEAT1_REGISTER ecx
+#else
+# define FEAT1_REGISTER edx
+#endif
+
+/* Value of the CPUID feature register FEAT1_REGISTER for the cmpxchg
+   bit for IFUNC_COND1 below.  */
+extern unsigned int __libat_feat1 HIDDEN;
+
+/* Initialize libat_feat1 and return its value.  */
+unsigned int __libat_feat1_init (void) HIDDEN;
+
+/* Return the value of the relevant feature register for the relevant
+   cmpxchg bit, or 0 if there is no CPUID support.  */
+static inline unsigned int
+__attribute__ ((const))
+load_feat1 (void)
+{
+  /* See the store in __libat_feat1_init.  */
+  unsigned int feat1 = __atomic_load_n (&__libat_feat1, __ATOMIC_RELAXED);
+  if (feat1 == 0)
+    /* Assume that initialization has not happened yet.  This may get
+       called repeatedly if the CPU does not have any feature bits at
+       all.  */
+    feat1 = __libat_feat1_init ();
+  return feat1;
+}
 
 #ifdef __x86_64__
-# define IFUNC_COND_1	(libat_feat1_ecx & bit_CMPXCHG16B)
+# define IFUNC_COND_1	((load_feat1 () & (bit_AVX | bit_CMPXCHG16B)) \
+			 == (bit_AVX | bit_CMPXCHG16B))
+# define IFUNC_COND_2	(load_feat1 () & bit_CMPXCHG16B)
 #else
-# define IFUNC_COND_1	(libat_feat1_edx & bit_CMPXCHG8B)
+# define IFUNC_COND_1	(load_feat1 () & bit_CMPXCHG8B)
 #endif
 
 #ifdef __x86_64__
-# define IFUNC_NCOND(N) (N == 16)
+# define IFUNC_NCOND(N) (2 * (N == 16))
 #else
 # define IFUNC_NCOND(N) (N == 8)
 #endif
 
 #ifdef __x86_64__
 # undef MAYBE_HAVE_ATOMIC_CAS_16
-# define MAYBE_HAVE_ATOMIC_CAS_16	IFUNC_COND_1
+# define MAYBE_HAVE_ATOMIC_CAS_16	IFUNC_COND_2
 # undef MAYBE_HAVE_ATOMIC_EXCHANGE_16
-# define MAYBE_HAVE_ATOMIC_EXCHANGE_16	IFUNC_COND_1
+# define MAYBE_HAVE_ATOMIC_EXCHANGE_16	IFUNC_COND_2
 # undef MAYBE_HAVE_ATOMIC_LDST_16
-# define MAYBE_HAVE_ATOMIC_LDST_16	IFUNC_COND_1
+# define MAYBE_HAVE_ATOMIC_LDST_16	IFUNC_COND_2
 /* Since load and store are implemented with CAS, they are not fast.  */
 # undef FAST_ATOMIC_LDST_16
 # define FAST_ATOMIC_LDST_16		0
-# if IFUNC_ALT == 1
+# if IFUNC_ALT != 0
 #  undef HAVE_ATOMIC_CAS_16
 #  define HAVE_ATOMIC_CAS_16 1
+# endif
+# if IFUNC_ALT == 1
+#  undef HAVE_ATOMIC_LDST_16
+#  define HAVE_ATOMIC_LDST_16 1
 # endif
 #else
 # undef MAYBE_HAVE_ATOMIC_CAS_8
@@ -67,7 +99,7 @@ extern unsigned int libat_feat1_edx HIDDEN;
 # endif
 #endif
 
-#if defined(__x86_64__) && N == 16 && IFUNC_ALT == 1
+#if defined(__x86_64__) && N == 16 && IFUNC_ALT != 0
 static inline bool
 atomic_compare_exchange_n (UTYPE *mptr, UTYPE *eptr, UTYPE newval,
                            bool weak_p UNUSED, int sm UNUSED, int fm UNUSED)
@@ -81,6 +113,29 @@ atomic_compare_exchange_n (UTYPE *mptr, UTYPE *eptr, UTYPE newval,
 }
 # define atomic_compare_exchange_n atomic_compare_exchange_n
 #endif /* Have CAS 16 */
+
+#if defined(__x86_64__) && N == 16 && IFUNC_ALT == 1
+#define __atomic_load_n(ptr, model) \
+  (sizeof (*ptr) == 16 ? atomic_load_n (ptr, model) \
+		       : (__atomic_load_n) (ptr, model))
+#define __atomic_store_n(ptr, val, model) \
+  (sizeof (*ptr) == 16 ? atomic_store_n (ptr, val, model) \
+		       : (__atomic_store_n) (ptr, val, model))
+
+static inline UTYPE
+atomic_load_n (UTYPE *ptr, int model UNUSED)
+{
+  UTYPE ret;
+  __asm__ ("vmovdqa\t{%1, %0|%0, %1}" : "=x" (ret) : "m" (*ptr));
+  return ret;
+}
+
+static inline void
+atomic_store_n (UTYPE *ptr, UTYPE val, int model UNUSED)
+{
+  __asm__ ("vmovdqa\t{%1, %0|%0, %1}\n\tmfence" : "=m" (*ptr) : "x" (val));
+}
+#endif
 
 #endif /* HAVE_IFUNC */
 

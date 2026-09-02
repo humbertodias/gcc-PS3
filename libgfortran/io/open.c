@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    F2003 I/O support contributed by Jerry DeLisle
 
@@ -26,6 +26,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #include "io.h"
 #include "fbuf.h"
 #include "unix.h"
+#include "async.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -152,6 +153,28 @@ static const st_option convert_opt[] =
   { "swap", GFC_CONVERT_SWAP},
   { "big_endian", GFC_CONVERT_BIG},
   { "little_endian", GFC_CONVERT_LITTLE},
+#ifdef HAVE_GFC_REAL_17
+  /* Rather than write a special parsing routine, enumerate all the
+     possibilities here.  */
+  { "r16_ieee", GFC_CONVERT_R16_IEEE},
+  { "r16_ibm", GFC_CONVERT_R16_IBM},
+  { "native,r16_ieee", GFC_CONVERT_R16_IEEE},
+  { "native,r16_ibm", GFC_CONVERT_R16_IBM},
+  { "r16_ieee,native", GFC_CONVERT_R16_IEEE},
+  { "r16_ibm,native", GFC_CONVERT_R16_IBM},
+  { "swap,r16_ieee", GFC_CONVERT_R16_IEEE_SWAP},
+  { "swap,r16_ibm", GFC_CONVERT_R16_IBM_SWAP},
+  { "r16_ieee,swap", GFC_CONVERT_R16_IEEE_SWAP},
+  { "r16_ibm,swap", GFC_CONVERT_R16_IBM_SWAP},
+  { "big_endian,r16_ieee", GFC_CONVERT_R16_IEEE_BIG},
+  { "big_endian,r16_ibm", GFC_CONVERT_R16_IBM_BIG},
+  { "r16_ieee,big_endian", GFC_CONVERT_R16_IEEE_BIG},
+  { "r16_ibm,big_endian", GFC_CONVERT_R16_IBM_BIG},
+  { "little_endian,r16_ieee", GFC_CONVERT_R16_IEEE_LITTLE},
+  { "little_endian,r16_ibm", GFC_CONVERT_R16_IBM_LITTLE},
+  { "r16_ieee,little_endian", GFC_CONVERT_R16_IEEE_LITTLE},
+  { "r16_ibm,little_endian",  GFC_CONVERT_R16_IBM_LITTLE},
+#endif
   { NULL, 0}
 };
 
@@ -514,7 +537,8 @@ new_unit (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
      Do not error if opening file preconnected to stdin, stdout, stderr.  */
 
   u2 = NULL;
-  if ((opp->common.flags & IOPARM_OPEN_HAS_FILE) != 0)
+  if ((opp->common.flags & IOPARM_OPEN_HAS_FILE) != 0
+      && !(compile_options.allow_std & GFC_STD_F2018))
     u2 = find_file (opp->file, opp->file_len);
   if (u2 != NULL
       && (options.stdin_unit < 0 || u2->unit_number != options.stdin_unit)
@@ -528,6 +552,14 @@ new_unit (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
 
   if (u2 != NULL)
     unlock_unit (u2);
+
+  /* If the unit specified is preconnected with a file specified to be open,
+     then clear the format buffer.  */
+  if ((opp->common.unit == options.stdin_unit ||
+       opp->common.unit == options.stdout_unit ||
+       opp->common.unit == options.stderr_unit)
+      && (opp->common.flags & IOPARM_OPEN_HAS_FILE) != 0)
+    fbuf_destroy (u);
 
   /* Open file.  */
 
@@ -586,7 +618,7 @@ new_unit (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
   else
     {
       u->flags.has_recl = 0;
-      u->recl = max_offset;
+      u->recl = default_recl;
       if (compile_options.max_subrecord_length)
 	{
 	  u->recl_subrecord = compile_options.max_subrecord_length;
@@ -622,7 +654,9 @@ new_unit (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
   if (flags->access == ACCESS_STREAM)
     {
       u->maxrec = max_offset;
-      u->recl = 1;
+      /* F2018 (N2137) 12.10.2.26: If the connection is for stream
+	 access recl is assigned the value -2.  */
+      u->recl = -2;
       u->bytes_left = 1;
       u->strm_pos = stell (u->s) + 1;
     }
@@ -649,8 +683,12 @@ new_unit (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
   else
     u->fbuf = NULL;
 
-    
-    
+  /* Check if asynchrounous.  */
+  if (flags->async == ASYNC_YES)
+    init_async_unit (u);
+  else
+    u->au = NULL;
+
   return u;
 
  cleanup:
@@ -698,12 +736,12 @@ already_open (st_parameter_open *opp, gfc_unit *u, unit_flags *flags)
       if (u->filename && u->flags.status == STATUS_SCRATCH)
 	remove (u->filename);
 #endif
-     free (u->filename);
-     u->filename = NULL;
-
+      free (u->filename);
+      u->filename = NULL;
+      
       u = new_unit (opp, u, flags);
       if (u != NULL)
-	unlock_unit (u);
+      unlock_unit (u);
       return;
     }
 
@@ -804,9 +842,14 @@ st_open (st_parameter_open *opp)
       else
 	conv = compile_options.convert;
     }
-  
-  /* We use big_endian, which is 0 on little-endian machines
-     and 1 on big-endian machines.  */
+
+  flags.convert = 0;
+
+#ifdef HAVE_GFC_REAL_17
+  flags.convert = conv & (GFC_CONVERT_R16_IEEE | GFC_CONVERT_R16_IBM);
+  conv &= ~(GFC_CONVERT_R16_IEEE | GFC_CONVERT_R16_IBM);
+#endif
+
   switch (conv)
     {
     case GFC_CONVERT_NATIVE:
@@ -814,11 +857,11 @@ st_open (st_parameter_open *opp)
       break;
       
     case GFC_CONVERT_BIG:
-      conv = big_endian ? GFC_CONVERT_NATIVE : GFC_CONVERT_SWAP;
+      conv = __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? GFC_CONVERT_NATIVE : GFC_CONVERT_SWAP;
       break;
       
     case GFC_CONVERT_LITTLE:
-      conv = big_endian ? GFC_CONVERT_SWAP : GFC_CONVERT_NATIVE;
+      conv = __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? GFC_CONVERT_SWAP : GFC_CONVERT_NATIVE;
       break;
       
     default:
@@ -826,7 +869,7 @@ st_open (st_parameter_open *opp)
       break;
     }
 
-  flags.convert = conv;
+  flags.convert |= conv;
 
   if (flags.position != POSITION_UNSPECIFIED
       && flags.access == ACCESS_DIRECT)

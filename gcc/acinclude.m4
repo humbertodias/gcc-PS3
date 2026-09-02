@@ -1,4 +1,4 @@
-dnl Copyright (C) 2005-2017 Free Software Foundation, Inc.
+dnl Copyright (C) 2005-2023 Free Software Foundation, Inc.
 dnl
 dnl This file is part of GCC.
 dnl
@@ -277,8 +277,7 @@ fi
 fi])
 
 AC_DEFUN([gcc_AC_INITFINI_ARRAY],
-[AC_REQUIRE([gcc_SUN_LD_VERSION])dnl
-AC_ARG_ENABLE(initfini-array,
+[AC_ARG_ENABLE(initfini-array,
 	[  --enable-initfini-array	use .init_array/.fini_array sections],
 	[], [
 AC_CACHE_CHECK(for .preinit_array/.init_array/.fini_array support,
@@ -375,16 +374,16 @@ EOF
 	      cat > conftest.s <<EOF
 .section $sh_quote.fini_array.65530$sh_quote,$sh_flags,$sh_type
 .align 4
-.byte 'C', 'C', 'C', 'C'
+.byte 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'
 .section $sh_quote.init_array.65530$sh_quote,$sh_flags,$sh_type
 .align 4
-.byte 'D', 'D', 'D', 'D'
+.byte 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D'
 .section $sh_quote.fini_array.01005$sh_quote,$sh_flags,$sh_type
 .align 4
-.byte 'G', 'G', 'G', 'G'
+.byte 'G', 'G', 'G', 'G', 'G', 'G', 'G', 'G'
 .section $sh_quote.init_array.01005$sh_quote,$sh_flags,$sh_type
 .align 4
-.byte 'H', 'H', 'H', 'H'
+.byte 'H', 'H', 'H', 'H', 'H', 'H', 'H', 'H'
 .text
 .globl _start
 _start:
@@ -392,9 +391,9 @@ EOF
 	      if $gcc_cv_as -o conftest.o conftest.s > /dev/null 2>&1 \
 	         && $gcc_cv_ld -o conftest conftest.o > /dev/null 2>&1 \
 	         && $gcc_cv_objdump -s -j .init_array conftest \
-		    | grep HHHHDDDD > /dev/null 2>&1 \
+		    | grep HHHHHHHHDDDDDDDD > /dev/null 2>&1 \
 	         && $gcc_cv_objdump -s -j .fini_array conftest \
-		    | grep GGGGCCCC > /dev/null 2>&1; then
+		    | grep GGGGGGGGCCCCCCCC > /dev/null 2>&1; then
 	        gcc_cv_initfini_array=yes
 	      fi
 	      ;;
@@ -423,8 +422,18 @@ changequote([,])dnl
 ])],, [gcc_cv_initfini_array=no]);;
     esac
   else
-    AC_MSG_CHECKING(cross compile... guessing)
-    gcc_cv_initfini_array=no
+    case "${target}" in
+      aarch64*-linux-gnu*)
+	# AArch64 postdates glibc support for .init_array/.fini_array,
+	# so we don't need the preprocessor test above.
+	gcc_cv_initfini_array=yes
+	;;
+
+      *)
+	AC_MSG_CHECKING(cross compile... guessing)
+	gcc_cv_initfini_array=no
+	;;
+    esac
   fi])
   enable_initfini_array=$gcc_cv_initfini_array
 ])
@@ -432,63 +441,6 @@ AC_DEFINE_UNQUOTED(HAVE_INITFINI_ARRAY_SUPPORT,
   [`if test $enable_initfini_array = yes; then echo 1; else echo 0; fi`],
   [Define 0/1 if .init_array/.fini_array sections are available and working.])
 ])
-
-dnl # _gcc_COMPUTE_GAS_VERSION
-dnl # Used by gcc_GAS_VERSION_GTE_IFELSE
-dnl #
-dnl # WARNING:
-dnl # gcc_cv_as_gas_srcdir must be defined before this.
-dnl # This gross requirement will go away eventually.
-AC_DEFUN([_gcc_COMPUTE_GAS_VERSION],
-[gcc_cv_as_bfd_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/bfd
-for f in $gcc_cv_as_bfd_srcdir/configure \
-         $gcc_cv_as_gas_srcdir/configure \
-         $gcc_cv_as_gas_srcdir/configure.ac \
-         $gcc_cv_as_gas_srcdir/Makefile.in ; do
-  gcc_cv_gas_version=`sed -n -e 's/^[[ 	]]*VERSION=[[^0-9A-Za-z_]]*\([[0-9]]*\.[[0-9]]*.*\)/VERSION=\1/p' < $f`
-  if test x$gcc_cv_gas_version != x; then
-    break
-  fi
-done
-case $gcc_cv_gas_version in
-  VERSION=[[0-9]]*) ;;
-  *) AC_MSG_ERROR([[cannot find version of in-tree assembler]]);;
-esac
-gcc_cv_gas_major_version=`expr "$gcc_cv_gas_version" : "VERSION=\([[0-9]]*\)"`
-gcc_cv_gas_minor_version=`expr "$gcc_cv_gas_version" : "VERSION=[[0-9]]*\.\([[0-9]]*\)"`
-gcc_cv_gas_patch_version=`expr "$gcc_cv_gas_version" : "VERSION=[[0-9]]*\.[[0-9]]*\.\([[0-9]]*\)"`
-case $gcc_cv_gas_patch_version in
-  "") gcc_cv_gas_patch_version="0" ;;
-esac
-gcc_cv_gas_vers=`expr \( \( $gcc_cv_gas_major_version \* 1000 \) \
-			    + $gcc_cv_gas_minor_version \) \* 1000 \
-			    + $gcc_cv_gas_patch_version`
-]) []dnl # _gcc_COMPUTE_GAS_VERSION
-
-dnl # gcc_GAS_VERSION_GTE_IFELSE([elf,] major, minor, patchlevel,
-dnl #                     [command_if_true = :], [command_if_false = :])
-dnl # Check to see if the version of GAS is greater than or
-dnl # equal to the specified version.
-dnl #
-dnl # The first ifelse() shortens the shell code if the patchlevel
-dnl # is unimportant (the usual case).  The others handle missing
-dnl # commands.  Note that the tests are structured so that the most
-dnl # common version number cases are tested first.
-AC_DEFUN([_gcc_GAS_VERSION_GTE_IFELSE],
-[ifelse([$1], elf,
- [if test $in_tree_gas_is_elf = yes \
-  &&],
- [if]) test $gcc_cv_gas_vers -ge `expr \( \( $2 \* 1000 \) + $3 \) \* 1000 + $4`
-  then dnl
-ifelse([$5],,:,[$5])[]dnl
-ifelse([$6],,,[
-  else $6])
-fi])
-
-AC_DEFUN([gcc_GAS_VERSION_GTE_IFELSE],
-[AC_REQUIRE([_gcc_COMPUTE_GAS_VERSION])dnl
-ifelse([$1], elf, [_gcc_GAS_VERSION_GTE_IFELSE($@)],
-                  [_gcc_GAS_VERSION_GTE_IFELSE(,$@)])])
 
 dnl # gcc_GAS_FLAGS
 dnl # Used by gcc_GAS_CHECK_FEATURE 
@@ -518,13 +470,11 @@ AC_DEFUN([gcc_GAS_FLAGS],
   esac])
 ])
 
-dnl gcc_GAS_CHECK_FEATURE(description, cv, [[elf,]major,minor,patchlevel],
+dnl gcc_GAS_CHECK_FEATURE(description, cv,
 dnl [extra switches to as], [assembler input],
 dnl [extra testing logic], [command if feature available])
 dnl
-dnl Checks for an assembler feature.  If we are building an in-tree
-dnl gas, the feature is available if the associated assembler version
-dnl is greater than or equal to major.minor.patchlevel.  If not, then
+dnl Checks for an assembler feature.
 dnl ASSEMBLER INPUT is fed to the assembler and the feature is available
 dnl if assembly succeeds.  If EXTRA TESTING LOGIC is not the empty string,
 dnl then it is run instead of simply setting CV to "yes" - it is responsible
@@ -533,65 +483,25 @@ AC_DEFUN([gcc_GAS_CHECK_FEATURE],
 [AC_REQUIRE([gcc_GAS_FLAGS])dnl
 AC_CACHE_CHECK([assembler for $1], [$2],
  [[$2]=no
-  ifelse([$3],,,[dnl
-  if test $in_tree_gas = yes; then
-    gcc_GAS_VERSION_GTE_IFELSE($3, [[$2]=yes])
-  el])if test x$gcc_cv_as != x; then
-    AS_ECHO([ifelse(m4_substr([$5],0,1),[$], "[$5]", '[$5]')]) > conftest.s
-    if AC_TRY_COMMAND([$gcc_cv_as $gcc_cv_as_flags $4 -o conftest.o conftest.s >&AS_MESSAGE_LOG_FD])
+  if test x$gcc_cv_as != x; then
+    AS_ECHO([ifelse(m4_substr([$4],0,1),[$], "[$4]", '[$4]')]) > conftest.s
+    if AC_TRY_COMMAND([$gcc_cv_as $gcc_cv_as_flags $3 -o conftest.o conftest.s >&AS_MESSAGE_LOG_FD])
     then
-	ifelse([$6],, [$2]=yes, [$6])
+	ifelse([$5],, [$2]=yes, [$5])
     else
       echo "configure: failed program was" >&AS_MESSAGE_LOG_FD
       cat conftest.s >&AS_MESSAGE_LOG_FD
     fi
     rm -f conftest.o conftest.s
   fi])
-ifelse([$7],,,[dnl
+ifelse([$6],,,[dnl
 if test $[$2] = yes; then
-  $7
+  $6
 fi])
-ifelse([$8],,,[dnl
+ifelse([$7],,,[dnl
 if test $[$2] != yes; then
-  $8
+  $7
 fi])])
-
-dnl gcc_SUN_LD_VERSION
-dnl
-dnl Determines Sun linker version numbers, setting gcc_cv_sun_ld_vers to
-dnl the complete version number and gcc_cv_sun_ld_vers_{major, minor} to
-dnl the corresponding fields.
-dnl
-dnl ld and ld.so.1 are guaranteed to be updated in lockstep, so ld version
-dnl numbers can be used in ld.so.1 feature checks even if a different
-dnl linker is configured.
-dnl
-AC_DEFUN([gcc_SUN_LD_VERSION],
-[changequote(,)dnl
-if test "x${build}" = "x${target}" && test "x${build}" = "x${host}"; then
-  case "${target}" in
-    *-*-solaris2*)
-      #
-      # Solaris 2 ld -V output looks like this for a regular version:
-      #
-      # ld: Software Generation Utilities - Solaris Link Editors: 5.11-1.1699
-      #
-      # but test versions add stuff at the end:
-      #
-      # ld: Software Generation Utilities - Solaris Link Editors: 5.11-1.1701:onnv-ab196087-6931056-03/25/10
-      #
-      gcc_cv_sun_ld_ver=`/usr/ccs/bin/ld -V 2>&1`
-      if echo "$gcc_cv_sun_ld_ver" | grep 'Solaris Link Editors' > /dev/null; then
-	gcc_cv_sun_ld_vers=`echo $gcc_cv_sun_ld_ver | sed -n \
-	  -e 's,^.*: 5\.[0-9][0-9]*-\([0-9]\.[0-9][0-9]*\).*$,\1,p'`
-	gcc_cv_sun_ld_vers_major=`expr "$gcc_cv_sun_ld_vers" : '\([0-9]*\)'`
-	gcc_cv_sun_ld_vers_minor=`expr "$gcc_cv_sun_ld_vers" : '[0-9]*\.\([0-9]*\)'`
-      fi
-      ;;
-  esac
-fi
-changequote([,])dnl
-])
 
 dnl GCC_TARGET_TEMPLATE(KEY)
 dnl ------------------------

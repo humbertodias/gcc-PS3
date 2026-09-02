@@ -1,7 +1,7 @@
 // -*- C++ -*-
 // typelist for the C++ library testsuite.
 //
-// Copyright (C) 2005-2017 Free Software Foundation, Inc.
+// Copyright (C) 2005-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -40,17 +40,22 @@
 
 #include <map>
 #include <set>
-#include <tr1/functional>
-#include <tr1/unordered_map>
-#include <tr1/unordered_set>
 
 #if __cplusplus >= 201103L
 #include <atomic>
 #include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+namespace unord = std;
+#else
+#include <tr1/unordered_map>
+#include <tr1/unordered_set>
+namespace unord = std::tr1;
 #endif
 
 namespace __gnu_test
 {
+  using __gnu_cxx::typelist::null_type;
   using __gnu_cxx::typelist::node;
   using __gnu_cxx::typelist::transform;
   using __gnu_cxx::typelist::append;
@@ -184,14 +189,14 @@ namespace __gnu_test
       typedef Tp			    		value_type;
       typedef Tp 					key_type;
       typedef std::pair<const key_type, value_type> 	pair_type;
-      typedef std::tr1::hash<key_type>      		hash_function;
+      typedef unord::hash<key_type>      		hash_function;
       typedef std::equal_to<key_type>      		equality_function;
 
       template<typename Tl>
         struct container
 	{
 	  typedef Tl 					allocator_type;
-	  typedef std::tr1::unordered_map<key_type, value_type, hash_function, equality_function, allocator_type>	type;
+	  typedef unord::unordered_map<key_type, value_type, hash_function, equality_function, allocator_type>	type;
 	};
 
       typedef allocator_policies<pair_type, Thread>	allocator_types;
@@ -223,14 +228,14 @@ namespace __gnu_test
     {
       typedef Tp			    		value_type;
       typedef Tp 					key_type;
-      typedef std::tr1::hash<key_type>      		hash_function;
+      typedef unord::hash<key_type>      		hash_function;
       typedef std::equal_to<key_type>      		equality_function;
 
       template<typename Tl>
         struct container
 	{
 	  typedef Tl 					allocator_type;
-	  typedef std::tr1::unordered_set<key_type, hash_function, equality_function, allocator_type>	type;
+	  typedef unord::unordered_set<key_type, hash_function, equality_function, allocator_type>	type;
 	};
 
       typedef allocator_policies<key_type, Thread>	allocator_types;
@@ -272,16 +277,23 @@ namespace __gnu_test
     typedef long long 		a11;
     typedef unsigned long long 	a12;
     typedef wchar_t 		a13;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN13(a1, a2, a3, a4, a5, a6, a7, a8, a9,
+					   a10, a11, a12, a13)> basic_typelist;
 #if __cplusplus >= 201103L
     typedef char16_t 		a14;
     typedef char32_t 		a15;
-
-    typedef node<_GLIBCXX_TYPELIST_CHAIN15(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15)> type;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN2(a14, a15)> cxx11_typelist;
 #else
-    typedef node<_GLIBCXX_TYPELIST_CHAIN13(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13)> type;
+    typedef node<null_type> cxx11_typelist;
 #endif
+#ifdef _GLIBCXX_USE_CHAR8_T
+    typedef char8_t 		a16;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN1(a16)> char8_typelist;
+#else
+    typedef node<null_type> char8_typelist;
+#endif
+    typedef typename append<basic_typelist, cxx11_typelist>::type tl1;
+    typedef typename append<tl1, char8_typelist>::type type;
   };
 
   // A typelist of all standard integral types + the GNU 128-bit types.
@@ -300,32 +312,31 @@ namespace __gnu_test
     typedef long long 		a11;
     typedef unsigned long long 	a12;
     typedef wchar_t 		a13;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN13(a1, a2, a3, a4, a5, a6, a7, a8, a9,
+					   a10, a11, a12, a13)> basic_typelist;
 #if __cplusplus >= 201103L
     typedef char16_t 		a14;
     typedef char32_t 		a15;
-# if !defined(__STRICT_ANSI__) && defined(_GLIBCXX_USE_INT128)
-    __extension__ typedef __int128            a16;
-    __extension__ typedef unsigned __int128   a17;
-
-    typedef node<_GLIBCXX_TYPELIST_CHAIN17(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15,
-					   a16, a17)> type;
-# else
-    typedef node<_GLIBCXX_TYPELIST_CHAIN15(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15)> type;
-# endif
+    typedef node<_GLIBCXX_TYPELIST_CHAIN2(a14, a15)> cxx11_typelist;
 #else
-# if !defined(__STRICT_ANSI__) && defined(_GLIBCXX_USE_INT128)
-    __extension__ typedef __int128            a14;
-    __extension__ typedef unsigned __int128   a15;
-
-    typedef node<_GLIBCXX_TYPELIST_CHAIN15(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15)> type;
-# else
-   typedef node<_GLIBCXX_TYPELIST_CHAIN13(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					  a10, a11, a12, a13)> type;
-# endif
+    typedef node<null_type> cxx11_typelist;
 #endif
+#ifdef _GLIBCXX_USE_CHAR8_T
+    typedef char8_t 		a16;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN1(a16)> char8_typelist;
+#else
+    typedef node<null_type> char8_typelist;
+#endif
+# if !defined(__STRICT_ANSI__) && defined(__SIZEOF_INT128__)
+    __extension__ typedef __int128            a17;
+    __extension__ typedef unsigned __int128   a18;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN2(a17, a18)> int128_typelist;
+#else
+    typedef node<null_type> int128_typelist;
+#endif
+    typedef typename append<basic_typelist, cxx11_typelist>::type tl1;
+    typedef typename append<tl1, char8_typelist>::type            tl2;
+    typedef typename append<tl2, int128_typelist>::type type;
   };
 
 #if __cplusplus >= 201103L
@@ -345,9 +356,15 @@ namespace __gnu_test
     typedef std::atomic_wchar_t     	a13;
     typedef std::atomic_char16_t    	a14;
     typedef std::atomic_char32_t    	a15;
-
-    typedef node<_GLIBCXX_TYPELIST_CHAIN14(a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15)> type;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN14(a2, a3, a4, a5, a6, a7, a8, a9, a10,
+					    a11, a12, a13, a14, a15)> basic_typelist;
+#ifdef _GLIBCXX_USE_CHAR8_T
+    typedef std::atomic_char8_t		a16;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN1(a16)> char8_typelist;
+#else
+    typedef node<null_type> char8_typelist;
+#endif
+    typedef typename append<basic_typelist, char8_typelist>::type type;
   };
 
   struct atomic_integrals
@@ -367,9 +384,15 @@ namespace __gnu_test
     typedef std::atomic_wchar_t     	a13;
     typedef std::atomic_char16_t    	a14;
     typedef std::atomic_char32_t    	a15;
-
     typedef node<_GLIBCXX_TYPELIST_CHAIN15(a1, a2, a3, a4, a5, a6, a7, a8, a9,
-					   a10, a11, a12, a13, a14, a15)> type;
+					   a10, a11, a12, a13, a14, a15)> basic_typelist;
+#ifdef _GLIBCXX_USE_CHAR8_T
+    typedef std::atomic_char8_t		a16;
+    typedef node<_GLIBCXX_TYPELIST_CHAIN1(a16)> char8_typelist;
+#else
+    typedef node<null_type> char8_typelist;
+#endif
+    typedef typename append<basic_typelist, char8_typelist>::type type;
   };
 
 
@@ -539,7 +562,6 @@ namespace __gnu_test
       }
   };
 
-  // Generator to test standard layout
   struct has_trivial_cons_dtor
   {
     template<typename _Tp>
@@ -563,6 +585,27 @@ namespace __gnu_test
       }
   };
 
+  struct has_trivial_dtor
+  {
+    template<typename _Tp>
+      void
+      operator()()
+      {
+	struct _Concept
+	{
+	  void __constraint()
+	  {
+	    typedef std::is_trivially_destructible<_Tp> dtor_p;
+	    static_assert(dtor_p::value, "destructor not trivial");
+	  }
+	};
+
+	void (_Concept::*__x)() __attribute__((unused))
+	  = &_Concept::__constraint;
+      }
+  };
+
+  // Generator to test standard layout
   struct standard_layout
   {
     template<typename _Tp>
@@ -687,10 +730,30 @@ namespace __gnu_test
   };
 
 #if __cplusplus >= 201103L
+  // Generator to test non-explicit default constructor.
+  struct implicitly_default_constructible
+  {
+    template<typename _Tp>
+      void
+      operator()()
+      {
+	struct _Concept
+	{
+	  struct Aggregate { _Tp v; };
+
+	  void __constraint()
+	  { Aggregate __v __attribute__((unused)) = { }; }
+	};
+
+	void (_Concept::*__x)() __attribute__((unused))
+	  = &_Concept::__constraint;
+      }
+  };
+
   // Generator to test default constructor.
   struct constexpr_default_constructible
   {
-    template<typename _Tp, bool _IsLitp = std::is_literal_type<_Tp>::value>
+    template<typename _Tp, bool _IsLitp = __is_literal_type(_Tp)>
       struct _Concept;
 
     // NB: _Tp must be a literal type.
@@ -742,7 +805,7 @@ namespace __gnu_test
   struct constexpr_single_value_constructible
   {
     template<typename _Ttesttype, typename _Tvaluetype,
-	     bool _IsLitp = std::is_literal_type<_Ttesttype>::value>
+	     bool _IsLitp = __is_literal_type(_Ttesttype)>
       struct _Concept;
 
     // NB: _Tvaluetype and _Ttesttype must be literal types.
@@ -893,5 +956,104 @@ namespace __gnu_test
       }
   };
 #endif
+
+#if __cplusplus >= 201402L
+  // Check that bitmask type T supports all the required operators,
+  // with the required semantics. Check that each bitmask element
+  // has a distinct, nonzero value, and that each bitmask constant
+  // has no bits set which do not correspond to a bitmask element.
+  template<typename T>
+    constexpr bool
+    test_bitmask_values(std::initializer_list<T> elements,
+			std::initializer_list<T> constants = {})
+    {
+      const T t0{};
+
+      if (!(t0 == t0))
+	return false;
+      if (t0 != t0)
+	return false;
+
+      if (t0 & t0)
+	return false;
+      if (t0 | t0)
+	return false;
+      if (t0 ^ t0)
+	return false;
+
+      T all = t0;
+
+      for (auto t : elements)
+	{
+	  // Each bitmask element has a distinct value.
+	  if (t & all)
+	    return false;
+
+	  // Each bitmask element has a nonzero value.
+	  if (!bool(t))
+	    return false;
+
+	  // Check operators
+
+	  if (!(t == t))
+	    return false;
+	  if (t != t)
+	    return false;
+	  if (t == t0)
+	    return false;
+	  if (t == all)
+	    return false;
+
+	  if (t & t0)
+	    return false;
+	  if ((t | t0) != t)
+	    return false;
+	  if ((t ^ t0) != t)
+	    return false;
+
+	  if ((t & t) != t)
+	    return false;
+	  if ((t | t) != t)
+	    return false;
+	  if (t ^ t)
+	    return false;
+
+	  T t1 = t;
+	  if ((t1 &= t) != t)
+	    return false;
+	  if ((t1 |= t) != t)
+	    return false;
+	  if (t1 ^= t)
+	    return false;
+
+	  t1 = all;
+	  if ((t1 &= t) != (all & t))
+	    return false;
+	  t1 = all;
+	  if ((t1 |= t) != (all | t))
+	    return false;
+	  t1 = all;
+	  if ((t1 ^= t) != (all ^ t))
+	    return false;
+
+	  all |= t;
+	  if (!(all & t))
+	    return false;
+	}
+
+      for (auto t : constants)
+	{
+	  // Check that bitmask constants are composed of the bitmask elements.
+	  if ((t & all) != t)
+	    return false;
+	  if ((t | all) != all)
+	    return false;
+	}
+
+      return true;
+    }
+#endif // C++14
+
+
 } // namespace __gnu_test
 #endif

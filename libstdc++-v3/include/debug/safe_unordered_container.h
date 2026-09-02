@@ -1,6 +1,6 @@
 // Safe container implementation  -*- C++ -*-
 
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -66,19 +66,108 @@ namespace __gnu_debug
       void
       _M_invalidate_locals()
       {
-	auto __local_end = _M_cont()._M_base().end(0);
+	auto __local_end = _M_cont()._M_base().cend(0);
 	this->_M_invalidate_local_if(
-		[__local_end](__decltype(_M_cont()._M_base().cend(0)) __it)
+		[__local_end](__decltype(__local_end) __it)
 		{ return __it != __local_end; });
       }
 
+#if __cplusplus > 201402L
+      template<typename _ExtractKey, typename _Source>
+	struct _UContInvalidatePred
+	{
+	  template<typename _Iterator>
+	    bool
+	    operator()(_Iterator __it) const
+	    { return _M_source.count(_ExtractKey{}(*__it)) == 0; }
+
+	  const _Source& _M_source;
+	};
+
+      template<typename _ExtractKey, typename _Source>
+	struct _UMContInvalidatePred
+	{
+	  template<typename _Iterator>
+	    bool
+	    operator()(_Iterator __it) const
+	    {
+	      auto __rng =
+		_M_source._M_base().equal_range(_ExtractKey{}(*__it));
+	      for (auto __rit = __rng.first;
+		   __rit != __rng.second; ++__rit)
+		{
+		  if (__it == __rit)
+		    return false;
+		}
+
+	      return true;
+	    }
+
+	  const _Source& _M_source;
+	};
+
+      template<typename _Source, typename _InvalidatePred>
+	struct _UContMergeGuard
+	{
+	  _UContMergeGuard(_Source& __src) noexcept
+	  : _M_source(__src), _M_size(__src.size()), _M_pred { __src }
+	  { }
+
+	  _UContMergeGuard(const _UContMergeGuard&) = delete;
+
+	  ~_UContMergeGuard()
+	  {
+	    const std::size_t __size = _M_source.size();
+	    if (__size == _M_size)
+	      return;
+
+	    __try
+	      {
+		if (__size == 0)
+		  _M_source._M_invalidate_all();
+		else
+		  {
+		    _M_source._M_invalidate_if(_M_pred);
+		    _M_source._M_invalidate_local_if(_M_pred);
+		  }
+	      }
+	    __catch(...)
+	      {
+		_M_source._M_invalidate_all();
+	      }
+	  }
+
+	  _Source& _M_source;
+	  const std::size_t _M_size;
+	  _InvalidatePred _M_pred;
+	};
+
+      template<typename _ExtractKey, typename _Source>
+	static _UContMergeGuard<_Source,
+				_UContInvalidatePred<_ExtractKey, _Source>>
+	_S_uc_guard(_ExtractKey, _Source& __src)
+	{
+	  typedef _UContInvalidatePred<_ExtractKey, _Source> _InvalidatePred;
+	  return _UContMergeGuard<_Source, _InvalidatePred>(__src);
+	}
+
+      template<typename _ExtractKey, typename _Source>
+	static _UContMergeGuard<_Source,
+				_UMContInvalidatePred<_ExtractKey, _Source>>
+	_S_umc_guard(_ExtractKey, _Source& __src)
+	{
+	  typedef _UMContInvalidatePred<_ExtractKey, _Source> _InvalidatePred;
+	  return _UContMergeGuard<_Source, _InvalidatePred>(__src);
+	}
+#endif // C++17
+
+    public:
       void
       _M_invalidate_all()
       {
-	auto __end = _M_cont()._M_base().end();
-	this->_M_invalidate_if(
-		[__end](__decltype(_M_cont()._M_base().cend()) __it)
-		{ return __it != __end; });
+	auto __end = _M_cont()._M_base().cend();
+	this->_M_invalidate_if([__end](__decltype(__end) __it)
+			       { return __it != __end; });
 	_M_invalidate_locals();
       }
 
@@ -92,7 +181,7 @@ namespace __gnu_debug
 
       /** Invalidates all local iterators @c x that reference this container,
 	  are not singular, and for which @c __pred(x) returns @c
-	  true. @c __pred will be invoked with the normal ilocal iterators
+	  true. @c __pred will be invoked with the normal local iterators
 	  nested in the safe ones. */
       template<typename _Predicate>
 	void

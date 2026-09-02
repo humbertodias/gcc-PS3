@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -fdump-tree-profile_estimate" } */
+/* { dg-options "-O2 -fdump-tree-profile_estimate --disable-tree-evrp" } */
 
 extern int global;
 
@@ -23,4 +23,4 @@ void foo (int bound)
     }
 }
 
-/* { dg-final { scan-tree-dump-times "guess loop iv compare heuristics of edge\[^:\]*: 2.0%" 4 "profile_estimate"} } */
+/* { dg-final { scan-tree-dump-times "guess loop iv compare heuristics of edge\[^:\]*: 36.00%" 4 "profile_estimate"} } */

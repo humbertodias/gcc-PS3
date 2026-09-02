@@ -1,6 +1,6 @@
 // Uses-allocator Construction -*- C++ -*-
 
-// Copyright (C) 2010-2017 Free Software Foundation, Inc.
+// Copyright (C) 2010-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -22,6 +22,11 @@
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
 
+/** @file include/bits/uses_allocator_args.h
+ *  This is an internal header file, included by other library headers.
+ *  Do not attempt to use it directly. @headername{memory}
+ */
+
 #ifndef _USES_ALLOCATOR_H
 #define _USES_ALLOCATOR_H 1
 
@@ -35,12 +40,17 @@
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
+/// @cond undocumented
 
+  // This is used for std::experimental::erased_type from Library Fundamentals.
   struct __erased_type { };
 
+  // This also supports the "type-erased allocator" protocol from the
+  // Library Fundamentals TS, where allocator_type is erased_type.
+  // The second condition will always be false for types not using the TS.
   template<typename _Alloc, typename _Tp>
     using __is_erased_or_convertible
-      = __or_<is_same<_Tp, __erased_type>, is_convertible<_Alloc, _Tp>>;
+      = __or_<is_convertible<_Alloc, _Tp>, is_same<_Tp, __erased_type>>;
 
   /// [allocator.tag]
   struct allocator_arg_t { explicit allocator_arg_t() = default; };
@@ -68,7 +78,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   struct __uses_alloc0 : __uses_alloc_base
   {
-    struct _Sink { void operator=(const void*) { } } _M_a;
+    struct _Sink { void _GLIBCXX20_CONSTEXPR operator=(const void*) { } } _M_a;
   };
 
   template<typename _Alloc>
@@ -82,15 +92,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Tp, typename _Alloc, typename... _Args>
     struct __uses_alloc<true, _Tp, _Alloc, _Args...>
-    : conditional<
-        is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>::value,
+    : __conditional_t<
+        is_constructible<_Tp, allocator_arg_t, const _Alloc&, _Args...>::value,
         __uses_alloc1<_Alloc>,
-       	__uses_alloc2<_Alloc>>::type
+       	__uses_alloc2<_Alloc>>
     {
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2586. Wrong value category used in scoped_allocator_adaptor::construct
       static_assert(__or_<
-	  is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>,
-	  is_constructible<_Tp, _Args..., _Alloc>>::value, "construction with"
-	  " an allocator must be possible if uses_allocator is true");
+	  is_constructible<_Tp, allocator_arg_t, const _Alloc&, _Args...>,
+	  is_constructible<_Tp, _Args..., const _Alloc&>>::value,
+	  "construction with an allocator must be possible"
+	  " if uses_allocator is true");
     };
 
   template<typename _Tp, typename _Alloc, typename... _Args>
@@ -102,6 +115,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __uses_alloc<uses_allocator<_Tp, _Alloc>::value, _Tp, _Alloc, _Args...>;
 
   template<typename _Tp, typename _Alloc, typename... _Args>
+    _GLIBCXX20_CONSTEXPR
     inline __uses_alloc_t<_Tp, _Alloc, _Args...>
     __use_alloc(const _Alloc& __a)
     {
@@ -123,10 +137,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<template<typename...> class _Predicate,
 	   typename _Tp, typename _Alloc, typename... _Args>
     struct __is_uses_allocator_predicate
-    : conditional<uses_allocator<_Tp, _Alloc>::value,
+    : __conditional_t<uses_allocator<_Tp, _Alloc>::value,
       __or_<_Predicate<_Tp, allocator_arg_t, _Alloc, _Args...>,
 	    _Predicate<_Tp, _Args..., _Alloc>>,
-      _Predicate<_Tp, _Args...>>::type { };
+      _Predicate<_Tp, _Args...>> { };
 
   template<typename _Tp, typename _Alloc, typename... _Args>
     struct __is_uses_allocator_constructible
@@ -175,10 +189,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     void __uses_allocator_construct(const _Alloc& __a, _Tp* __ptr,
 				    _Args&&... __args)
     {
-      __uses_allocator_construct_impl(__use_alloc<_Tp, _Alloc, _Args...>(__a),
-				      __ptr, std::forward<_Args>(__args)...);
+      std::__uses_allocator_construct_impl(
+	  std::__use_alloc<_Tp, _Alloc, _Args...>(__a), __ptr,
+	  std::forward<_Args>(__args)...);
     }
 
+/// @endcond
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 

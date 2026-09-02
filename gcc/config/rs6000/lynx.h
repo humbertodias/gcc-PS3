@@ -1,5 +1,5 @@
 /* Definitions for Rs6000 running LynxOS.
-   Copyright (C) 1995-2017 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    Contributed by David Henkel-Wallace, Cygnus Support (gumby@cygnus.com)
    Rewritten by Adam Nemet, LynuxWorks Inc.
 
@@ -71,16 +71,6 @@
     }						\
   while (0)
 
-/* Override the rs6000.h definition.  */
-
-#undef ASM_APP_ON
-#define ASM_APP_ON "#APP\n"
-
-/* Override the rs6000.h definition.  */
-
-#undef ASM_APP_OFF
-#define ASM_APP_OFF "#NO_APP\n"
-
 /* LynxOS does not do anything with .fixup plus let's not create
    writable section for linkonce.r and linkonce.t.  */
 
@@ -90,9 +80,8 @@
 
 #undef SIZE_TYPE
 #undef ASM_OUTPUT_ALIGN
-#undef PREFERRED_DEBUGGING_TYPE
 
-/* The file rs6000.c defines TARGET_HAVE_TLS unconditionally to the
+/* The file rs6000.cc defines TARGET_HAVE_TLS unconditionally to the
    value of HAVE_AS_TLS.  HAVE_AS_TLS is true as gas support for TLS
    is detected by configure.  Override the definition to false.  */
 

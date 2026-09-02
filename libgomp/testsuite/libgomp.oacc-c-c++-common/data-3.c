@@ -138,14 +138,14 @@ main (int argc, char **argv)
     d[ii] = ((a[ii] * a[ii] + a[ii]) / a[ii]) - a[ii];
 
 #pragma acc parallel present (a[0:N], b[0:N], c[0:N], d[0:N], e[0:N]) \
-  wait (1,5) async (4)
+  wait (1, 2, 3, 5) async (4)
   for (int ii = 0; ii < N; ii++)
     e[ii] = a[ii] + b[ii] + c[ii] + d[ii];
 
 #pragma acc exit data copyout (a[0:N]) copyout (b[0:N]) copyout (c[0:N]) \
   copyout (d[0:N]) copyout (e[0:N]) wait (1, 2, 3, 4) async (1)
-#pragma acc exit data delete (N)
-#pragma acc wait (1)
+#pragma acc exit data delete (N) wait(1) async(2)
+#pragma acc wait (2)
 
   for (i = 0; i < N; i++)
     {

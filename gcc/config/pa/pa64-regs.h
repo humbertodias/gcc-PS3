@@ -1,5 +1,5 @@
 /* Configuration for GCC-compiler for PA-RISC.
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -137,7 +137,7 @@ along with GCC; see the file COPYING3.  If not see
    WORD_SIZE bits.  Note that SCmode values are placed in a single FPR.
    Thus, any patterns defined to operate on these values would have to
    use the 32-bit addressability of the FPR registers.  */
-#define HARD_REGNO_NREGS(REGNO, MODE)					\
+#define PA_HARD_REGNO_NREGS(REGNO, MODE)				\
   ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
 
 /* These are the valid FP modes.  */
@@ -149,7 +149,7 @@ along with GCC; see the file COPYING3.  If not see
 /* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.
    On the HP-PA, the cpu registers can hold any mode.  We
    force this to be an even register if it cannot hold the full mode.  */
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
+#define PA_HARD_REGNO_MODE_OK(REGNO, MODE) \
   ((REGNO) == 0								\
    ? (MODE) == CCmode || (MODE) == CCFPmode				\
    : (REGNO) == 60 ? SCALAR_INT_MODE_P (MODE)				\
@@ -165,17 +165,17 @@ along with GCC; see the file COPYING3.  If not see
       || (GET_MODE_SIZE (MODE) == 4 * UNITS_PER_WORD			\
 	  && ((REGNO) & 3) == 3 && (REGNO) <= 23)))
 
-/* How to renumber registers for dbx and gdb.
+/* How to renumber registers for gdb.
 
    Registers 0  - 31 remain unchanged.
 
    Registers 32 - 59 are mapped to 72, 74, 76 ...
 
    Register 60 is mapped to 32.  */
-#define DBX_REGISTER_NUMBER(REGNO) \
+#define DEBUGGER_REGNO(REGNO) \
   ((REGNO) <= 31 ? (REGNO) : ((REGNO) < 60 ? (REGNO - 32) * 2 + 72 : 32))
 
-/* We must not use the DBX register numbers for the DWARF 2 CFA column
+/* We must not use the debugger register numbers for the DWARF 2 CFA column
    numbers because that maps to numbers beyond FIRST_PSEUDO_REGISTER.
    Instead use the identity mapping.  */
 #define DWARF_FRAME_REGNUM(REG) REG
@@ -229,11 +229,6 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FPUPPER_REGS, FP_REGS,
   {0xfffffffe, 0x2fffffff},	/* GENERAL_OR_FP_REGS */	\
   {0x00000000, 0x10000000},	/* SHIFT_REGS */		\
   {0xfffffffe, 0x3fffffff}}	/* ALL_REGS */
-
-/* Defines invalid mode changes.  */
-
-#define CANNOT_CHANGE_MODE_CLASS(FROM, TO, CLASS) \
-  pa_cannot_change_mode_class (FROM, TO, CLASS)
 
 /* Return the class number of the smallest class containing
    reg number REGNO.  This could be a conditional expression

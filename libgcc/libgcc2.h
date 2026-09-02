@@ -1,5 +1,5 @@
 /* Header file for libgcc2.c.  */
-/* Copyright (C) 2000-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -30,7 +30,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #endif
 
 extern int __gcc_bcmp (const unsigned char *, const unsigned char *, size_t);
-extern void __clear_cache (char *, char *);
+extern void __clear_cache (void *, void *);
 extern void __eprintf (const char *, const char *, unsigned int, const char *)
   __attribute__ ((__noreturn__));
 
@@ -156,8 +156,12 @@ typedef		float XFtype	__attribute__ ((mode (XF)));
 typedef _Complex float XCtype	__attribute__ ((mode (XC)));
 #endif
 #if LIBGCC2_HAS_TF_MODE
+#ifndef TFtype
 typedef		float TFtype	__attribute__ ((mode (TF)));
+#endif
+#ifndef TCtype
 typedef _Complex float TCtype	__attribute__ ((mode (TC)));
+#endif
 #endif
 
 typedef int cmp_return_type __attribute__((mode (__libgcc_cmp_return__)));
@@ -402,7 +406,7 @@ extern UWtype __udiv_w_sdiv (UWtype *, UWtype, UWtype, UWtype);
 #endif
 
 extern cmp_return_type __cmpdi2 (DWtype, DWtype);
-extern cmp_return_type __ucmpdi2 (DWtype, DWtype);
+extern cmp_return_type __ucmpdi2 (UDWtype, UDWtype);
 
 #if MIN_UNITS_PER_WORD > 1
 extern SItype __bswapsi2 (SItype);

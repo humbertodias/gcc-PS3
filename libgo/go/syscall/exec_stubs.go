@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build rtems
 // +build rtems
 
 // Stubs for fork, exec and wait.
@@ -30,6 +31,6 @@ func (w WaitStatus) Signal() int     { return 0 }
 func (w WaitStatus) StopSignal() int { return 0 }
 func (w WaitStatus) TrapCause() int  { return 0 }
 
-func raw_ptrace(request int, pid int, addr *byte, data *byte) Errno {
+func raw_ptrace(request int, pid int, addr uintptr, data uintptr) Errno {
 	return ENOSYS
 }

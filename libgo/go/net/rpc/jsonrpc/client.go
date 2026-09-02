@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package jsonrpc implements a JSON-RPC ClientCodec and ServerCodec
+// Package jsonrpc implements a JSON-RPC 1.0 ClientCodec and ServerCodec
 // for the rpc package.
+// For JSON-RPC 2.0 support, see https://godoc.org/?q=json-rpc+2.0
 package jsonrpc
 
 import (
@@ -43,12 +44,12 @@ func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec {
 }
 
 type clientRequest struct {
-	Method string         `json:"method"`
-	Params [1]interface{} `json:"params"`
-	Id     uint64         `json:"id"`
+	Method string `json:"method"`
+	Params [1]any `json:"params"`
+	Id     uint64 `json:"id"`
 }
 
-func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
+func (c *clientCodec) WriteRequest(r *rpc.Request, param any) error {
 	c.mutex.Lock()
 	c.pending[r.Seq] = r.ServiceMethod
 	c.mutex.Unlock()
@@ -61,7 +62,7 @@ func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
 type clientResponse struct {
 	Id     uint64           `json:"id"`
 	Result *json.RawMessage `json:"result"`
-	Error  interface{}      `json:"error"`
+	Error  any              `json:"error"`
 }
 
 func (r *clientResponse) reset() {
@@ -96,7 +97,7 @@ func (c *clientCodec) ReadResponseHeader(r *rpc.Response) error {
 	return nil
 }
 
-func (c *clientCodec) ReadResponseBody(x interface{}) error {
+func (c *clientCodec) ReadResponseBody(x any) error {
 	if x == nil {
 		return nil
 	}

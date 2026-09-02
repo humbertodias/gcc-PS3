@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,11 +23,14 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Table;
 with Types; use Types;
+with Sem_Disp; use Sem_Disp;
 with Uintp; use Uintp;
 
 package Sem_Ch13 is
+   function All_Membership_Choices_Static (Expr : Node_Id) return Boolean;
+   --  Given a membership test, returns True iff all choices are static.
+
    procedure Analyze_At_Clause                          (N : Node_Id);
    procedure Analyze_Attribute_Definition_Clause        (N : Node_Id);
    procedure Analyze_Enumeration_Representation_Clause  (N : Node_Id);
@@ -42,7 +45,7 @@ package Sem_Ch13 is
    --  is the corresponding entity declared by the declaration node N. Callers
    --  should check that Has_Aspects (N) is True before calling this routine.
 
-   procedure Analyze_Aspect_Specifications_On_Body_Or_Stub (N : Node_Id);
+   procedure Analyze_Aspects_On_Subprogram_Body_Or_Stub (N : Node_Id);
    --  Analyze the aspect specifications of [generic] subprogram body or stub
    --  N. Callers should check that Has_Aspects (N) is True before calling the
    --  routine. This routine diagnoses misplaced aspects that should appear on
@@ -78,9 +81,11 @@ package Sem_Ch13 is
    --  the setting of the RM_Size field is not affected. This routine also
    --  initializes the alignment field to zero.
 
+   Unknown_Minimum_Size : constant Nonzero_Int := -1;
+
    function Minimum_Size
      (T      : Entity_Id;
-      Biased : Boolean := False) return Nat;
+      Biased : Boolean := False) return Int;
    --  Given an elementary type, determines the minimum number of bits required
    --  to represent all values of the type. This function may not be called
    --  with any other types. If the flag Biased is set True, then the minimum
@@ -93,7 +98,7 @@ package Sem_Ch13 is
    --  the type is already biased, then Minimum_Size returns the biased size,
    --  regardless of the setting of Biased. Also, fixed-point types are never
    --  biased in the current implementation. If the size is not known at
-   --  compile time, this function returns 0.
+   --  compile time, this function returns Unknown_Minimum_Size.
 
    procedure Check_Constant_Address_Clause (Expr : Node_Id; U_Ent : Entity_Id);
    --  Expr is an expression for an address clause. This procedure checks
@@ -112,18 +117,40 @@ package Sem_Ch13 is
       Siz    : Uint;
       Biased : out Boolean);
    --  Called when size Siz is specified for subtype T. This subprogram checks
-   --  that the size is appropriate, posting errors on node N as required.
-   --  This check is effective for elementary types and bit-packed arrays.
-   --  For other non-elementary types, a check is only made if an explicit
-   --  size has been given for the type (and the specified size must match).
-   --  The parameter Biased is set False if the size specified did not require
-   --  the use of biased representation, and True if biased representation
-   --  was required to meet the size requirement. Note that Biased is only
-   --  set if the type is not currently biased, but biasing it is the only
-   --  way to meet the requirement. If the type is currently biased, then
-   --  this biased size is used in the initial check, and Biased is False.
-   --  If the size is too small, and an error message is given, then both
-   --  Esize and RM_Size are reset to the allowed minimum value in T.
+   --  that the size is appropriate, posting errors on node N as required. This
+   --  check is effective for elementary types and bit-packed arrays. For
+   --  composite types, a check is only made if an explicit size has been given
+   --  for the type (and the specified size must match).  The parameter Biased
+   --  is set False if the size specified did not require the use of biased
+   --  representation, and True if biased representation was required to meet
+   --  the size requirement. Note that Biased is only set if the type is not
+   --  currently biased, but biasing it is the only way to meet the
+   --  requirement. If the type is currently biased, then this biased size is
+   --  used in the initial check, and Biased is False. For a Component_Size
+   --  clause, T is the component type.
+
+   function Has_Compatible_Representation
+     (Target_Typ, Operand_Typ : Entity_Id) return Boolean;
+   --  Given an explicit or implicit conversion from Operand_Typ to Target_Typ,
+   --  determine whether the types have compatible or different representation,
+   --  thus requiring special processing for the conversion in the latter case.
+   --  A False result is possible only for array, enumeration and record types.
+
+   procedure Parse_Aspect_Aggregate
+     (N                   : Node_Id;
+      Empty_Subp          : in out Node_Id;
+      Add_Named_Subp      : in out Node_Id;
+      Add_Unnamed_Subp    : in out Node_Id;
+      New_Indexed_Subp    : in out Node_Id;
+      Assign_Indexed_Subp : in out Node_Id);
+   --  Utility to unpack the subprograms in an occurrence of aspect Aggregate;
+   --  used to verify the structure of the aspect, and resolve and expand an
+   --  aggregate for a container type that carries the aspect.
+
+   function Parse_Aspect_Stable_Properties
+     (Aspect_Spec : Node_Id; Negated : out Boolean) return Subprogram_List;
+   --  Utility to unpack the subprograms in a Stable_Properties list;
+   --  in the case of the aspect of a type, Negated will always be False.
 
    function Rep_Item_Too_Early (T : Entity_Id; N : Node_Id) return Boolean;
    --  Called at start of processing a representation clause/pragma. Used to
@@ -142,6 +169,11 @@ package Sem_Ch13 is
    --  parameter does the actual replacement of node N, which is either a
    --  simple direct reference to T, or a selected component that represents
    --  an appropriately qualified occurrence of T.
+   --
+   --  This also replaces each reference to a component, entry, or protected
+   --  procedure with a selected component whose prefix is the parameter.
+   --  For example, Component_Name becomes Parameter.Component_Name, where
+   --  Parameter is the parameter, which is of type T.
 
    function Rep_Item_Too_Late
      (T     : Entity_Id;
@@ -154,7 +186,7 @@ package Sem_Ch13 is
    --  is the pragma or representation clause itself, used for placing error
    --  messages if the item is too late.
    --
-   --  Fonly is a flag that causes only the freezing rule (para 9) to be
+   --  FOnly is a flag that causes only the freezing rule (para 9) to be
    --  applied, and the tests of para 10 are skipped. This is appropriate for
    --  both subtype related attributes (Alignment and Size) and for stream
    --  attributes, which, although certainly not subtype related attributes,
@@ -182,25 +214,6 @@ package Sem_Ch13 is
    --  because such clauses are linked on to the Rep_Item chain in procedure
    --  Sem_Ch13.Analyze_Aspect_Specifications. See that procedure for details.
 
-   function Same_Representation (Typ1, Typ2 : Entity_Id) return Boolean;
-   --  Given two types, where the two types are related by possible derivation,
-   --  determines if the two types have the same representation, or different
-   --  representations, requiring the special processing for representation
-   --  change. A False result is possible only for array, enumeration or
-   --  record types.
-
-   procedure Validate_Compile_Time_Warning_Error (N : Node_Id);
-   --  N is a pragma Compile_Time_Error or Compile_Warning_Error whose boolean
-   --  expression is not known at compile time. This procedure makes an entry
-   --  in a table. The actual checking is performed by Validate_Compile_Time_
-   --  Warning_Errors, which is invoked after calling the back end.
-
-   procedure Validate_Compile_Time_Warning_Errors;
-   --  This routine is called after calling the back end to validate pragmas
-   --  Compile_Time_Error and Compile_Time_Warning for size and alignment
-   --  appropriateness. The reason it is called that late is to take advantage
-   --  of any back-annotation of size and alignment performed by the back end.
-
    procedure Validate_Unchecked_Conversion
      (N        : Node_Id;
       Act_Unit : Entity_Id);
@@ -223,36 +236,6 @@ package Sem_Ch13 is
    --  alignments of objects have been back annotated). It goes through the
    --  table of saved address clauses checking for suspicious alignments and
    --  if necessary issuing warnings.
-
-   procedure Validate_Independence;
-   --  This is called after the back end has been called (and thus after the
-   --  layout of components has been back annotated). It goes through the
-   --  table of saved pragma Independent[_Component] entries, checking that
-   --  independence can be achieved, and if necessary issuing error messages.
-
-   -------------------------------------
-   -- Table for Validate_Independence --
-   -------------------------------------
-
-   --  If a legal pragma Independent or Independent_Components is given for
-   --  an entity, then an entry is made in this table, to be checked by a
-   --  call to Validate_Independence after back annotation of layout is done.
-
-   type Independence_Check_Record is record
-      N : Node_Id;
-      --  The pragma Independent or Independent_Components
-
-      E : Entity_Id;
-      --  The entity to which it applies
-   end record;
-
-   package Independence_Checks is new Table.Table (
-     Table_Component_Type => Independence_Check_Record,
-     Table_Index_Type     => Int,
-     Table_Low_Bound      => 1,
-     Table_Initial        => 20,
-     Table_Increment      => 200,
-     Table_Name           => "Independence_Checks");
 
    -----------------------------------
    -- Handling of Aspect Visibility --
@@ -341,6 +324,36 @@ package Sem_Ch13 is
    --  Given an entity Typ that denotes a derived type or a subtype, this
    --  routine performs the inheritance of aspects at the freeze point.
 
+   --  ??? Note that, for now, just a limited number of representation aspects
+   --  have been inherited here so far. Many of them are still inherited in
+   --  Sem_Ch3 and need to be dealt with. Here is a non-exhaustive list of
+   --  aspects that likely also need to be moved to this routine: Alignment,
+   --  Component_Alignment, Component_Size, Machine_Radix, Object_Size, Pack,
+   --  Predicates, Preelaborable_Initialization, Size and Small.
+
+   procedure Inherit_Delayed_Rep_Aspects (Typ : Entity_Id);
+   --  As discussed in the spec of Aspects (see Aspect_Delay declaration),
+   --  a derived type can inherit aspects from its parent which have been
+   --  specified at the time of the derivation using an aspect, as in:
+   --
+   --    type A is range 1 .. 10
+   --      with Size => Not_Defined_Yet;
+   --    ..
+   --    type B is new A;
+   --    ..
+   --    Not_Defined_Yet : constant := 64;
+   --
+   --  In this example, the Size of A is considered to be specified prior
+   --  to the derivation, and thus inherited, even though the value is not
+   --  known at the time of derivation. To deal with this, we use two entity
+   --  flags. The flag Has_Derived_Rep_Aspects is set in the parent type (A
+   --  here), and then the flag May_Inherit_Delayed_Rep_Aspects is set in
+   --  the derived type (B here). If this flag is set when the derived type
+   --  is frozen, then this procedure is called to ensure proper inheritance
+   --  of all delayed aspects from the parent type.
+
+   --  ??? Obviously we ought not to have two mechanisms to do the same thing
+
    procedure Resolve_Aspect_Expressions (E : Entity_Id);
    --  Name resolution of an aspect expression happens at the end of the
    --  current declarative part or at the freeze point for the entity,
@@ -354,27 +367,14 @@ package Sem_Ch13 is
    --  for First, Next, and Has_Element. Optionally an Element primitive may
    --  also be defined.
 
-   -----------------------------------------------------------
-   --  Visibility of Discriminants in Aspect Specifications --
-   -----------------------------------------------------------
-
-   --  The discriminants of a type are visible when analyzing the aspect
-   --  specifications of a type declaration or protected type declaration,
-   --  but not when analyzing those of a subtype declaration. The following
-   --  routines enforce this distinction.
+   procedure Validate_Literal_Aspect (Typ : Entity_Id; ASN : Node_Id);
+   --  Check legality of Integer_Literal, Real_Literal, and String_Literal
+   --  aspect specifications.
 
    procedure Install_Discriminants (E : Entity_Id);
    --  Make visible the discriminants of type entity E
 
-   procedure Push_Scope_And_Install_Discriminants (E : Entity_Id);
-   --  Push scope E and makes visible the discriminants of type entity E if E
-   --  has discriminants and is not a subtype.
-
    procedure Uninstall_Discriminants (E : Entity_Id);
    --  Remove visibility to the discriminants of type entity E
-
-   procedure Uninstall_Discriminants_And_Pop_Scope (E : Entity_Id);
-   --  Remove visibility to the discriminants of type entity E and pop the
-   --  scope stack if E has discriminants and is not a subtype.
 
 end Sem_Ch13;

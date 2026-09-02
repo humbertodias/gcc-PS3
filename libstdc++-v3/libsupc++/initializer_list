@@ -1,6 +1,6 @@
 // std::initializer_list support -*- C++ -*-
 
-// Copyright (C) 2008-2017 Free Software Foundation, Inc.
+// Copyright (C) 2008-2023 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
 //
@@ -36,11 +36,9 @@
 # include <bits/c++0x_warning.h>
 #else // C++0x
 
-#pragma GCC visibility push(default)
-
 #include <bits/c++config.h>
 
-namespace std
+namespace std _GLIBCXX_VISIBILITY(default)
 {
   /// initializer_list
   template<class _E>
@@ -83,6 +81,7 @@ namespace std
    *  @brief  Return an iterator pointing to the first element of
    *          the initializer_list.
    *  @param  __ils  Initializer list.
+   *  @relates initializer_list
    */
   template<class _Tp>
     constexpr const _Tp*
@@ -93,14 +92,13 @@ namespace std
    *  @brief  Return an iterator pointing to one past the last element
    *          of the initializer_list.
    *  @param  __ils  Initializer list.
+   *  @relates initializer_list
    */
   template<class _Tp>
     constexpr const _Tp*
     end(initializer_list<_Tp> __ils) noexcept
     { return __ils.end(); }
 }
-
-#pragma GCC visibility pop
 
 #endif // C++11
 

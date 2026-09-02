@@ -15,12 +15,13 @@ import (
 	"strings"
 	. "sync"
 	"testing"
+	"time"
 )
 
 func HammerSemaphore(s *uint32, loops int, cdone chan bool) {
 	for i := 0; i < loops; i++ {
 		Runtime_Semacquire(s)
-		Runtime_Semrelease(s)
+		Runtime_Semrelease(s, false, 0)
 	}
 	cdone <- true
 }
@@ -59,6 +60,12 @@ func BenchmarkContendedSemaphore(b *testing.B) {
 
 func HammerMutex(m *Mutex, loops int, cdone chan bool) {
 	for i := 0; i < loops; i++ {
+		if i%3 == 0 {
+			if m.TryLock() {
+				m.Unlock()
+			}
+			continue
+		}
 		m.Lock()
 		m.Unlock()
 	}
@@ -70,7 +77,19 @@ func TestMutex(t *testing.T) {
 		t.Logf("got mutexrate %d expected 0", n)
 	}
 	defer runtime.SetMutexProfileFraction(0)
+
 	m := new(Mutex)
+
+	m.Lock()
+	if m.TryLock() {
+		t.Fatalf("TryLock succeeded with mutex locked")
+	}
+	m.Unlock()
+	if !m.TryLock() {
+		t.Fatalf("TryLock failed with mutex unlocked")
+	}
+	m.Unlock()
+
 	c := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go HammerMutex(m, 1000, c)
@@ -154,7 +173,10 @@ func init() {
 	if len(os.Args) == 3 && os.Args[1] == "TESTMISUSE" {
 		for _, test := range misuseTests {
 			if test.name == os.Args[2] {
-				test.f()
+				func() {
+					defer func() { recover() }()
+					test.f()
+				}()
 				fmt.Printf("test completed\n")
 				os.Exit(0)
 			}
@@ -171,6 +193,38 @@ func TestMutexMisuse(t *testing.T) {
 		if err == nil || !strings.Contains(string(out), "unlocked") {
 			t.Errorf("%s: did not find failure with message about unlocked lock: %s\n%s\n", test.name, err, out)
 		}
+	}
+}
+
+func TestMutexFairness(t *testing.T) {
+	var mu Mutex
+	stop := make(chan bool)
+	defer close(stop)
+	go func() {
+		for {
+			mu.Lock()
+			time.Sleep(100 * time.Microsecond)
+			mu.Unlock()
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	}()
+	done := make(chan bool, 1)
+	go func() {
+		for i := 0; i < 10; i++ {
+			time.Sleep(100 * time.Microsecond)
+			mu.Lock()
+			mu.Unlock()
+		}
+		done <- true
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("can't acquire Mutex in 10 seconds")
 	}
 }
 

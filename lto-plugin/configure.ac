@@ -1,4 +1,3 @@
-AC_PREREQ(2.64)
 AC_INIT([LTO plugin for ld], 0.1,,[lto-plugin])
 AC_CANONICAL_SYSTEM
 GCC_TOPLEV_SUBDIRS
@@ -18,8 +17,8 @@ ACX_PROG_CC_WARNING_OPTS([-Wall], [ac_lto_plugin_warn_cflags])
 saved_LDFLAGS="$LDFLAGS"
 LDFLAGS="$LDFLAGS -static-libgcc"
 AC_MSG_CHECKING([for -static-libgcc])
-AC_LINK_IFELSE([
-  int main() {}], [have_static_libgcc=yes], [have_static_libgcc=no])
+AC_LINK_IFELSE([AC_LANG_SOURCE([
+  int main() {}])], [have_static_libgcc=yes], [have_static_libgcc=no])
 AC_MSG_RESULT($have_static_libgcc); 
 LDFLAGS="$saved_LDFLAGS"
 # Need -Wc to get it through libtool.
@@ -27,6 +26,9 @@ if test "x$have_static_libgcc" = xyes; then
    ac_lto_plugin_ldflags="-Wc,-static-libgcc"
 fi
 AC_SUBST(ac_lto_plugin_ldflags)
+
+GCC_CET_HOST_FLAGS(CET_HOST_FLAGS)
+AC_SUBST(CET_HOST_FLAGS)
 
 if test x"$host_subdir" = x.; then
    gcc_build_dir=../gcc
@@ -47,6 +49,65 @@ AC_SUBST(real_target_noncanonical)
 
 # Determine what GCC version number to use in filesystem paths.
 GCC_BASE_VER
+
+AC_MSG_CHECKING([whether symbol versioning is supported])
+lto_plugin_use_symver=no
+if test x$gcc_no_link = xyes; then
+  # If we cannot link, we cannot build shared libraries, so do not use
+  # symbol versioning.
+  lto_plugin_use_symver=no
+else
+  save_LDFLAGS="$LDFLAGS"
+  LDFLAGS="$LDFLAGS -fPIC -shared -Wl,--version-script,./conftest.map"
+  cat > conftest.map <<EOF
+{
+  global: *foo*; bar; local: *;
+};
+EOF
+  AC_TRY_LINK([int foo;],[],[lto_plugin_use_symver=gnu],[lto_plugin_use_symver=no])
+  if test x$lto_plugin_use_symver = xno; then
+    case "$target_os" in
+      solaris2*)
+	LDFLAGS="$save_LDFLAGS"
+	LDFLAGS="$LDFLAGS -fPIC -shared -Wl,-M,./conftest.map"
+	# Sun ld cannot handle wildcards and treats all entries as undefined.
+	cat > conftest.map <<EOF
+{
+  global: foo; local: *;
+};
+EOF
+	AC_TRY_LINK([int foo;],[],[lto_plugin_use_symver=sun],[lto_plugin_use_symver=no])
+	  ;;
+    esac
+  fi
+  LDFLAGS="$save_LDFLAGS"
+fi
+AC_MSG_RESULT($lto_plugin_use_symver)
+AM_CONDITIONAL(LTO_PLUGIN_USE_SYMVER, [test "x$lto_plugin_use_symver" != xno])
+AM_CONDITIONAL(LTO_PLUGIN_USE_SYMVER_GNU, [test "x$lto_plugin_use_symver" = xgnu])
+AM_CONDITIONAL(LTO_PLUGIN_USE_SYMVER_SUN, [test "x$lto_plugin_use_symver" = xsun])
+
+# Check for thread headers.
+use_locking=no
+ac_lto_plugin_extra_ldflags=
+
+case $host in
+  riscv*)
+    # do not use locking as pthread depends on libatomic
+    ;;
+  *-linux*)
+    use_locking=yes
+    ;;
+esac
+
+if test x$use_locking = xyes; then
+  AC_CHECK_HEADER(pthread.h,
+    [AC_DEFINE(HAVE_PTHREAD_LOCKING, 1, [Define if the system provides pthread locking mechanism.])])
+
+  ac_lto_plugin_extra_ldflags="-pthread"
+fi
+
+AC_SUBST(ac_lto_plugin_extra_ldflags)
 
 AM_PROG_LIBTOOL
 ACX_LT_HOST_FLAGS

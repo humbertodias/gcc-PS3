@@ -1,5 +1,5 @@
 /* Configuration for an i386 running MS-DOS with DJGPP.
-   Copyright (C) 1997-2017 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -22,9 +22,6 @@ along with GCC; see the file COPYING3.  If not see
 
 #undef PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
-
-/* Don't assume anything about the header files.  */
-#define NO_IMPLICIT_EXTERN_C
 
 #undef BSS_SECTION_ASM_OP
 #define BSS_SECTION_ASM_OP "\t.section\t.bss"
@@ -131,8 +128,8 @@ along with GCC; see the file COPYING3.  If not see
 #undef PTRDIFF_TYPE
 #define PTRDIFF_TYPE "int"
 
-#undef DBX_REGISTER_NUMBER
-#define DBX_REGISTER_NUMBER(n) svr4_dbx_register_map[n]
+#undef DEBUGGER_REGNO
+#define DEBUGGER_REGNO(n) svr4_debugger_register_map[n]
 
 /* Default to pcc-struct-return.  */
 #define DEFAULT_PCC_STRUCT_RETURN 1
@@ -150,7 +147,7 @@ along with GCC; see the file COPYING3.  If not see
                                                                         \
         /* Don't emit DWARF3/4 unless specifically selected. */         \
         /* DWARF3/4 currently does not work for DJGPP.  */              \
-        if (!global_options_set.x_dwarf_version)                        \
+        if (!OPTION_SET_P (dwarf_version))                        \
             dwarf_version = 2;                                          \
                                                                         \
         }                                                               \
@@ -160,8 +157,19 @@ along with GCC; see the file COPYING3.  If not see
 #undef MAKE_DECL_ONE_ONLY
 #define MAKE_DECL_ONE_ONLY(DECL) (DECL_WEAK (DECL) = 1)
 
-/* Function protypes for gcc/i386/djgpp.c */
+#undef TARGET_COFF
+#define TARGET_COFF 1
+
+/* Kludge because of missing COFF support for early LTO debug.  */
+#undef  TARGET_ASM_LTO_START
+#define TARGET_ASM_LTO_START i386_djgpp_asm_lto_start
+#undef  TARGET_ASM_LTO_END
+#define TARGET_ASM_LTO_END i386_djgpp_asm_lto_end
+
+/* Function protypes for gcc/i386/djgpp.cc */
 
 void
 i386_djgpp_asm_named_section(const char *name, unsigned int flags,
 			     tree decl);
+void i386_djgpp_asm_lto_start (void);
+void i386_djgpp_asm_lto_end (void);

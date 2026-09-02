@@ -6,5 +6,9 @@
 
 package runtime
 
-//var NewOSProc0 = newosproc0
-//var Mincore = mincore
+// const SiginfoMaxSize = _si_max_size
+// const SigeventMaxSize = _sigev_max_size
+
+// var NewOSProc0 = newosproc0
+// var Mincore = mincore
+// var Add = add

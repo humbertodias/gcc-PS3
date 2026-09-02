@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, for ARM with a.out
-   Copyright (C) 1995-2017 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rearnsha@armltd.co.uk).
    
    This file is part of GCC.
@@ -53,7 +53,9 @@
 /* The assembler's names for the registers.  Note that the ?xx registers are
    there so that VFPv3/NEON registers D16-D31 have the same spacing as D0-D15
    (each of which is overlaid on two S registers), although there are no
-   actual single-precision registers which correspond to D16-D31.  */
+   actual single-precision registers which correspond to D16-D31.  New register
+   p0 is added which is used for MVE predicated cases.  */
+
 #ifndef REGISTER_NAMES
 #define REGISTER_NAMES						\
 {								\
@@ -72,7 +74,8 @@
   "wr8",   "wr9",   "wr10",  "wr11",				\
   "wr12",  "wr13",  "wr14",  "wr15",				\
   "wcgr0", "wcgr1", "wcgr2", "wcgr3",				\
-  "cc", "vfpcc", "sfp", "afp"					\
+  "cc", "vfpcc", "sfp", "afp", "apsrq", "apsrge", "p0",		\
+  "ra_auth_code"						\
 }
 #endif
 
@@ -143,15 +146,6 @@
 #define NO_DOLLAR_IN_LABEL 1
 #endif
 
-/* Generate DBX debugging information.  riscix.h will undefine this because
-   the native assembler does not support stabs.  */
-#define DBX_DEBUGGING_INFO 1
-
-/* Acorn dbx moans about continuation chars, so don't use any.  */
-#ifndef DBX_CONTIN_LENGTH
-#define DBX_CONTIN_LENGTH  0
-#endif
-
 /* Output a function label definition.  */
 #ifndef ASM_DECLARE_FUNCTION_NAME
 #define ASM_DECLARE_FUNCTION_NAME(STREAM, NAME, DECL)	\
@@ -196,15 +190,15 @@
 	    {								\
 	      switch (GET_MODE(body))					\
 		{							\
-		case QImode:						\
+		case E_QImode:						\
 		  asm_fprintf (STREAM, "\t.byte\t(%LL%d-%LL%d)/2\n",	\
 			       VALUE, REL);				\
 		  break;						\
-		case HImode: /* TBH */					\
+		case E_HImode: /* TBH */					\
 		  asm_fprintf (STREAM, "\t.2byte\t(%LL%d-%LL%d)/2\n",	\
 			       VALUE, REL);				\
 		  break;						\
-		case SImode:						\
+		case E_SImode:						\
 		  asm_fprintf (STREAM, "\t.word\t%LL%d-%LL%d\n",	\
 			       VALUE, REL);				\
 		  break;						\
@@ -219,15 +213,15 @@
 	{								\
 	  switch (GET_MODE(body))					\
 	    {								\
-	    case QImode: /* TBB */					\
+	    case E_QImode: /* TBB */					\
 	      asm_fprintf (STREAM, "\t.byte\t(%LL%d-%LL%d)/2\n",	\
 			   VALUE, REL);					\
 	      break;							\
-	    case HImode: /* TBH */					\
+	    case E_HImode: /* TBH */					\
 	      asm_fprintf (STREAM, "\t.2byte\t(%LL%d-%LL%d)/2\n",	\
 			   VALUE, REL);					\
 	      break;							\
-	    case SImode:						\
+	    case E_SImode:						\
 	      if (flag_pic)						\
 		asm_fprintf (STREAM, "\t.word\t%LL%d+1-%LL%d\n", VALUE, REL); \
 	      else							\
@@ -255,7 +249,7 @@
 #define ASM_OUTPUT_ALIGN(STREAM, POWER)			\
   do							\
     {							\
-      register int amount = 1 << (POWER);		\
+      int amount = 1 << (POWER);			\
 							\
       if (amount == 2)					\
 	fprintf (STREAM, "\t.even\n");			\

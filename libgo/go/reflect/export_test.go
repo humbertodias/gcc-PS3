@@ -17,9 +17,12 @@ func IsRO(v Value) bool {
 
 var CallGC = &callGC
 
-const PtrSize = ptrSize
-
-func FuncLayout(t Type, rcvr Type) (frametype Type, argSize, retOffset uintptr, stack []byte, gc []byte, ptrs bool) {
+// FuncLayout calls funcLayout and returns a subset of the results for testing.
+//
+// Bitmaps like stack, gc, inReg, and outReg are expanded such that each bit
+// takes up one byte, so that writing out test cases is a little clearer.
+// If ptrs is false, gc will be nil.
+func FuncLayout(t Type, rcvr Type) (frametype Type, argSize, retOffset uintptr, stack, gc, inReg, outReg []byte, ptrs bool) {
 	return
 }
 
@@ -62,7 +65,7 @@ func FirstMethodNameBytes(t Type) *byte {
 	}
 	m := ut.methods()[0]
 	mname := t.(*rtype).nameOff(m.name)
-	if *mname.data(0)&(1<<2) == 0 {
+	if *mname.data(0, "name flag field")&(1<<2) == 0 {
 		panic("method name does not have pkgPath *string")
 	}
 	return mname.bytes
@@ -80,10 +83,12 @@ func IsExported(t Type) bool {
 
 /*
 func ResolveReflectName(s string) {
-	resolveReflectName(newName(s, "", "", false))
+	resolveReflectName(newName(s, "", false))
 }
 */
 
 type Buffer struct {
 	buf []byte
 }
+
+var MethodValueCallCodePtr = methodValueCallCodePtr

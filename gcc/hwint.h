@@ -1,5 +1,5 @@
 /* HOST_WIDE_INT definitions for the GNU compiler.
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+   Copyright (C) 1998-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -14,6 +14,7 @@
 #define HOST_BITS_PER_SHORT (CHAR_BIT * SIZEOF_SHORT)
 #define HOST_BITS_PER_INT   (CHAR_BIT * SIZEOF_INT)
 #define HOST_BITS_PER_LONG  (CHAR_BIT * SIZEOF_LONG)
+#define HOST_BITS_PER_PTR   (CHAR_BIT * SIZEOF_VOID_P)
 
 /* The string that should be inserted into a printf style format to
    indicate a "long" operand.  */
@@ -137,7 +138,7 @@ typedef HOST_WIDE_INT __gcc_host_wide_int__;
 
 /* Return X with all but the lowest bit masked off.  */
 
-static inline unsigned HOST_WIDE_INT
+inline unsigned HOST_WIDE_INT
 least_bit_hwi (unsigned HOST_WIDE_INT x)
 {
   return (x & -x);
@@ -145,7 +146,7 @@ least_bit_hwi (unsigned HOST_WIDE_INT x)
 
 /* True if X is zero or a power of two.  */
 
-static inline bool
+inline bool
 pow2_or_zerop (unsigned HOST_WIDE_INT x)
 {
   return least_bit_hwi (x) == x;
@@ -153,7 +154,7 @@ pow2_or_zerop (unsigned HOST_WIDE_INT x)
 
 /* True if X is a power of two.  */
 
-static inline bool
+inline bool
 pow2p_hwi (unsigned HOST_WIDE_INT x)
 {
   return x && pow2_or_zerop (x);
@@ -180,7 +181,7 @@ extern int ceil_log2			(unsigned HOST_WIDE_INT);
 #else /* GCC_VERSION >= 3004 */
 
 /* For convenience, define 0 -> word_size.  */
-static inline int
+inline int
 clz_hwi (unsigned HOST_WIDE_INT x)
 {
   if (x == 0)
@@ -194,7 +195,7 @@ clz_hwi (unsigned HOST_WIDE_INT x)
 # endif
 }
 
-static inline int
+inline int
 ctz_hwi (unsigned HOST_WIDE_INT x)
 {
   if (x == 0)
@@ -208,7 +209,7 @@ ctz_hwi (unsigned HOST_WIDE_INT x)
 # endif
 }
 
-static inline int
+inline int
 ffs_hwi (unsigned HOST_WIDE_INT x)
 {
 # if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_LONG
@@ -220,7 +221,7 @@ ffs_hwi (unsigned HOST_WIDE_INT x)
 # endif
 }
 
-static inline int
+inline int
 popcount_hwi (unsigned HOST_WIDE_INT x)
 {
 # if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_LONG
@@ -232,19 +233,19 @@ popcount_hwi (unsigned HOST_WIDE_INT x)
 # endif
 }
 
-static inline int
+inline int
 floor_log2 (unsigned HOST_WIDE_INT x)
 {
   return HOST_BITS_PER_WIDE_INT - 1 - clz_hwi (x);
 }
 
-static inline int
+inline int
 ceil_log2 (unsigned HOST_WIDE_INT x)
 {
-  return floor_log2 (x - 1) + 1;
+  return x == 0 ? 0 : floor_log2 (x - 1) + 1;
 }
 
-static inline int
+inline int
 exact_log2 (unsigned HOST_WIDE_INT x)
 {
   return pow2p_hwi (x) ? ctz_hwi (x) : -1;
@@ -265,7 +266,7 @@ extern HOST_WIDE_INT least_common_multiple (HOST_WIDE_INT, HOST_WIDE_INT);
 
 /* Like ctz_hwi, except 0 when x == 0.  */
 
-static inline int
+inline int
 ctz_or_zero (unsigned HOST_WIDE_INT x)
 {
   return ffs_hwi (x) - 1;
@@ -273,7 +274,7 @@ ctz_or_zero (unsigned HOST_WIDE_INT x)
 
 /* Sign extend SRC starting from PREC.  */
 
-static inline HOST_WIDE_INT
+inline HOST_WIDE_INT
 sext_hwi (HOST_WIDE_INT src, unsigned int prec)
 {
   if (prec == HOST_BITS_PER_WIDE_INT)
@@ -303,7 +304,7 @@ sext_hwi (HOST_WIDE_INT src, unsigned int prec)
 }
 
 /* Zero extend SRC starting from PREC.  */
-static inline unsigned HOST_WIDE_INT
+inline unsigned HOST_WIDE_INT
 zext_hwi (unsigned HOST_WIDE_INT src, unsigned int prec)
 {
   if (prec == HOST_BITS_PER_WIDE_INT)
@@ -330,6 +331,48 @@ inline unsigned HOST_WIDE_INT
 absu_hwi (HOST_WIDE_INT x)
 {
   return x >= 0 ? (unsigned HOST_WIDE_INT)x : -(unsigned HOST_WIDE_INT)x;
+}
+
+/* Compute the sum of signed A and B and indicate in *OVERFLOW whether
+   that operation overflowed.  */
+
+inline HOST_WIDE_INT
+add_hwi (HOST_WIDE_INT a, HOST_WIDE_INT b, bool *overflow)
+{
+#if GCC_VERSION < 11000
+  unsigned HOST_WIDE_INT result = a + (unsigned HOST_WIDE_INT)b;
+  if ((((result ^ a) & (result ^ b))
+       >> (HOST_BITS_PER_WIDE_INT - 1)) & 1)
+    *overflow = true;
+  else
+    *overflow = false;
+  return result;
+#else
+  HOST_WIDE_INT result;
+  *overflow = __builtin_add_overflow (a, b, &result);
+  return result;
+#endif
+}
+
+/* Compute the product of signed A and B and indicate in *OVERFLOW whether
+   that operation overflowed.  */
+
+inline HOST_WIDE_INT
+mul_hwi (HOST_WIDE_INT a, HOST_WIDE_INT b, bool *overflow)
+{
+#if GCC_VERSION < 11000
+  unsigned HOST_WIDE_INT result = a * (unsigned HOST_WIDE_INT)b;
+  if ((a == -1 && b == HOST_WIDE_INT_MIN)
+      || (a != 0 && (HOST_WIDE_INT)result / a != b))
+    *overflow = true;
+  else
+    *overflow = false;
+  return result;
+#else
+  HOST_WIDE_INT result;
+  *overflow = __builtin_mul_overflow (a, b, &result);
+  return result;
+#endif
 }
 
 #endif /* ! GCC_HWINT_H */

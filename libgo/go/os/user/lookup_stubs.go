@@ -2,40 +2,42 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build !cgo,!windows,!plan9,!android
+//go:build (!cgo && !windows && !plan9) || android || (osusergo && !windows && !plan9)
 
 package user
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"runtime"
 	"strconv"
 )
 
-func init() {
-	userImplemented = false
-	groupImplemented = false
-}
-
 func current() (*User, error) {
-	u := &User{
-		Uid:      currentUID(),
+	uid := currentUID()
+	// $USER and /etc/passwd may disagree; prefer the latter if we can get it.
+	// See issue 27524 for more information.
+	u, err := lookupUserId(uid)
+	if err == nil {
+		return u, nil
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	u = &User{
+		Uid:      uid,
 		Gid:      currentGID(),
 		Username: os.Getenv("USER"),
 		Name:     "", // ignored
-		HomeDir:  os.Getenv("HOME"),
+		HomeDir:  homeDir,
 	}
-	if runtime.GOOS == "nacl" {
+	// On Android, return a dummy user instead of failing.
+	switch runtime.GOOS {
+	case "android":
 		if u.Uid == "" {
 			u.Uid = "1"
 		}
 		if u.Username == "" {
-			u.Username = "nacl"
-		}
-		if u.HomeDir == "" {
-			u.HomeDir = "/home/nacl"
+			u.Username = "android"
 		}
 	}
 	// cgo isn't available, but if we found the minimum information
@@ -43,27 +45,17 @@ func current() (*User, error) {
 	if u.Uid != "" && u.Username != "" && u.HomeDir != "" {
 		return u, nil
 	}
-	return u, fmt.Errorf("user: Current not implemented on %s/%s", runtime.GOOS, runtime.GOARCH)
-}
-
-func lookupUser(username string) (*User, error) {
-	return nil, errors.New("user: Lookup requires cgo")
-}
-
-func lookupUserId(uid string) (*User, error) {
-	return nil, errors.New("user: LookupId requires cgo")
-}
-
-func lookupGroup(groupname string) (*Group, error) {
-	return nil, errors.New("user: LookupGroup requires cgo")
-}
-
-func lookupGroupId(string) (*Group, error) {
-	return nil, errors.New("user: LookupGroupId requires cgo")
-}
-
-func listGroups(*User) ([]string, error) {
-	return nil, errors.New("user: GroupIds requires cgo")
+	var missing string
+	if u.Username == "" {
+		missing = "$USER"
+	}
+	if u.HomeDir == "" {
+		if missing != "" {
+			missing += ", "
+		}
+		missing += "$HOME"
+	}
+	return u, fmt.Errorf("user: Current requires cgo or %s set in environment", missing)
 }
 
 func currentUID() string {

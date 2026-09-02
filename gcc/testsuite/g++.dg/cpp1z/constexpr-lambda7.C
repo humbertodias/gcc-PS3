@@ -1,5 +1,5 @@
 // Testcase from P0170R1
-// { dg-options -std=c++1z }
+// { dg-do compile { target c++17 } }
 
 auto ID = [](auto a) { return a; };
 static_assert( ID (3) == 3); // OK
@@ -8,5 +8,5 @@ struct NonLiteral {
   int n;
 };
 
-static_assert( ID (NonLiteral{3}).n == 3); // { dg-error "non-literal" }
+static_assert( ID (NonLiteral{3}).n == 3); // { dg-error "non-literal" "" { target { ! implicit_constexpr } } }
 // { dg-prune-output "static assertion" }

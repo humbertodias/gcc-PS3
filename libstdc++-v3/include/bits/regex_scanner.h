@@ -1,6 +1,6 @@
 // class template regex -*- C++ -*-
 
-// Copyright (C) 2013-2017 Free Software Foundation, Inc.
+// Copyright (C) 2013-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -30,10 +30,10 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
-namespace __detail
-{
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
+namespace __detail
+{
   /**
    * @addtogroup regex-detail
    * @{
@@ -211,23 +211,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     : public _ScannerBase
     {
     public:
-      typedef const _CharT*                                       _IterT;
       typedef std::basic_string<_CharT>                           _StringT;
       typedef regex_constants::syntax_option_type                 _FlagT;
       typedef const std::ctype<_CharT>                            _CtypeT;
 
-      _Scanner(_IterT __begin, _IterT __end,
+      _Scanner(const _CharT* __begin, const _CharT* __end,
 	       _FlagT __flags, std::locale __loc);
 
       void
       _M_advance();
 
       _TokenT
-      _M_get_token() const
+      _M_get_token() const noexcept
       { return _M_token; }
 
       const _StringT&
-      _M_get_value() const
+      _M_get_value() const noexcept
       { return _M_value; }
 
 #ifdef _GLIBCXX_DEBUG
@@ -257,16 +256,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       void
       _M_eat_class(char);
 
-      _IterT                        _M_current;
-      _IterT                        _M_end;
+      const _CharT*                 _M_current;
+      const _CharT*                 _M_end;
       _CtypeT&                      _M_ctype;
       _StringT                      _M_value;
       void (_Scanner::* _M_eat_escape)();
     };
 
- //@} regex-detail
-_GLIBCXX_END_NAMESPACE_VERSION
+ ///@} regex-detail
 } // namespace __detail
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #include <bits/regex_scanner.tcc>

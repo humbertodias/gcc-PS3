@@ -1,5 +1,5 @@
 # Top level -*- makefile -*- fragment for GNU C++.
-#   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+#   Copyright (C) 1994-2023 Free Software Foundation, Inc.
 
 #This file is part of GCC.
 
@@ -39,7 +39,7 @@ CXX_INSTALL_NAME := $(shell echo c++|sed '$(program_transform_name)')
 GXX_INSTALL_NAME := $(shell echo g++|sed '$(program_transform_name)')
 CXX_TARGET_INSTALL_NAME := $(target_noncanonical)-$(shell echo c++|sed '$(program_transform_name)')
 GXX_TARGET_INSTALL_NAME := $(target_noncanonical)-$(shell echo g++|sed '$(program_transform_name)')
-CP_PLUGIN_HEADERS := cp-tree.h cxx-pretty-print.h name-lookup.h type-utils.h
+CP_PLUGIN_HEADERS := cp-tree.h cxx-pretty-print.h name-lookup.h type-utils.h operators.def cp-trait.def contracts.h
 
 #
 # Define the names for selecting c++ in LANGUAGES.
@@ -47,11 +47,34 @@ CP_PLUGIN_HEADERS := cp-tree.h cxx-pretty-print.h name-lookup.h type-utils.h
 # into the C++ rule, but that needs a little bit of work
 # to do the right thing within all.cross.
 c++: cc1plus$(exeext)
+c++.serial = cc1plus$(exeext)
 
 # Tell GNU make to ignore these if they exist.
 .PHONY: c++
 
 CFLAGS-cp/g++spec.o += $(DRIVER_DEFINES)
+
+CFLAGS-cp/module.o += -DHOST_MACHINE=\"$(host)\" \
+	-DTARGET_MACHINE=\"$(target)\"
+
+# In non-release builds, use a date-related module version.
+ifneq ($(DEVPHASE_c),)
+# Some date's don't grok 'r', if so, simply use today's date,
+# but use date from previous stage if bootstrapping to avoid breaking
+# bootstraps across midnight.
+s-cp-module-version: $(srcdir)/cp/module.cc
+	MODULE_VERSION=`if date -r $(srcdir)/cp/module.cc '+%y%m%d%H%MU' \
+			  2>/dev/null; then :; \
+			elif test ../prev-gcc/s-cp-module-version -nt \
+			       $(srcdir)/cp/module.cc; then \
+			  cat ../prev-gcc/s-cp-module-version; \
+			else \
+			  date '+%y%m%d0000U' 2>/dev/null; \
+			fi`; \
+	echo $${MODULE_VERSION} > s-cp-module-version
+cp/module.o: s-cp-module-version
+CFLAGS-cp/module.o += -DMODULE_VERSION='$(shell cat s-cp-module-version)'
+endif
 
 # Create the compiler driver for g++.
 GXX_OBJS = $(GCC_OBJS) cp/g++spec.o
@@ -67,19 +90,27 @@ g++-cross$(exeext): xg++$(exeext)
 
 # The compiler itself.
 # Shared with C front end:
-CXX_C_OBJS = attribs.o incpath.o \
+CXX_C_OBJS = attribs.o \
 	$(C_COMMON_OBJS) $(CXX_TARGET_OBJS)
 
 # Language-specific object files for C++ and Objective C++.
-CXX_AND_OBJCXX_OBJS = cp/call.o cp/decl.o cp/expr.o cp/pt.o cp/typeck2.o \
- cp/class.o cp/decl2.o cp/error.o cp/lex.o cp/parser.o cp/ptree.o cp/rtti.o \
- cp/typeck.o cp/cvt.o cp/except.o cp/friend.o cp/init.o cp/method.o \
- cp/search.o cp/semantics.o cp/tree.o cp/repo.o cp/dump.o cp/optimize.o \
- cp/mangle.o cp/cp-objcp-common.o cp/name-lookup.o cp/cxx-pretty-print.o \
- cp/cp-cilkplus.o \
- cp/cp-gimplify.o cp/cp-array-notation.o cp/lambda.o \
- cp/vtable-class-hierarchy.o cp/constexpr.o cp/cp-ubsan.o \
- cp/constraint.o cp/logic.o $(CXX_C_OBJS)
+CXX_AND_OBJCXX_OBJS = \
+	cp/call.o cp/class.o cp/constexpr.o cp/constraint.o \
+	cp/coroutines.o cp/cp-gimplify.o \
+	cp/cp-objcp-common.o cp/cp-ubsan.o \
+	cp/cvt.o cp/contracts.o cp/cxx-pretty-print.o \
+	cp/decl.o cp/decl2.o cp/dump.o \
+	cp/error.o cp/except.o cp/expr.o \
+	cp/friend.o cp/init.o \
+	cp/lambda.o cp/lex.o cp/logic.o \
+	cp/mangle.o cp/mapper-client.o cp/mapper-resolver.o \
+	cp/method.o cp/module.o \
+	cp/name-lookup.o cp/optimize.o \
+	cp/parser.o cp/pt.o cp/ptree.o \
+	cp/rtti.o \
+	cp/search.o cp/semantics.o \
+	cp/tree.o cp/typeck.o cp/typeck2.o \
+	cp/vtable-class-hierarchy.o $(CXX_C_OBJS)
 
 ifeq ($(if $(wildcard ../stage_current),$(shell cat \
   ../stage_current)),stageautofeedback)
@@ -98,20 +129,23 @@ cp-warn = $(STRICT_WARN)
 # compute checksum over all object files and the options
 # re-use the checksum from the prev-final stage so it passes
 # the bootstrap comparison and allows comparing of the cc1 binary
-cc1plus-checksum.c : build/genchecksum$(build_exeext) checksum-options \
-	$(CXX_OBJS) $(BACKEND) $(LIBDEPS) 
+cc1plus-checksum.cc : build/genchecksum$(build_exeext) checksum-options \
+	$(CXX_OBJS) $(BACKEND) $(CODYLIB) $(LIBDEPS) 
 	if [ -f ../stage_final ] \
 	   && cmp -s ../stage_current ../stage_final; then \
-	   cp ../prev-gcc/cc1plus-checksum.c cc1plus-checksum.c; \
+	   cp ../prev-gcc/cc1plus-checksum.cc cc1plus-checksum.cc; \
 	else \
-	  build/genchecksum$(build_exeext) $(CXX_OBJS) $(BACKEND) $(LIBDEPS) \
-                     checksum-options > cc1plus-checksum.c.tmp &&	   \
-	  $(srcdir)/../move-if-change cc1plus-checksum.c.tmp cc1plus-checksum.c; \
+	  build/genchecksum$(build_exeext) $(CXX_OBJS) $(BACKEND) $(CODYLIB) $(LIBDEPS) \
+                     checksum-options > cc1plus-checksum.cc.tmp &&	   \
+	  $(srcdir)/../move-if-change cc1plus-checksum.cc.tmp cc1plus-checksum.cc; \
 	fi
 
-cc1plus$(exeext): $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(LIBDEPS)
+cc1plus$(exeext): $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(CODYLIB) $(LIBDEPS) $(c++.prev)
+	@$(call LINK_PROGRESS,$(INDEX.c++),start)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
-	      $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(LIBS) $(BACKENDLIBS)
+	      $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(CODYLIB) $(NETLIBS) \
+		$(LIBS) $(BACKENDLIBS)
+	@$(call LINK_PROGRESS,$(INDEX.c++),end)
 
 ifeq ($(ENABLE_MAINTAINER_RULES), true)
 # Special build rule.  This is a maintainer rule, that is only
@@ -128,6 +162,30 @@ endif
 	gperf -o -C -E -k '1-6,$$' -j1 -D -N 'libc_name_p' -L C++ \
 		$(srcdir)/cp/cfns.gperf --output-file $(srcdir)/cp/cfns.h
 
+# We always need the dependency on the .gperf file because it itself is generated.
+ifeq ($(ENABLE_MAINTAINER_RULES), true)
+$(srcdir)/cp/std-name-hint.h: $(srcdir)/cp/std-name-hint.gperf
+else
+$(srcdir)/cp/std-name-hint.h: | $(srcdir)/cp/std-name-hint.gperf
+endif
+	gperf -o -C -E -k '1,2,7,11,$$' -D -N find -L C++ \
+		$(srcdir)/cp/std-name-hint.gperf --output-file $(srcdir)/cp/std-name-hint.h
+
+# The std-name-hint.gperf file itself is generated from a general
+# C++ API description.
+ifeq ($(ENABLE_MAINTAINER_RULES), true)
+$(srcdir)/cp/std-name-hint.gperf: $(srcdir)/cp/gen-cxxapi-file.py $(srcdir)/cp/cxxapi-data.csv
+else
+$(srcdir)/cp/std-name-hint.gperf:
+endif
+	python3 $(srcdir)/cp/gen-cxxapi-file.py hints $(srcdir)/cp/cxxapi-data.csv > $@
+ifneq ($(ENABLE_MAINTAINER_RULES), true)
+.SECONDARY: $(srcdir)/cp/std-name-hint.gperf
+endif
+
+# This is the file that depends on the generated header file.
+cp/name-lookup.o: $(srcdir)/cp/std-name-hint.h
+
 cc1plus.fda: ../stage1-gcc/cc1plus$(exeext) ../prev-gcc/$(PERF_DATA)
 	$(CREATE_GCOV) -binary ../stage1-gcc/cc1plus$(exeext) -gcov cc1plus.fda -profile ../prev-gcc/$(PERF_DATA) -gcov_version 1
 
@@ -140,6 +198,7 @@ c++.rest.encap:
 c++.info:
 c++.install-info:
 c++.dvi:
+c++.install-dvi:
 c++.pdf:
 c++.install-pdf:
 c++.install-html:
@@ -148,31 +207,58 @@ c++.srcinfo:
 c++.srcextra:
 
 c++.tags: force
-	cd $(srcdir)/cp; etags -o TAGS.sub *.c *.cc *.h --language=none \
+	cd $(srcdir)/cp; $(ETAGS) -o TAGS.sub *.cc *.h --language=none \
 	  --regex='/DEFTREECODE [(]\([A-Z_]+\)/\1/' cp-tree.def; \
-	etags --include TAGS.sub --include ../TAGS.sub
+	$(ETAGS) --include TAGS.sub --include ../TAGS.sub
 
 c++.man: doc/g++.1
 
 c++.srcman: doc/g++.1
 	-cp -p $^ $(srcdir)/doc
 
+# C++ selftests
+
+# If C++ is enabled, require the selftests to be run for it
+# at each stage of the build:
+selftest-c++: s-selftest-c++
+
+CPP_SELFTEST_DEPS = cc1plus$(exeext) $(SELFTEST_DEPS)
+CPP_SELFTEST_FLAGS = -xc++ $(SELFTEST_FLAGS)
+
+# Run the C++ selftests
+s-selftest-c++: $(CPP_SELFTEST_DEPS)
+	$(GCC_FOR_TARGET) $(CPP_SELFTEST_FLAGS)
+	$(STAMP) $@
+
+# Convenience method for running C++ selftests under gdb:
+.PHONY: selftest-c++-gdb
+selftest-c++-gdb: $(CPP_SELFTEST_DEPS)
+	$(GCC_FOR_TARGET) $(CPP_SELFTEST_FLAGS) \
+	  -wrapper gdb,--args
+
+# Convenience method for running C++ selftests under valgrind:
+.PHONY: selftest-c++-valgrind
+selftest-c++-valgrind: $(CPP_SELFTEST_DEPS)
+	$(GCC_FOR_TARGET) $(CPP_SELFTEST_FLAGS) \
+	  -wrapper valgrind,--leak-check=full
+
 # 'make check' in gcc/ looks for check-c++, as do all toplevel C++-related
 # check targets.  However, our DejaGNU framework requires 'check-g++' as its
 # entry point.  We feed the former to the latter here.
 check-c++ : check-g++
 
-# Run the testsuite in C++1z mode.
-check-c++1z:
-	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS)" GXX_TESTSUITE_STDS=1z check-g++
+# Run the testsuite in C++17 mode.
+check-c++1z: check-c++17
+check-c++17:
+	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS)" GXX_TESTSUITE_STDS=17 check-g++
 
 # Run the testsuite in all standard conformance levels.
 check-c++-all:
-	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --stds=98,11,14,1z,concepts" check-g++
+	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --stds=98,11,14,17,20,23,impcx" check-g++
 
 # Run the testsuite with garbage collection at every opportunity.
 check-g++-strict-gc:
-	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --extra_opts,--param,ggc-min-heapsize=0,--param,ggc-min-expand=0" \
+	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --extra_opts,--param,ggc-min-heapsize=0,--param,ggc-min-expand=0,--param,hash-table-verification-limit=10000" \
 	  TESTSUITEDIR="$(TESTSUITEDIR).gc" check-g++
 check-c++-subtargets : check-g++-subtargets
 # List of targets that can use the generic check- rule and its // variant.
@@ -230,6 +316,11 @@ c++.install-plugin: installdirs
 	  $(mkinstalldirs) $(DESTDIR)$$dir; \
 	  $(INSTALL_DATA) $$path $(DESTDIR)$$dest; \
 	done
+# Install import library.
+ifeq ($(plugin_implib),yes)
+	$(mkinstalldirs) $(DESTDIR)$(plugin_resourcesdir)
+	$(INSTALL_DATA) cc1plus$(exeext).a $(DESTDIR)/$(plugin_resourcesdir)/cc1plus$(exeext).a
+endif
 
 c++.uninstall:
 	-rm -rf $(DESTDIR)$(bindir)/$(CXX_INSTALL_NAME)$(exeext)
@@ -248,7 +339,6 @@ c++.mostlyclean:
 c++.clean:
 c++.distclean:
 	-rm -f cp/config.status cp/Makefile
-	-rm -f cxxmain.c
 c++.maintainer-clean:
 #
 # Stage hooks:

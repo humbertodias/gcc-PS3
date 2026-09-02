@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2017 Free Software Foundation, Inc.
+// Copyright (C) 2015-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -15,22 +15,41 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// { dg-options "-lstdc++fs" }
+// { dg-options "-DUSE_FILESYSTEM_TS -lstdc++fs" }
 // { dg-do run { target c++11 } }
 // { dg-require-filesystem-ts "" }
 
 #include <experimental/filesystem>
 #include <stdlib.h>
+#include <stdio.h>
 #include <testsuite_hooks.h>
 #include <testsuite_fs.h>
 
 void
 clean_env()
 {
+#if defined(__MINGW32__) || defined(__MINGW64__)
+  ::_putenv("TMP=");
+  ::_putenv("TEMP=");
+#else
   ::unsetenv("TMPDIR");
   ::unsetenv("TMP");
   ::unsetenv("TEMPDIR");
   ::unsetenv("TEMP");
+#endif
+}
+
+bool
+set_env(const char* name, std::string value)
+{
+#if defined(__MINGW32__) || defined(__MINGW64__)
+  std::string s = name;
+  s += '=';
+  s += value;
+  return !::_putenv(s.c_str());
+#else
+  return !::setenv(name, value.c_str(), 1);
+#endif
 }
 
 namespace fs = std::experimental::filesystem;
@@ -41,9 +60,12 @@ test01()
   clean_env();
 
   if (!fs::exists("/tmp"))
+  {
+    puts("/tmp doesn't exist, not testing it for temp_directory_path");
     return; // just give up
+  }
 
-  std::error_code ec;
+  std::error_code ec = make_error_code(std::errc::invalid_argument);
   fs::path p1 = fs::temp_directory_path(ec);
   VERIFY( !ec );
   VERIFY( exists(p1) );
@@ -57,8 +79,11 @@ test02()
 {
   clean_env();
 
-  if (::setenv("TMPDIR", __gnu_test::nonexistent_path().string().c_str(), 1))
+  if (!set_env("TMP", __gnu_test::nonexistent_path().string()))
+  {
+    puts("Cannot set environment variables, not testing temp_directory_path");
     return; // just give up
+  }
 
   std::error_code ec;
   fs::path p = fs::temp_directory_path(ec);
@@ -77,10 +102,15 @@ test02()
 void
 test03()
 {
+  if (!__gnu_test::permissions_are_testable())
+    return;
+
+  clean_env();
+
   auto p = __gnu_test::nonexistent_path();
   create_directories(p/"tmp");
   permissions(p, fs::perms::none);
-  setenv("TMPDIR", (p/"tmp").c_str(), 1);
+  set_env("TMPDIR", (p/"tmp").string());
   std::error_code ec;
   auto r = fs::temp_directory_path(ec); // libstdc++/PR71337
   VERIFY( ec == std::make_error_code(std::errc::permission_denied) );
@@ -88,7 +118,7 @@ test03()
 
   std::error_code ec2;
   try {
-    fs::temp_directory_path();
+    (void) fs::temp_directory_path();
   } catch (const fs::filesystem_error& e) {
     ec2 = e.code();
   }
@@ -101,20 +131,27 @@ test03()
 void
 test04()
 {
+  clean_env();
+
   __gnu_test::scoped_file f;
-  setenv("TMPDIR", f.path.c_str(), 1);
+  set_env("TMP", f.path.string());
   std::error_code ec;
   auto r = fs::temp_directory_path(ec);
   VERIFY( ec == std::make_error_code(std::errc::not_a_directory) );
   VERIFY( r == fs::path() );
 
   std::error_code ec2;
+  std::string failed_path;
   try {
-    fs::temp_directory_path();
+    (void) fs::temp_directory_path();
   } catch (const fs::filesystem_error& e) {
     ec2 = e.code();
+    // On Windows the returned path will be in preferred form, i.e. using L'\\'
+    // and will have a trailing slash, so compare generic forms.
+    failed_path = e.path1().generic_string();
   }
   VERIFY( ec2 == ec );
+  VERIFY( failed_path.find(f.path.generic_string()) != std::string::npos );
 }
 
 int

@@ -1,7 +1,7 @@
 /* This file contains the definitions and documentation for the
    Register Transfer Expressions (rtx's) that make up the
    Register Transfer Language (rtl) used in the Back End of the GNU compiler.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -39,7 +39,7 @@ along with GCC; see the file COPYING3.  If not see
 
    3.  The print format, and type of each rtx->u.fld[] (field) in this rtx.
    These formats are stored in rtx_format[].
-   The meaning of the formats is documented in front of this array in rtl.c
+   The meaning of the formats is documented in front of this array in rtl.cc
 
    4.  The class of the rtx.  These are stored in rtx_class and are accessed
    via the GET_RTX_CLASS macro.  They are defined as follows:
@@ -81,7 +81,7 @@ along with GCC; see the file COPYING3.  If not see
 DEF_RTL_EXPR(UNKNOWN, "UnKnown", "*", RTX_EXTRA)
 
 /* Used in the cselib routines to describe a value.  Objects of this
-   kind are only allocated in cselib.c, in an alloc pool instead of in
+   kind are only allocated in cselib.cc, in an alloc pool instead of in
    GC memory.  The only operand of a VALUE is a cselib_val.
    var-tracking requires this to have a distinct integral value from
    DECL codes in trees.  */
@@ -125,7 +125,7 @@ DEF_RTL_EXPR(INT_LIST, "int_list", "ie", RTX_EXTRA)
    objects.  Only passes after pass_free_cfg are expected to handle them.  */
 DEF_RTL_EXPR(SEQUENCE, "sequence", "E", RTX_EXTRA)
 
-/* Represents a non-global base address.  This is only used in alias.c.  */
+/* Represents a non-global base address.  This is only used in alias.cc.  */
 DEF_RTL_EXPR(ADDRESS, "address", "i", RTX_EXTRA)
 
 /* ----------------------------------------------------------------------
@@ -167,7 +167,7 @@ DEF_RTL_EXPR(BARRIER, "barrier", "uu00000", RTX_EXTRA)
 
 /* Holds a label that is followed by instructions.
    Operand:
-   3: is used in jump.c for the use-count of the label.
+   3: is used in jump.cc for the use-count of the label.
    4: is used in the sh backend.
    5: is a number that is unique in the entire compilation.
    6: is the user-given name of the label, if any.  */
@@ -224,7 +224,7 @@ DEF_RTL_EXPR(ASM_OPERANDS, "asm_operands", "ssiEEEi", RTX_EXTRA)
    2nd operand is a unique value saying which of a number of machine-specific
      operations is to be performed.
    (Note that the vector must be the first operand because of the way that
-   genrecog.c record positions within an insn.)
+   genrecog.cc record positions within an insn.)
 
    UNSPEC can occur all by itself in a PATTERN, as a component of a PARALLEL,
    or inside an expression.
@@ -287,7 +287,7 @@ DEF_RTL_EXPR(PREFETCH, "prefetch", "eee", RTX_EXTRA)
    ---------------------------------------------------------------------- */
 
 /* Assignment.
-   Operand 1 is the location (REG, MEM, PC, CC0 or whatever) assigned to.
+   Operand 1 is the location (REG, MEM, PC or whatever) assigned to.
    Operand 2 is the value stored there.
    ALL assignment must use SET.
    Instructions that do multiple assignments must use multiple SET,
@@ -298,7 +298,7 @@ DEF_RTL_EXPR(SET, "set", "ee", RTX_EXTRA)
    For example, subroutine calls will use the register
    in which the static chain is passed.
 
-   USE can not appear as an operand of other rtx except for PARALLEL.
+   USE cannot appear as an operand of other rtx except for PARALLEL.
    USE is not deletable, as it indicates that the operand
    is used in some unknown way.  */
 DEF_RTL_EXPR(USE, "use", "e", RTX_EXTRA)
@@ -307,7 +307,7 @@ DEF_RTL_EXPR(USE, "use", "e", RTX_EXTRA)
    For example, subroutine calls will clobber some physical registers
    (the ones that are by convention not saved).
 
-   CLOBBER can not appear as an operand of other rtx except for PARALLEL.
+   CLOBBER cannot appear as an operand of other rtx except for PARALLEL.
    CLOBBER of a hard register appearing by itself (not within PARALLEL)
    is considered undeletable before reload.  */
 DEF_RTL_EXPR(CLOBBER, "clobber", "e", RTX_EXTRA)
@@ -348,6 +348,9 @@ DEF_RTL_EXPR(CONST_INT, "const_int", "w", RTX_CONST_OBJ)
 /* numeric integer constant */
 DEF_RTL_EXPR(CONST_WIDE_INT, "const_wide_int", "", RTX_CONST_OBJ)
 
+/* An rtx representation of a poly_wide_int.  */
+DEF_RTL_EXPR(CONST_POLY_INT, "const_poly_int", "", RTX_CONST_OBJ)
+
 /* fixed-point constant */
 DEF_RTL_EXPR(CONST_FIXED, "const_fixed", "www", RTX_CONST_OBJ)
 
@@ -377,7 +380,7 @@ DEF_RTL_EXPR(PC, "pc", "", RTX_OBJ)
 
 /* A register.  The "operand" is the register number, accessed with
    the REGNO macro.  If this number is less than FIRST_PSEUDO_REGISTER
-   than a hardware register is being referred to.  The second operand
+   then a hardware register is being referred to.  The second operand
    points to a reg_attrs structure.
    This rtx needs to have as many (or more) fields as a MEM, since we
    can change REG rtx's into MEMs during reload.  */
@@ -391,7 +394,7 @@ DEF_RTL_EXPR(SCRATCH, "scratch", "", RTX_OBJ)
 
 /* A reference to a part of another value.  The first operand is the
    complete value and the second is the byte offset of the selected part.   */
-DEF_RTL_EXPR(SUBREG, "subreg", "ei", RTX_EXTRA)
+DEF_RTL_EXPR(SUBREG, "subreg", "ep", RTX_EXTRA)
 
 /* This one-argument rtx is used for move instructions
    that are guaranteed to alter only the low part of a destination.
@@ -433,13 +436,6 @@ DEF_RTL_EXPR(LABEL_REF, "label_ref", "u", RTX_CONST_OBJ)
    This is either a DECL node, or some kind of constant.  */
 DEF_RTL_EXPR(SYMBOL_REF, "symbol_ref", "s0", RTX_CONST_OBJ)
 
-/* The condition code register is represented, in our imagination,
-   as a register holding a value that can be compared to zero.
-   In fact, the machine has already compared them and recorded the
-   results; but instructions that look at the condition code
-   pretend to be looking at the entire value and comparing it.  */
-DEF_RTL_EXPR(CC0, "cc0", "", RTX_OBJ)
-
 /* ----------------------------------------------------------------------
    Expressions for operators in an rtl pattern
    ---------------------------------------------------------------------- */
@@ -470,6 +466,11 @@ DEF_RTL_EXPR(MULT, "mult", "ee", RTX_COMM_ARITH)
 DEF_RTL_EXPR(SS_MULT, "ss_mult", "ee", RTX_COMM_ARITH)
 /* Multiplication with unsigned saturation */
 DEF_RTL_EXPR(US_MULT, "us_mult", "ee", RTX_COMM_ARITH)
+
+/* Signed high-part multiplication.  */
+DEF_RTL_EXPR(SMUL_HIGHPART, "smul_highpart", "ee", RTX_COMM_ARITH)
+/* Unsigned high-part multiplication.  */
+DEF_RTL_EXPR(UMUL_HIGHPART, "umul_highpart", "ee", RTX_COMM_ARITH)
 
 /* Operand 0 divided by operand 1.  */
 DEF_RTL_EXPR(DIV, "div", "ee", RTX_BIN_ARITH)
@@ -539,20 +540,25 @@ DEF_RTL_EXPR(POST_INC, "post_inc", "e", RTX_AUTOINC)
 DEF_RTL_EXPR(PRE_MODIFY, "pre_modify", "ee", RTX_AUTOINC)
 DEF_RTL_EXPR(POST_MODIFY, "post_modify", "ee", RTX_AUTOINC)
 
-/* Comparison operations.  The ordered comparisons exist in two
-   flavors, signed and unsigned.  */
+/* Comparison operations.  The first 6 are allowed only for integral,
+floating-point and vector modes.  LTGT is only allowed for floating-point
+modes.  The last 4 are allowed only for integral and vector modes.
+For floating-point operations, if either operand is a NaN, then NE returns
+true and the remaining operations return false.  The operations other than
+EQ and NE may generate an exception on quiet NaNs.  */
 DEF_RTL_EXPR(NE, "ne", "ee", RTX_COMM_COMPARE)
 DEF_RTL_EXPR(EQ, "eq", "ee", RTX_COMM_COMPARE)
 DEF_RTL_EXPR(GE, "ge", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(GT, "gt", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(LE, "le", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(LT, "lt", "ee", RTX_COMPARE)
+DEF_RTL_EXPR(LTGT, "ltgt", "ee", RTX_COMM_COMPARE)
 DEF_RTL_EXPR(GEU, "geu", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(GTU, "gtu", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(LEU, "leu", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(LTU, "ltu", "ee", RTX_COMPARE)
 
-/* Additional floating point unordered comparison flavors.  */
+/* Additional floating-point unordered comparison flavors.  */
 DEF_RTL_EXPR(UNORDERED, "unordered", "ee", RTX_COMM_COMPARE)
 DEF_RTL_EXPR(ORDERED, "ordered", "ee", RTX_COMM_COMPARE)
 
@@ -562,9 +568,6 @@ DEF_RTL_EXPR(UNGE, "unge", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(UNGT, "ungt", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(UNLE, "unle", "ee", RTX_COMPARE)
 DEF_RTL_EXPR(UNLT, "unlt", "ee", RTX_COMPARE)
-
-/* This is an ordered NE, ie !UNEQ, ie false for NaN.  */
-DEF_RTL_EXPR(LTGT, "ltgt", "ee", RTX_COMM_COMPARE)
 
 /* Represents the result of sign-extending the sole operand.
    The machine modes of the operand and of the SIGN_EXTEND expression
@@ -670,7 +673,7 @@ DEF_RTL_EXPR(PARITY, "parity", "e", RTX_UNARY)
    operand 2 counts from the msb of the memory unit.
    Otherwise, the first bit is the lsb and operand 2 counts from
    the lsb of the memory unit.
-   This kind of expression can not appear as an lvalue in RTL.  */
+   This kind of expression cannot appear as an lvalue in RTL.  */
 DEF_RTL_EXPR(SIGN_EXTRACT, "sign_extract", "eee", RTX_BITFIELD_OPS)
 
 /* Similar for unsigned bit-field.
@@ -709,6 +712,11 @@ DEF_RTL_EXPR(VEC_CONCAT, "vec_concat", "ee", RTX_BIN_ARITH)
    submodes as the input vector mode, and the number of output parts must be
    an integer multiple of the number of input parts.  */
 DEF_RTL_EXPR(VEC_DUPLICATE, "vec_duplicate", "e", RTX_UNARY)
+
+/* Creation of a vector in which element I has the value BASE + I * STEP,
+   where BASE is the first operand and STEP is the second.  The result
+   must have a vector integer mode.  */
+DEF_RTL_EXPR(VEC_SERIES, "vec_series", "ee", RTX_BIN_ARITH)
 
 /* Addition with signed saturation */
 DEF_RTL_EXPR(SS_PLUS, "ss_plus", "ee", RTX_COMM_ARITH)
@@ -760,6 +768,9 @@ DEF_RTL_EXPR(ENTRY_VALUE, "entry_value", "0", RTX_OBJ)
 /* Used in VAR_LOCATION for a reference to a parameter that has
    been optimized away completely.  */
 DEF_RTL_EXPR(DEBUG_PARAMETER_REF, "debug_parameter_ref", "t", RTX_OBJ)
+
+/* Used in marker DEBUG_INSNs to avoid being recognized as an insn.  */
+DEF_RTL_EXPR(DEBUG_MARKER, "debug_marker", "", RTX_EXTRA)
 
 /* All expressions from this point forward appear only in machine
    descriptions.  */
@@ -915,6 +926,12 @@ DEF_RTL_EXPR(DEFINE_SPLIT, "define_split", "EsES", RTX_EXTRA)
    7: optionally, a vector of attributes for this insn.  */
 DEF_RTL_EXPR(DEFINE_INSN_AND_SPLIT, "define_insn_and_split", "sEsTsESV", RTX_EXTRA)
 
+/* A form of define_insn_and_split in which the split insn pattern (operand 5)
+   is determined automatically by replacing match_operands with match_dups
+   and match_operators with match_op_dups.  The operands are the same as
+   define_insn_and_split but with operand 5 removed.  */
+DEF_RTL_EXPR(DEFINE_INSN_AND_REWRITE, "define_insn_and_rewrite", "sEsTsSV", RTX_EXTRA)
+
 /* Definition of an RTL peephole operation.
    Follows the same arguments as define_split.  */
 DEF_RTL_EXPR(DEFINE_PEEPHOLE2, "define_peephole2", "EsES", RTX_EXTRA)
@@ -1036,6 +1053,7 @@ DEF_RTL_EXPR(DEFINE_REGISTER_CONSTRAINT, "define_register_constraint", "sss", RT
 DEF_RTL_EXPR(DEFINE_CONSTRAINT, "define_constraint", "sse", RTX_EXTRA)
 DEF_RTL_EXPR(DEFINE_MEMORY_CONSTRAINT, "define_memory_constraint", "sse", RTX_EXTRA)
 DEF_RTL_EXPR(DEFINE_SPECIAL_MEMORY_CONSTRAINT, "define_special_memory_constraint", "sse", RTX_EXTRA)
+DEF_RTL_EXPR(DEFINE_RELAXED_MEMORY_CONSTRAINT, "define_relaxed_memory_constraint", "sse", RTX_EXTRA)
 DEF_RTL_EXPR(DEFINE_ADDRESS_CONSTRAINT, "define_address_constraint", "sse", RTX_EXTRA)
 
 
@@ -1058,7 +1076,7 @@ DEF_RTL_EXPR(DEFINE_CPU_UNIT, "define_cpu_unit", "sS", RTX_EXTRA)
 DEF_RTL_EXPR(DEFINE_QUERY_CPU_UNIT, "define_query_cpu_unit", "sS", RTX_EXTRA)
 
 /* (exclusion_set string string) means that each CPU functional unit
-   in the first string can not be reserved simultaneously with any
+   in the first string cannot be reserved simultaneously with any
    unit whose name is in the second string and vise versa.  CPU units
    in the string are separated by commas.  For example, it is useful
    for description CPU with fully pipelined floating point functional
@@ -1068,7 +1086,7 @@ DEF_RTL_EXPR(DEFINE_QUERY_CPU_UNIT, "define_query_cpu_unit", "sS", RTX_EXTRA)
 DEF_RTL_EXPR(EXCLUSION_SET, "exclusion_set", "ss", RTX_EXTRA)
 
 /* (presence_set string string) means that each CPU functional unit in
-   the first string can not be reserved unless at least one of pattern
+   the first string cannot be reserved unless at least one of pattern
    of units whose names are in the second string is reserved.  This is
    an asymmetric relation.  CPU units or unit patterns in the strings
    are separated by commas.  Pattern is one unit name or unit names
@@ -1118,13 +1136,13 @@ DEF_RTL_EXPR(FINAL_PRESENCE_SET, "final_presence_set", "ss", RTX_EXTRA)
    are separated by commas.  Pattern is one unit name or unit names
    separated by white-spaces.
 
-   For example, it is useful for description that slot0 can not be
+   For example, it is useful for description that slot0 cannot be
    reserved after slot1 or slot2 reservation for a VLIW processor.  We
    could describe it by the following construction
 
       (absence_set "slot2" "slot0, slot1")
 
-   Or slot2 can not be reserved if slot0 and unit b0 are reserved or
+   Or slot2 cannot be reserved if slot0 and unit b0 are reserved or
    slot1 and unit b1 are reserved .  In this case we could write
 
       (absence_set "slot2" "slot0 b0, slot1 b1")
@@ -1289,12 +1307,12 @@ DEF_RTL_EXPR(EQ_ATTR, "eq_attr", "ss", RTX_EXTRA)
 
 /* A special case of the above representing a set of alternatives.  The first
    operand is bitmap of the set, the second one is the default value.  */
-DEF_RTL_EXPR(EQ_ATTR_ALT, "eq_attr_alt", "ii", RTX_EXTRA)
+DEF_RTL_EXPR(EQ_ATTR_ALT, "eq_attr_alt", "ww", RTX_EXTRA)
 
 /* A conditional expression which is true if the specified flag is
    true for the insn being scheduled in reorg.
 
-   genattr.c defines the following flags which can be tested by
+   genattr.cc defines the following flags which can be tested by
    (attr_flag "foo") expressions in eligible_for_delay: forward, backward.  */
 
 DEF_RTL_EXPR (ATTR_FLAG, "attr_flag", "s", RTX_EXTRA)

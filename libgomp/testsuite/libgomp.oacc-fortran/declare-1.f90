@@ -1,4 +1,11 @@
-! { dg-do run  { target openacc_nvidia_accel_selected } }
+! { dg-do run }
+! { dg-skip-if "" { *-*-* } { "-DACC_MEM_SHARED=1" } }
+
+! { dg-additional-options "-fopt-info-all-omp" }
+! { dg-additional-options "--param=openacc-privatization=noisy" }
+! { dg-additional-options "-foffload=-fopt-info-all-omp" }
+! { dg-additional-options "-foffload=--param=openacc-privatization=noisy" }
+! for testing/documenting aspects of that functionality.
 
 ! Tests to exercise the declare directive along with
 ! the clauses: copy
@@ -33,6 +40,7 @@ subroutine subr5 (a, b, c, d)
   i = 0
 
   !$acc parallel
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
     do i = 1, N
       b(i) = a(i)
       c(i) = b(i)
@@ -54,6 +62,7 @@ subroutine subr4 (a, b)
   i = 0
 
   !$acc parallel
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
   do i = 1, N
     b(i) = a(i)
   end do
@@ -73,6 +82,7 @@ subroutine subr3 (a, c)
   i = 0
 
   !$acc parallel
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
   do i = 1, N
     a(i) = c(i)
     c(i) = 0
@@ -95,6 +105,7 @@ subroutine subr2 (a, b, c)
   i = 0
 
   !$acc parallel
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
   do i = 1, N
     b(i) = a(i)
     c(i) = b(i) + c(i) + 1
@@ -113,6 +124,7 @@ subroutine subr1 (a)
   i = 0
 
   !$acc parallel
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
   do i = 1, N
     a(i) = a(i) + 1
   end do
@@ -127,11 +139,14 @@ subroutine test (a, e)
   integer, parameter :: N = 8
   integer :: a(N)
 
-  if (acc_is_present (a) .neqv. e) call abort
+  if (acc_is_present (a) .neqv. e) STOP 1
 
 end subroutine
 
 subroutine subr0 (a, b, c, d)
+  ! { dg-note {variable 'C\.[0-9]+' declared in block potentially has improper OpenACC privatization level: 'const_decl'} "TODO" { target *-*-* } .-1 }
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+  ! { dg-note {variable 'a\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-3 }
   implicit none
   integer, parameter :: N = 8
   integer :: a(N)
@@ -158,7 +173,7 @@ subroutine subr0 (a, b, c, d)
   call test (c, .false.)
 
   do i = 1, N
-    if (c(i) .ne. 8) call abort
+    if (c(i) .ne. 8) STOP 2
   end do
 
   call subr3 (a, c)
@@ -168,8 +183,8 @@ subroutine subr0 (a, b, c, d)
   call test (c, .false.)
 
   do i = 1, N
-    if (a(i) .ne. 2) call abort
-    if (c(i) .ne. 8) call abort
+    if (a(i) .ne. 2) STOP 3
+    if (c(i) .ne. 8) STOP 4
   end do
 
   call subr4 (a, b)
@@ -179,7 +194,7 @@ subroutine subr0 (a, b, c, d)
   call test (c, .false.)
 
   do i = 1, N
-    if (b(i) .ne. 8) call abort
+    if (b(i) .ne. 8) STOP 5
   end do
 
   call subr5 (a, b, c, d)
@@ -190,13 +205,17 @@ subroutine subr0 (a, b, c, d)
   call test (d, .false.)
 
   do i = 1, N
-    if (c(i) .ne. 8) call abort
-    if (d(i) .ne. 13) call abort
+    if (c(i) .ne. 8) STOP 6
+    if (d(i) .ne. 13) STOP 7
   end do
 
 end subroutine
 
 program main
+  ! { dg-note {variable 'C\.[0-9]+' declared in block potentially has improper OpenACC privatization level: 'const_decl'} "TODO" { target *-*-* } .-1 }
+  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+  ! { dg-note {variable 'S\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-3 }
+  ! { dg-note {variable 'desc\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target *-*-* } .-4 }
   use vars
   use openacc
   implicit none
@@ -212,7 +231,7 @@ program main
   c(:) = 4
   d(:) = 5
 
-  if (acc_is_present (z) .neqv. .true.) call abort
+  if (acc_is_present (z) .neqv. .true.) STOP 8
 
   call subr0 (a, b, c, d)
 
@@ -222,10 +241,10 @@ program main
   call test (d, .false.)
 
   do i = 1, N
-    if (a(i) .ne. 8) call abort
-    if (b(i) .ne. 8) call abort
-    if (c(i) .ne. 8) call abort
-    if (d(i) .ne. 13) call abort
+    if (a(i) .ne. 8) STOP 9
+    if (b(i) .ne. 8) STOP 10
+    if (c(i) .ne. 8) STOP 11
+    if (d(i) .ne. 13) STOP 12
   end do
 
 end program

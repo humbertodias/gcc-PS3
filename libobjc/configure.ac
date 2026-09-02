@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-#   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+#   Copyright (C) 1994-2023 Free Software Foundation, Inc.
 #   Originally contributed by Dave Love (d.love@dl.ac.uk).
 #
 #This file is part of GCC.
@@ -18,9 +18,9 @@
 #along with GCC; see the file COPYING3.  If not see
 #<http://www.gnu.org/licenses/>.
 
-AC_PREREQ(2.64)
 AC_INIT(package-unused, version-unused,, libobjc)
 AC_CONFIG_SRCDIR([objc/objc.h])
+AC_CONFIG_MACRO_DIRS([../config] [..])
 GCC_TOPLEV_SUBDIRS
 
 # We need the following definitions because AC_PROG_LIBTOOL relies on them
@@ -77,6 +77,8 @@ case $srcdir in
 esac
 AC_SUBST(glibcpp_srcdir)
 
+GCC_WITH_TOOLEXECLIBDIR
+
 # Calculate toolexeclibdir
 # Also toolexecdir, though it's only used in toolexeclibdir
 case ${version_specific_libs} in
@@ -92,7 +94,14 @@ case ${version_specific_libs} in
        test x"$with_cross_host" != x"no"; then
       # Install a library built with a cross compiler in tooldir, not libdir.
       toolexecdir='$(exec_prefix)/$(target_noncanonical)'
-      toolexeclibdir='$(toolexecdir)/lib'
+      case ${with_toolexeclibdir} in
+	no)
+	  toolexeclibdir='$(toolexecdir)/lib'
+	  ;;
+	*)
+	  toolexeclibdir=${with_toolexeclibdir}
+	  ;;
+      esac
     else
       toolexecdir='$(libdir)/gcc-lib/$(target_noncanonical)'
       toolexeclibdir='$(libdir)'
@@ -151,7 +160,12 @@ case "${host}" in
 esac
 AC_SUBST(extra_ldflags_libobjc)
 
+# Add CET specific flags if CET is enabled
+GCC_CET_FLAGS(CET_FLAGS)
+XCFLAGS="$XCFLAGS $CET_FLAGS"
+
 AC_SUBST(CFLAGS)
+AC_SUBST(XCFLAGS)
 
 AC_CHECK_TOOL(AS, as)
 AC_CHECK_TOOL(AR, ar)

@@ -1,5 +1,5 @@
 /* DWARF2 EH unwinding support for AMD x86-64 and x86.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -94,37 +94,37 @@ x86_64_fallback_frame_state (struct _Unwind_Context *context,
   fs->regs.cfa_offset = new_cfa - (long) context->cfa;
 
   /* The SVR4 register numbering macros aren't usable in libgcc.  */
-  fs->regs.reg[0].how = REG_SAVED_OFFSET;
+  fs->regs.how[0] = REG_SAVED_OFFSET;
   fs->regs.reg[0].loc.offset = (long)&mctx->gregs[REG_RAX] - new_cfa;
-  fs->regs.reg[1].how = REG_SAVED_OFFSET;
+  fs->regs.how[1] = REG_SAVED_OFFSET;
   fs->regs.reg[1].loc.offset = (long)&mctx->gregs[REG_RDX] - new_cfa;
-  fs->regs.reg[2].how = REG_SAVED_OFFSET;
+  fs->regs.how[2] = REG_SAVED_OFFSET;
   fs->regs.reg[2].loc.offset = (long)&mctx->gregs[REG_RCX] - new_cfa;
-  fs->regs.reg[3].how = REG_SAVED_OFFSET;
+  fs->regs.how[3] = REG_SAVED_OFFSET;
   fs->regs.reg[3].loc.offset = (long)&mctx->gregs[REG_RBX] - new_cfa;
-  fs->regs.reg[4].how = REG_SAVED_OFFSET;
+  fs->regs.how[4] = REG_SAVED_OFFSET;
   fs->regs.reg[4].loc.offset = (long)&mctx->gregs[REG_RSI] - new_cfa;
-  fs->regs.reg[5].how = REG_SAVED_OFFSET;
+  fs->regs.how[5] = REG_SAVED_OFFSET;
   fs->regs.reg[5].loc.offset = (long)&mctx->gregs[REG_RDI] - new_cfa;
-  fs->regs.reg[6].how = REG_SAVED_OFFSET;
+  fs->regs.how[6] = REG_SAVED_OFFSET;
   fs->regs.reg[6].loc.offset = (long)&mctx->gregs[REG_RBP] - new_cfa;
-  fs->regs.reg[8].how = REG_SAVED_OFFSET;
+  fs->regs.how[8] = REG_SAVED_OFFSET;
   fs->regs.reg[8].loc.offset = (long)&mctx->gregs[REG_R8] - new_cfa;
-  fs->regs.reg[9].how = REG_SAVED_OFFSET;
+  fs->regs.how[9] = REG_SAVED_OFFSET;
   fs->regs.reg[9].loc.offset = (long)&mctx->gregs[REG_R9] - new_cfa;
-  fs->regs.reg[10].how = REG_SAVED_OFFSET;
+  fs->regs.how[10] = REG_SAVED_OFFSET;
   fs->regs.reg[10].loc.offset = (long)&mctx->gregs[REG_R10] - new_cfa;
-  fs->regs.reg[11].how = REG_SAVED_OFFSET;
+  fs->regs.how[11] = REG_SAVED_OFFSET;
   fs->regs.reg[11].loc.offset = (long)&mctx->gregs[REG_R11] - new_cfa;
-  fs->regs.reg[12].how = REG_SAVED_OFFSET;
+  fs->regs.how[12] = REG_SAVED_OFFSET;
   fs->regs.reg[12].loc.offset = (long)&mctx->gregs[REG_R12] - new_cfa;
-  fs->regs.reg[13].how = REG_SAVED_OFFSET;
+  fs->regs.how[13] = REG_SAVED_OFFSET;
   fs->regs.reg[13].loc.offset = (long)&mctx->gregs[REG_R13] - new_cfa;
-  fs->regs.reg[14].how = REG_SAVED_OFFSET;
+  fs->regs.how[14] = REG_SAVED_OFFSET;
   fs->regs.reg[14].loc.offset = (long)&mctx->gregs[REG_R14] - new_cfa;
-  fs->regs.reg[15].how = REG_SAVED_OFFSET;
+  fs->regs.how[15] = REG_SAVED_OFFSET;
   fs->regs.reg[15].loc.offset = (long)&mctx->gregs[REG_R15] - new_cfa;
-  fs->regs.reg[16].how = REG_SAVED_OFFSET;
+  fs->regs.how[16] = REG_SAVED_OFFSET;
   fs->regs.reg[16].loc.offset = (long)&mctx->gregs[REG_RIP] - new_cfa;
   fs->retaddr_column = 16;
   fs->signal_frame = 1;
@@ -144,41 +144,7 @@ x86_fallback_frame_state (struct _Unwind_Context *context,
   mcontext_t *mctx;
   long new_cfa;
 
-  if (/* Solaris 10
-	-----------
-	   <__sighndlr+0>:      push   %ebp
-	   <__sighndlr+1>:      mov    %esp,%ebp
-	   <__sighndlr+3>:      pushl  0x10(%ebp)
-	   <__sighndlr+6>:      pushl  0xc(%ebp)
-	   <__sighndlr+9>:      pushl  0x8(%ebp)
-	   <__sighndlr+12>:     call   *0x14(%ebp)
-	   <__sighndlr+15>:     add    $0xc,%esp     <--- PC
-	   <__sighndlr+18>:     leave
-	   <__sighndlr+19>:     ret  */
-	 (*(unsigned long *)(pc - 15) == 0xffec8b55
-	  && *(unsigned long *)(pc - 11) == 0x75ff1075
-	  && *(unsigned long *)(pc - 7)  == 0x0875ff0c
-	  && *(unsigned long *)(pc - 3)  == 0x831455ff
-	  && *(unsigned long *)(pc + 1)  == 0xc3c90cc4)
-
-      || /* Solaris 11 before snv_125
-	   --------------------------
-	  <__sighndlr+0>       	push   %ebp
-	  <__sighndlr+1>       	mov    %esp,%ebp
-	  <__sighndlr+4>      	pushl  0x10(%ebp)
-	  <__sighndlr+6>      	pushl  0xc(%ebp)
-	  <__sighndlr+9>      	pushl  0x8(%ebp)
-	  <__sighndlr+12>      	call   *0x14(%ebp)
-	  <__sighndlr+15>	add    $0xc,%esp
-	  <__sighndlr+18>      	leave                <--- PC
-	  <__sighndlr+19>      	ret  */
-	 (*(unsigned long *)(pc - 18) == 0xffec8b55
-	  && *(unsigned long *)(pc - 14) == 0x7fff107f
-	  && *(unsigned long *)(pc - 10)  == 0x0875ff0c
-	  && *(unsigned long *)(pc - 6)  == 0x83145fff
-	  && *(unsigned long *)(pc - 1)  == 0xc3c90cc4)
-
-      || /* Solaris 11 since snv_125
+  if (/* Solaris 11 since snv_125
 	   -------------------------
 	  <__sighndlr+0>       	push   %ebp
 	  <__sighndlr+1>       	mov    %esp,%ebp
@@ -214,21 +180,21 @@ x86_fallback_frame_state (struct _Unwind_Context *context,
   fs->regs.cfa_offset = new_cfa - (long) context->cfa;
 
   /* The SVR4 register numbering macros aren't usable in libgcc.  */
-  fs->regs.reg[0].how = REG_SAVED_OFFSET;
+  fs->regs.how[0] = REG_SAVED_OFFSET;
   fs->regs.reg[0].loc.offset = (long)&mctx->gregs[EAX] - new_cfa;
-  fs->regs.reg[3].how = REG_SAVED_OFFSET;
+  fs->regs.how[3] = REG_SAVED_OFFSET;
   fs->regs.reg[3].loc.offset = (long)&mctx->gregs[EBX] - new_cfa;
-  fs->regs.reg[1].how = REG_SAVED_OFFSET;
+  fs->regs.how[1] = REG_SAVED_OFFSET;
   fs->regs.reg[1].loc.offset = (long)&mctx->gregs[ECX] - new_cfa;
-  fs->regs.reg[2].how = REG_SAVED_OFFSET;
+  fs->regs.how[2] = REG_SAVED_OFFSET;
   fs->regs.reg[2].loc.offset = (long)&mctx->gregs[EDX] - new_cfa;
-  fs->regs.reg[6].how = REG_SAVED_OFFSET;
+  fs->regs.how[6] = REG_SAVED_OFFSET;
   fs->regs.reg[6].loc.offset = (long)&mctx->gregs[ESI] - new_cfa;
-  fs->regs.reg[7].how = REG_SAVED_OFFSET;
+  fs->regs.how[7] = REG_SAVED_OFFSET;
   fs->regs.reg[7].loc.offset = (long)&mctx->gregs[EDI] - new_cfa;
-  fs->regs.reg[5].how = REG_SAVED_OFFSET;
+  fs->regs.how[5] = REG_SAVED_OFFSET;
   fs->regs.reg[5].loc.offset = (long)&mctx->gregs[EBP] - new_cfa;
-  fs->regs.reg[8].how = REG_SAVED_OFFSET;
+  fs->regs.how[8] = REG_SAVED_OFFSET;
   fs->regs.reg[8].loc.offset = (long)&mctx->gregs[EIP] - new_cfa;
   fs->retaddr_column = 8;
 

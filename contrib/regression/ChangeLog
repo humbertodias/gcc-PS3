@@ -1,10 +1,14 @@
-2017-08-14  Release Manager
+2023-07-27  Release Manager
 
-	* GCC 7.2.0 released.
+	* GCC 13.2.0 released.
 
-2017-05-02  Release Manager
+2023-04-26  Release Manager
 
-	* GCC 7.1.0 released.
+	* GCC 13.1.0 released.
+
+2023-02-16  Hans-Peter Nilsson  <hp@axis.com>
+
+	* objs-gcc.sh: Only bootstrap if source-directory contains gcc.
 
 2012-08-26  Hans-Peter Nilsson  <hp@axis.com>
 

@@ -1,6 +1,6 @@
 /* Operating system specific defines to be used when targeting GCC for
    hosting on Windows32, using GNU tools and the Windows32 API Library.
-   Copyright (C) 1997-2017 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -32,6 +32,10 @@ along with GCC; see the file COPYING3.  If not see
 	 | MASK_STACK_PROBE | MASK_ALIGN_DOUBLE \
 	 | MASK_MS_BITFIELD_LAYOUT)
 
+#ifndef TARGET_USING_MCFGTHREAD
+#define TARGET_USING_MCFGTHREAD  0
+#endif
+
 /* See i386/crtdll.h for an alternative definition. _INTEGRAL_MAX_BITS
    is for compatibility with native compiler.  */
 #define EXTRA_OS_CPP_BUILTINS()					\
@@ -50,6 +54,8 @@ along with GCC; see the file COPYING3.  If not see
 	  builtin_define_std ("WIN64");				\
 	  builtin_define ("_WIN64");				\
 	}							\
+      if (TARGET_USING_MCFGTHREAD)				\
+	builtin_define ("__USING_MCFGTHREAD__");		\
     }								\
   while (0)
 
@@ -114,12 +120,43 @@ along with GCC; see the file COPYING3.  If not see
 #define SUBTARGET_EXTRA_SPECS						\
   { "shared_libgcc_undefs", SHARED_LIBGCC_UNDEFS_SPEC }
 
+#if ! MINGW_DEFAULT_LARGE_ADDR_AWARE
+/* This is used without --enable-large-address-aware.  */
+# define LINK_SPEC_LARGE_ADDR_AWARE ""
+#elif ! TARGET_BI_ARCH
+/* This is used on i686-pc-mingw32 with --enable-large-address-aware.  */
+# define LINK_SPEC_LARGE_ADDR_AWARE \
+  "%{!shared:%{!mdll:--large-address-aware}}"
+#elif TARGET_64BIT_DEFAULT
+/* This is used on x86_64-pc-mingw32 with --enable-large-address-aware.
+   ??? It probably doesn't work, because the linker emulation defaults
+   to i386pep, the 64-bit mode that does not support
+   --large-address-aware, and x86_64-pc-mingw32 does not override the
+   emulation to i386pe for -m32, unlike x86_64-w64-mingw32.  */
+# define LINK_SPEC_LARGE_ADDR_AWARE \
+  "%{!shared:%{!mdll:%{m32:--large-address-aware}}}"
+#else
+/* This would only be used if someone introduced a biarch
+   configuration that defaulted to 32-bit.  */
+# define LINK_SPEC_LARGE_ADDR_AWARE \
+  "%{!shared:%{!mdll:%{!m64:--large-address-aware}}}"
+#endif
+
+#if HAVE_LD_PE_DISABLE_DYNAMICBASE
+# define LINK_SPEC_DISABLE_DYNAMICBASE \
+  "%{!shared:%{!mdll:%{no-pie:--disable-dynamicbase}}}"
+#else
+# define LINK_SPEC_DISABLE_DYNAMICBASE ""
+#endif
+
 #define LINK_SPEC "%{mwindows:--subsystem windows} \
   %{mconsole:--subsystem console} \
   %{shared: %{mdll: %eshared and mdll are not compatible}} \
   %{shared: --shared} %{mdll:--dll} \
   %{static:-Bstatic} %{!static:-Bdynamic} \
   %{shared|mdll: " SUB_LINK_ENTRY " --enable-auto-image-base} \
+  " LINK_SPEC_LARGE_ADDR_AWARE "\
+  " LINK_SPEC_DISABLE_DYNAMICBASE "\
   %(shared_libgcc_undefs)"
 
 /* Include in the mingw32 libraries with libgcc */
@@ -138,11 +175,16 @@ along with GCC; see the file COPYING3.  If not see
 #else
 #define SHARED_LIBGCC_SPEC " -lgcc "
 #endif
+#if TARGET_USING_MCFGTHREAD
+#define MCFGTHREAD_SPEC  " -lmcfgthread -lkernel32 -lntdll "
+#else
+#define MCFGTHREAD_SPEC  ""
+#endif
 #undef REAL_LIBGCC_SPEC
 #define REAL_LIBGCC_SPEC \
   "%{mthreads:-lmingwthrd} -lmingw32 \
    " SHARED_LIBGCC_SPEC " \
-   -lmoldname -lmingwex -lmsvcrt"
+   -lmoldname -lmingwex -lmsvcrt -lkernel32 " MCFGTHREAD_SPEC
 
 #undef STARTFILE_SPEC
 #define STARTFILE_SPEC "%{shared|mdll:dllcrt2%O%s} \
@@ -154,7 +196,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #undef ENDFILE_SPEC
 #define ENDFILE_SPEC \
-  "%{Ofast|ffast-math|funsafe-math-optimizations:crtfastmath.o%s} \
+  "%{mdaz-ftz:crtfastmath.o%s;Ofast|ffast-math|funsafe-math-optimizations:%{!shared:%{!mno-daz-ftz:crtfastmath.o%s}}} \
    %{!shared:%:if-exists(default-manifest.o%s)}\
    %{fvtable-verify=none:%s; \
     fvtable-verify=preinit:vtv_end.o%s; \

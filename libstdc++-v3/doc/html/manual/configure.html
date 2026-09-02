@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Configure</title><meta name="generator" content="DocBook XSL-NS Stylesheets V1.78.1" /><meta name="keywords" content="ISO C++, configure, options" /><meta name="keywords" content="ISO C++, library" /><meta name="keywords" content="ISO C++, runtime, library" /><link rel="home" href="../index.html" title="The GNU C++ Library" /><link rel="up" href="setup.html" title="Chapter 2. Setup" /><link rel="prev" href="setup.html" title="Chapter 2. Setup" /><link rel="next" href="make.html" title="Make" /></head><body><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Configure</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="setup.html">Prev</a> </td><th width="60%" align="center">Chapter 2. Setup</th><td width="20%" align="right"> <a accesskey="n" href="make.html">Next</a></td></tr></table><hr /></div><div class="section"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="manual.intro.setup.configure"></a>Configure</h2></div></div></div><p>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Configure</title><meta name="generator" content="DocBook XSL Stylesheets Vsnapshot" /><meta name="keywords" content="ISO C++, configure, options" /><meta name="keywords" content="ISO C++, library" /><meta name="keywords" content="ISO C++, runtime, library" /><link rel="home" href="../index.html" title="The GNU C++ Library" /><link rel="up" href="setup.html" title="Chapter 2. Setup" /><link rel="prev" href="setup.html" title="Chapter 2. Setup" /><link rel="next" href="make.html" title="Make" /></head><body><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Configure</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="setup.html">Prev</a> </td><th width="60%" align="center">Chapter 2. Setup</th><td width="20%" align="right"> <a accesskey="n" href="make.html">Next</a></td></tr></table><hr /></div><div class="section"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="manual.intro.setup.configure"></a>Configure</h2></div></div></div><p>
   When configuring libstdc++, you'll have to configure the entire
   <span class="emphasis"><em>gccsrcdir</em></span> directory. Consider using the
   toplevel gcc configuration option
@@ -38,9 +38,14 @@
      </p><pre class="programlisting">
    --with-gxx-include-dir=/foo/H-x86-gcc-3-c-gxx-inc/include/4.4-20090404</pre></dd><dt><span class="term"><code class="code">--enable-cstdio</code></span></dt><dd><p>This is an abbreviated form of <code class="code">'--enable-cstdio=stdio'</code>
 	(described next).
-     </p></dd><dt><span class="term"><code class="code">--enable-cstdio=OPTION</code></span></dt><dd><p>Select a target-specific I/O package. At the moment, the only
-	choice is to use 'stdio', a generic "C" abstraction.
-	The default is 'stdio'. This option can change the library ABI.
+     </p></dd><dt><span class="term"><code class="code">--enable-cstdio=OPTION</code></span></dt><dd><p>Select a target-specific I/O package. The choices are 'stdio'
+       which is a generic abstraction using POSIX file I/O APIs
+       (<code class="function">read</code>, <code class="function">write</code>,
+       <code class="function">lseek</code>, etc.), and 'stdio_pure' which is similar
+       but only uses standard C file I/O APIs (<code class="function">fread</code>,
+       <code class="function">fwrite</code>, <code class="function">fseek</code>, etc.).
+       The 'stdio_posix' choice is a synonym for 'stdio'.
+       The default is 'stdio'. This option can change the library ABI.
      </p></dd><dt><span class="term"><code class="code">--enable-clocale</code></span></dt><dd><p>This is an abbreviated form of <code class="code">'--enable-clocale=generic'</code>
 	(described next).
      </p></dd><dt><span class="term"><code class="code">--enable-clocale=OPTION</code></span></dt><dd><p>Select a target-specific underlying locale package.  The
@@ -64,12 +69,10 @@
 	<code class="code">'--enable-libstdcxx-allocator=auto'</code> (described
 	next).
      </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-allocator=OPTION  </code></span></dt><dd><p>Select a target-specific underlying std::allocator.  The
-	choices are 'new' to specify a wrapper for new, 'malloc' to
-	specify a wrapper for malloc, 'mt' for a fixed power of two allocator,
-	'pool' for the SGI pooled allocator or 'bitmap' for a bitmap allocator.
-	See this page for more information on allocator
-	<a class="link" href="memory.html#allocator.ext" title="Extension Allocators">extensions</a>. This option
-	can change the library ABI.
+	choices are 'new' to specify a wrapper for new, and 'malloc' to
+	specify a wrapper for malloc.
+	See <a class="xref" href="memory.html#allocator.ext" title="Extension Allocators">the section called “Extension Allocators”</a> for more information.
+	This option can change the library ABI.
      </p></dd><dt><span class="term"><code class="code">--enable-cheaders=OPTION</code></span></dt><dd><p>This allows the user to define the approach taken for C header
 	compatibility with C++. Options are c, c_std, and c_global.
 	These correspond to the source directory's include/c,
@@ -88,18 +91,23 @@
      </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-time</code></span></dt><dd><p>This is an abbreviated form of
 	<code class="code">'--enable-libstdcxx-time=yes'</code>(described next).
      </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-time=OPTION</code></span></dt><dd><p>Enables link-type checks for the availability of the
-	clock_gettime clocks, used in the implementation of [time.clock],
-	and of the nanosleep and sched_yield functions, used in the
+	<code class="function">clock_gettime</code> clocks, used in the implementation
+	of [time.clock], and of the <code class="function">nanosleep</code> and
+	<code class="function">sched_yield</code> functions, used in the
 	implementation of [thread.thread.this] of the 2011 ISO C++ standard.
 	The choice OPTION=yes checks for the availability of the facilities
-	in libc and libposix4.  In case it's needed the latter is also linked
-	to libstdc++ as part of the build process.  OPTION=rt also searches
-	(and, if needed, links) librt.   Note that the latter is not always
-	desirable because, in glibc, for example, in turn it triggers the
-	linking of libpthread too, which activates locking, a large overhead
-	for single-thread programs.  OPTION=no skips the tests completely.
+	in libc.  OPTION=rt also checks in
+	librt (and, if it's needed, links to it).  Note that linking to librt
+	is not always desirable because for glibc it requires linking to
+	libpthread too, which causes all reference counting to use atomic
+	operations, resulting in a potentially large overhead for
+	single-threaded programs.  OPTION=no skips the tests completely.
 	The default is OPTION=auto, which skips the checks and enables the
 	features only for targets known to support them.
+	For Linux targets, if <code class="function">clock_gettime</code> is not used
+	then the [time.clock] implementation will use a system call to access
+	the realtime and monotonic clocks, which is significantly slower than
+	the C library's <code class="function">clock_gettime</code> function.
     </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-debug</code></span></dt><dd><p>Build separate debug libraries in addition to what is normally built.
 	By default, the debug libraries are compiled with
 	<code class="code"> CXXFLAGS='-g3 -O0 -fno-inline'</code>
@@ -110,7 +118,8 @@
 	the build directory, will do much the same thing, without the
 	configuration difference and without building everything twice:
 	<code class="code">make CXXFLAGS='-g3 -O0 -fno-inline' all</code>
-     </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-debug-flags=FLAGS</code></span></dt><dd><p>This option is only valid when <code class="code"> --enable-debug </code>
+     </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-debug-flags=FLAGS</code></span></dt><dd><p>This option is only valid when
+	<code class="code">--enable-libstdcxx-debug</code>
 	is also specified, and applies to the debug builds only. With
 	this option, you can pass a specific string of flags to the
 	compiler to use when building the debug versions of libstdc++.
@@ -186,7 +195,7 @@
 	additional requirements are necessary and present for
 	activation, and if so, will turn symbol versioning on. This
 	option can change the library ABI.
-     </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-visibility</code></span></dt><dd><p> In 4.2 and later, enables or disables visibility 
+     </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-visibility</code></span></dt><dd><p> In 4.2 and later, enables or disables visibility
         attributes. If enabled (as by default), and the compiler seems
         capable of passing the simple sanity checks thrown at it, adjusts
         items in namespace std, namespace std::tr1, namespace std::tr2,
@@ -203,10 +212,10 @@
 	--include bits/stdc++.h </code> to CXXFLAGS) when running the
 	testsuite.
      </p></dd><dt><span class="term"><code class="code">--enable-extern-template</code>[default]</span></dt><dd><p>Use extern template to pre-instantiate all required
- 	specializations for certain types defined in the standard libraries. 
+ 	specializations for certain types defined in the standard libraries.
 	These types include <code class="classname">string</code> and dependents like
 	<code class="classname">char_traits</code>, the templatized IO classes,
-	<code class="classname">allocator</code>, and others.  
+	<code class="classname">allocator</code>, and others.
 	Disabling means that implicit
 	template generation will be used when compiling these types.  By
 	default, this option is on. This option can change the library ABI.
@@ -215,8 +224,11 @@
      built.  The C++ Standard also describes a
      <span class="emphasis"><em>freestanding</em></span> environment, in which only a
      minimal set of headers are provided.  This option builds such an
-     environment.
-     </p></dd><dt><span class="term"><code class="code">--disable-libstdcxx-verbose</code></span></dt><dd><p>
+     environment.  Note that a hosted library installs headers that still can
+     be used in non hosted environments, as the library checks for
+     <code class="code">__STDC_HOSTED__</code>, however, a library configured with
+     <code class="code">--disable-hosted-libstdcxx</code> will not install unusable headers.
+     </p></dd><dt><span class="term"><code class="code">--disable-libstdcxx-hosted</code></span></dt><dd><p>This is an alias for <code class="code">--disable-hosted-libstdcxx</code>.</p></dd><dt><span class="term"><code class="code">--disable-libstdcxx-verbose</code></span></dt><dd><p>
      By default, the library is configured to write descriptive messages
      to standard error for certain events such as calling a pure virtual
      function or the invocation of the standard terminate handler.  Those
@@ -238,7 +250,25 @@
      use <code class="option">OPTION=gcc4-compatible</code> to set it to
      <code class="literal">0</code>.
      This option does not change the library ABI.
-   </p></dd><dt><span class="term"><code class="code">--enable-vtable-verify</code>[default]</span></dt><dd><p>Use <code class="code">-fvtable-verify=std</code> to compile the C++
+   </p></dd><dt><span class="term"><code class="code">--with-libstdcxx-lock-policy=OPTION</code></span></dt><dd><p>Sets the lock policy that controls how
+        <code class="classname">shared_ptr</code> reference counting is
+        synchronized.
+        The choice OPTION=atomic enables use of atomics for updates to
+        <code class="classname">shared_ptr</code> reference counts.
+        The choice OPTION=mutex enables use of a mutex to synchronize updates
+        to <code class="classname">shared_ptr</code> reference counts.
+        If the compiler's thread model is "single" then this option has no
+        effect, as no synchronization is used for the reference counts.
+	The default is OPTION=auto, which checks for the availability of
+        compiler built-ins for 2-byte and 4-byte atomic compare-and-swap,
+        and uses OPTION=atomic if they're available, OPTION=mutex otherwise.
+        This option can change the library ABI.
+        If the library is configured to use atomics and user programs are
+        compiled using a target that doesn't natively support the atomic
+        operations (e.g. the library is configured for armv7 and then code
+        is compiled with <code class="option">-march=armv5t</code>) then the program
+        might rely on support in libgcc to provide the atomics.
+    </p></dd><dt><span class="term"><code class="code">--enable-vtable-verify</code>[default]</span></dt><dd><p>Use <code class="code">-fvtable-verify=std</code> to compile the C++
     runtime with instrumentation for vtable verification. All virtual
     functions in the standard library will be verified at runtime.
     Types impacted include <code class="classname">locale</code> and
@@ -249,4 +279,33 @@
       as the usual libstdc++ and libsupc++ libraries. This is enabled by
       default on select POSIX targets where it is known to work and disabled
       otherwise.
+    </p></dd><dt><span class="term"><code class="code">--enable-libstdcxx-static-eh-pool</code></span></dt><dd><p>Use a fixed-size static buffer for the emergency exception handling
+      pool (see <a class="xref" href="using_exceptions.html#intro.using.exception.alloc" title="Memory allocation">Memory allocation for exceptions</a>). The default
+      is to allocate the pool on program startup using <code class="code">malloc</code>.
+      With this option, a static buffer will be provided by libstdc++ instead.
+      This does not change the library ABI.
+    </p></dd><dt><span class="term"><code class="code">--with-libstdcxx-eh-pool-obj-count=NUM</code></span></dt><dd><p>Set the size of the emergency exception handling pool. NUM is the
+      number of simultaneous allocated exceptions to support.
+      This does not change the library ABI.
+    </p></dd><dt><span class="term"><code class="code">--with-libstdcxx-zoneinfo=OPTION</code></span></dt><dd><p>Choose how <code class="classname">std::chrono::tzdb</code> will obtain
+      the time zone info. The library requires a copy of the
+      <code class="filename">tzdata.zi</code> and <code class="filename">leapseconds</code>
+      files from the <a class="link" href="https://www.iana.org/time-zones" target="_top">IANA Time Zone
+      Database</a>. The choice OPTION=static will embed a copy of the files
+      into the library, and use that static data when time zone information
+      is required. The choice OPTION=dir will use the files
+      <code class="filename">dir/tzdata.zi</code> and
+      <code class="filename">dir/leapseconds</code> (which must exist when a program
+      tries to access time zone information). The choice OPTION=dir,static
+      will try to use files in <code class="filename">dir</code> but if they are
+      not available the embedded static data will be used instead.
+      The default choice is OPTION=yes. This is equivalent to OPTION=dir,static
+      with a system-specific default directory (if a suitable default for
+      the target is known).
+      The choice OPTION=no will disable all code for loading time zone info
+      from file or from the embedded static data, which means that only the
+      "UTC" and "GMT" time zones are defined. Using OPTION=no results in a
+      smaller library, so is suitable for systems that will never need to
+      query the time zone database.
+      This does not change the library ABI.
     </p></dd></dl></div></div><div class="navfooter"><hr /><table width="100%" summary="Navigation footer"><tr><td width="40%" align="left"><a accesskey="p" href="setup.html">Prev</a> </td><td width="20%" align="center"><a accesskey="u" href="setup.html">Up</a></td><td width="40%" align="right"> <a accesskey="n" href="make.html">Next</a></td></tr><tr><td width="40%" align="left" valign="top">Chapter 2. Setup </td><td width="20%" align="center"><a accesskey="h" href="../index.html">Home</a></td><td width="40%" align="right" valign="top"> Make</td></tr></table></div></body></html>

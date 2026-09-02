@@ -1,5 +1,5 @@
 /* Macros to support INSN_ADDRESSES
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -28,7 +28,7 @@ extern int insn_current_address;
   do							\
     {							\
       insn_addresses_.create (size);			\
-      insn_addresses_.safe_grow_cleared (size);		\
+      insn_addresses_.safe_grow_cleared (size, true);	\
       memset (insn_addresses_.address (),		\
 	      0, sizeof (int) * size);			\
     }							\
@@ -37,7 +37,7 @@ extern int insn_current_address;
 #define INSN_ADDRESSES_SET_P() (insn_addresses_.exists ())
 #define INSN_ADDRESSES_SIZE() (insn_addresses_.length ())
 
-static inline void
+inline void
 insn_addresses_new (rtx_insn *insn, int insn_addr)
 {
   unsigned insn_uid = INSN_UID ((insn));
@@ -48,7 +48,7 @@ insn_addresses_new (rtx_insn *insn, int insn_addr)
       if (size <= insn_uid)
 	{
 	  int *p;
-	  insn_addresses_.safe_grow (insn_uid + 1);
+	  insn_addresses_.safe_grow (insn_uid + 1, true);
 	  p = insn_addresses_.address ();
 	  memset (&p[size],
 		  0, sizeof (int) * (insn_uid + 1 - size));

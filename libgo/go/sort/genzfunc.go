@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build ignore
 // +build ignore
 
 // This program is run via "go generate" (via a directive in sort.go)
@@ -20,8 +21,8 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"io/ioutil"
 	"log"
+	"os"
 	"regexp"
 )
 
@@ -82,7 +83,7 @@ func main() {
 	}
 
 	out.Reset()
-	out.WriteString(`// DO NOT EDIT; AUTO-GENERATED from sort.go using genzfunc.go
+	out.WriteString(`// Code generated from sort.go using genzfunc.go; DO NOT EDIT.
 
 // Copyright 2016 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -92,7 +93,7 @@ func main() {
 	out.Write(src)
 
 	const target = "zfuncversion.go"
-	if err := ioutil.WriteFile(target, out.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(target, out.Bytes(), 0644); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -113,6 +114,10 @@ func rewriteCall(ce *ast.CallExpr) {
 	ident, ok := ce.Fun.(*ast.Ident)
 	if !ok {
 		// e.g. skip SelectorExpr (data.Less(..) calls)
+		return
+	}
+	// skip casts
+	if ident.Name == "int" || ident.Name == "uint" {
 		return
 	}
 	if len(ce.Args) < 1 {

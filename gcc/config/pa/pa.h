@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, for the HP Spectrum.
-   Copyright (C) 1992-2017 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com) of Cygnus Support
    and Tim Moore (moore@defmacro.cs.utah.edu) of the Center for
    Software Science at the University of Utah.
@@ -72,10 +72,12 @@ extern unsigned long total_code_bytes;
 #define HPUX_LONG_DOUBLE_LIBRARY 0
 #endif
 
-/* Linux kernel atomic operation support.  */
-#ifndef TARGET_SYNC_LIBCALL
-#define TARGET_SYNC_LIBCALL 0
-#endif
+/* Sync libcall support.  */
+#define TARGET_SYNC_LIBCALLS (flag_sync_libcalls)
+
+/* The maximum size of the sync library functions supported.  DImode
+   is supported on 32-bit targets using floating point loads and stores.  */
+#define MAX_SYNC_LIBFUNC_SIZE 8
 
 /* The following three defines are potential target switches.  The current
    defines are optimal given the current capabilities of GAS and GNU ld.  */
@@ -130,19 +132,12 @@ extern unsigned long total_code_bytes;
    and the old mnemonics are dialect zero.  */
 #define ASSEMBLER_DIALECT (TARGET_PA_20 ? 1 : 0)
 
-/* Override some settings from dbxelf.h.  */
-
 /* We do not have to be compatible with dbx, so we enable gdb extensions
    by default.  */
 #define DEFAULT_GDB_EXTENSIONS 1
 
-/* This used to be zero (no max length), but big enums and such can
-   cause huge strings which killed gas.
-
-   We also have to avoid lossage in dbxout.c -- it does not compute the
-   string size accurately, so we are real conservative here.  */
-#undef DBX_CONTIN_LENGTH
-#define DBX_CONTIN_LENGTH 3000
+/* Select dwarf2 as the preferred debug format.  */
+#define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
 
 /* GDB always assumes the current function's frame begins at the value
    of the stack pointer upon entry to the current function.  Accessing
@@ -171,12 +166,17 @@ do {								\
      builtin_assert("machine=hppa");				\
      builtin_define("__hppa");					\
      builtin_define("__hppa__");				\
+     builtin_define("__BIG_ENDIAN__");				\
      if (TARGET_PA_20)						\
        builtin_define("_PA_RISC2_0");				\
      else if (TARGET_PA_11)					\
        builtin_define("_PA_RISC1_1");				\
      else							\
        builtin_define("_PA_RISC1_0");				\
+     if (HPUX_LONG_DOUBLE_LIBRARY)				\
+       builtin_define("__SIZEOF_FLOAT128__=16");		\
+     if (TARGET_SOFT_FLOAT)					\
+       builtin_define("__SOFTFP__");				\
 } while (0)
 
 /* An old set of OS defines for various BSD-like systems.  */
@@ -252,11 +252,17 @@ typedef struct GTY(()) machine_function
    is UNITS_PER_WORD.  Otherwise, it is the constant value that is the
    smallest value that UNITS_PER_WORD can have at run-time.
 
-   FIXME: This needs to be 4 when TARGET_64BIT is true to suppress the
-   building of various TImode routines in libgcc.  The HP runtime
-   specification doesn't provide the alignment requirements and calling
-   conventions for TImode variables.  */
-#define MIN_UNITS_PER_WORD 4
+   This needs to be 8 when TARGET_64BIT is true to allow building various
+   TImode routines in libgcc.  However, we also need the DImode DIVMOD
+   routines because they are not currently implemented in pa.md.
+   
+   The HP runtime specification doesn't provide the alignment requirements
+   and calling conventions for TImode variables.  */
+#ifdef IN_LIBGCC2
+#define MIN_UNITS_PER_WORD      UNITS_PER_WORD
+#else
+#define MIN_UNITS_PER_WORD      4
+#endif
 
 /* The widest floating point format supported by the hardware.  Note that
    setting this influences some Ada floating point type sizes, currently
@@ -307,12 +313,7 @@ typedef struct GTY(()) machine_function
    POSIX types such as pthread_mutex_t require 16-byte alignment.  Again,
    this is non critical since 16-byte alignment is no longer needed for
    atomic operations.  */
-#define MALLOC_ABI_ALIGNMENT (TARGET_SOM ? 64 : 128)
-
-/* Get around hp-ux assembler bug, and make strcpy of constants fast.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN)		\
-  (TREE_CODE (EXP) == STRING_CST		\
-   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+#define MALLOC_ABI_ALIGNMENT (TARGET_64BIT ? 128 : 64)
 
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN)		\
@@ -323,13 +324,6 @@ typedef struct GTY(()) machine_function
 /* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
 #define STRICT_ALIGNMENT 1
-
-/* Value is 1 if it is a good idea to tie two pseudo registers
-   when one has mode MODE1 and one has mode MODE2.
-   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
-   for any hard reg, then this must be 0 for correct output.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) \
-  pa_modes_tieable_p (MODE1, MODE2)
 
 /* Specify the registers used for certain standard purposes.
    The values of these macros are register numbers.  */
@@ -506,17 +500,6 @@ extern rtx hppa_pic_save_rtx (void);
    goes at a more negative offset in the frame.  */
 #define FRAME_GROWS_DOWNWARD 0
 
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.
-
-   On the 32-bit ports, we reserve one slot for the previous frame
-   pointer and one fill slot.  The fill slot is for compatibility
-   with HP compiled programs.  On the 64-bit ports, we reserve one
-   slot for the previous frame pointer.  */
-#define STARTING_FRAME_OFFSET 8
-
 /* Define STACK_ALIGNMENT_NEEDED to zero to disable final alignment
    of the stack.  The default is to align it to STACK_BOUNDARY.  */
 #define STACK_ALIGNMENT_NEEDED 0
@@ -558,7 +541,7 @@ extern rtx hppa_pic_save_rtx (void);
    marker, although the runtime documentation only describes a 16
    byte marker.  For compatibility, we allocate 48 bytes.  */
 #define STACK_POINTER_OFFSET \
-  (TARGET_64BIT ? -(crtl->outgoing_args_size + 48): -32)
+  (TARGET_64BIT ? -(crtl->outgoing_args_size + 48) : poly_int64 (-32))
 
 #define STACK_DYNAMIC_OFFSET(FNDECL)	\
   (TARGET_64BIT				\
@@ -615,15 +598,6 @@ struct hppa_args {int words, nargs_prototype, incoming, indirect; };
   (CUM).indirect = 0,				\
   (CUM).nargs_prototype = 1000
 
-/* Figure out the size in words of the function argument.  The size
-   returned by this macro should always be greater than zero because
-   we pass variable and zero sized objects by reference.  */
-
-#define FUNCTION_ARG_SIZE(MODE, TYPE)	\
-  ((((MODE) != BLKmode \
-     ? (HOST_WIDE_INT) GET_MODE_SIZE (MODE) \
-     : int_size_in_bytes (TYPE)) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
 /* Determine where to put an argument to a function.
    Value is zero to push the argument on the stack,
    or a hard register in which to store the argument.
@@ -670,11 +644,6 @@ struct hppa_args {int words, nargs_prototype, incoming, indirect; };
   the standard parameter passing conventions on the RS6000.  That's why
   you'll see lots of similar code in rs6000.h.  */
 
-/* If defined, a C expression which determines whether, and in which
-   direction, to pad out an argument with extra space.  */
-#define FUNCTION_ARG_PADDING(MODE, TYPE) \
-  pa_function_arg_padding ((MODE), (TYPE))
-
 /* Specify padding for the last element of a block move between registers
    and memory.
 
@@ -685,7 +654,7 @@ struct hppa_args {int words, nargs_prototype, incoming, indirect; };
    so that there is only one element.  This allows the object to be
    correctly padded.  */
 #define BLOCK_REG_PADDING(MODE, TYPE, FIRST) \
-  pa_function_arg_padding ((MODE), (TYPE))
+  targetm.calls.function_arg_padding ((MODE), (TYPE))
 
 
 /* On HPPA, we emit profiling code as rtl via PROFILE_HOOK rather than
@@ -701,12 +670,11 @@ struct hppa_args {int words, nargs_prototype, incoming, indirect; };
   (*targetm.asm_out.internal_label) (FILE, FUNC_BEGIN_PROLOG_LABEL, LABEL)
 
 #define PROFILE_HOOK(label_no) hppa_profile_hook (label_no)
-void hppa_profile_hook (int label_no);
 
 /* The profile counter if emitted must come before the prologue.  */
 #define PROFILE_BEFORE_PROLOGUE 1
 
-/* We never want final.c to emit profile counters.  When profile
+/* We never want final.cc to emit profile counters.  When profile
    counters are required, we have to defer emitting them to the end
    of the current file.  */
 #define NO_PROFILE_COUNTERS 1
@@ -719,12 +687,12 @@ void hppa_profile_hook (int label_no);
 extern int may_call_alloca;
 
 #define EXIT_IGNORE_STACK	\
- (get_frame_size () != 0	\
-  || cfun->calls_alloca || crtl->outgoing_args_size)
+ (maybe_ne (get_frame_size (), 0)	\
+  || cfun->calls_alloca || maybe_ne (crtl->outgoing_args_size, 0))
 
 /* Length in units of the trampoline for entering a nested function.  */
 
-#define TRAMPOLINE_SIZE (TARGET_64BIT ? 72 : 52)
+#define TRAMPOLINE_SIZE (TARGET_64BIT ? 72 : 64)
 
 /* Alignment required by the trampoline.  */
 
@@ -756,7 +724,7 @@ extern int may_call_alloca;
    They give nonzero only if X is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in reginfo.c during register
+   has been allocated, which happens in reginfo.cc during register
    allocation.  */
 
 #define REGNO_OK_FOR_INDEX_P(X) \
@@ -868,7 +836,6 @@ extern int may_call_alloca;
 
 #define INT14_OK_STRICT \
   (TARGET_SOFT_FLOAT                                                   \
-   || TARGET_DISABLE_FPREGS                                            \
    || (TARGET_PA_20 && !TARGET_ELF32))
 
 /* The macros REG_OK_FOR..._P assume that the arg is a REG rtx
@@ -946,7 +913,7 @@ extern int may_call_alloca;
 
 /* Try a machine-dependent way of reloading an illegitimate address
    operand.  If we find one, push the reload and jump to WIN.  This
-   macro is used in only one place: `find_reloads_address' in reload.c.  */
+   macro is used in only one place: `find_reloads_address' in reload.cc.  */
 
 #define LEGITIMIZE_RELOAD_ADDRESS(AD, MODE, OPNUM, TYPE, IND_L, WIN) 	     \
 do {									     \
@@ -1030,10 +997,6 @@ do {									     \
 
 /* Nonzero if access to memory by bytes is slow and undesirable.  */
 #define SLOW_BYTE_ACCESS 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction
@@ -1153,8 +1116,18 @@ do {									     \
    PREFIX is the class of label and NUM is the number within the class.
    This is suitable for output with `assemble_name'.  */
 
-#define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)	\
-  sprintf (LABEL, "*%c$%s%04ld", (PREFIX)[0], (PREFIX) + 1, (long)(NUM))
+#define ASM_GENERATE_INTERNAL_LABEL(LABEL, PREFIX, NUM)		\
+  do								\
+    {								\
+      char *__p;						\
+      (LABEL)[0] = '*';						\
+      (LABEL)[1] = (PREFIX)[0];					\
+      (LABEL)[2] = '$';						\
+      __p = stpcpy (&(LABEL)[3], &(PREFIX)[1]);			\
+      sprint_ul (__p, (unsigned long) (NUM));			\
+    }								\
+  while (0)
+
 
 /* Output the definition of a compiler-generated label named NAME.  */
 
@@ -1172,35 +1145,37 @@ do {									     \
 #define ASM_OUTPUT_ASCII(FILE, P, SIZE)  \
   pa_output_ascii ((FILE), (P), (SIZE))
 
-/* Jump tables are always placed in the text section.  Technically, it
-   is possible to put them in the readonly data section.  This has the
-   benefit of getting the table out of .text and reducing branch lengths
-   as a result.
+/* Jump tables are always placed in the text section.  We have to do
+   this for the HP-UX SOM target as we can't switch sections in the
+   middle of a function.
 
-   The downside is that an additional insn (addil) is needed to access
+   On ELF targets, it is possible to put them in the readonly-data section.
+   This would get the table out of .text and reduce branch lengths.
+
+   A downside is that an additional insn (addil) is needed to access
    the table when generating PIC code.  The address difference table
-   also has to use 32-bit pc-relative relocations.  Currently, GAS does
-   not support these relocations, although it is easily modified to do
-   this operation.
+   also has to use 32-bit pc-relative relocations.
 
    The table entries need to look like "$L1+(.+8-$L0)-$PIC_pcrel$0"
    when using ELF GAS.  A simple difference can be used when using
-   SOM GAS or the HP assembler.  The final downside is GDB complains
-   about the nesting of the label for the table when debugging.  */
+   the HP assembler.
+
+   The final downside is GDB complains about the nesting of the label
+   for the table.  */
 
 #define JUMP_TABLES_IN_TEXT_SECTION 1
 
 /* This is how to output an element of a case-vector that is absolute.  */
 
 #define ASM_OUTPUT_ADDR_VEC_ELT(FILE, VALUE)  \
-  fprintf (FILE, "\t.word L$%04d\n", VALUE)
+  fprintf (FILE, "\t.word L$%d\n", VALUE)
 
 /* This is how to output an element of a case-vector that is relative. 
    Since we always place jump tables in the text section, the difference
    is absolute and requires no relocation.  */
 
 #define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, BODY, VALUE, REL)  \
-  fprintf (FILE, "\t.word L$%04d-L$%04d\n", VALUE, REL)
+  fprintf (FILE, "\t.word L$%d-L$%d\n", VALUE, REL)
 
 /* This is how to output an absolute case-vector.  */
 
@@ -1216,7 +1191,7 @@ do {									     \
    location counter to a multiple of 2**LOG bytes.  */
 
 #define ASM_OUTPUT_ALIGN(FILE,LOG)	\
-    fprintf (FILE, "\t.align %d\n", (1<<(LOG)))
+    fprintf (FILE, "\t.align %d\n", (1 << (LOG)))
 
 #define ASM_OUTPUT_SKIP(FILE,SIZE)  \
   fprintf (FILE, "\t.blockz " HOST_WIDE_INT_PRINT_UNSIGNED"\n",		\
@@ -1320,10 +1295,14 @@ do {									     \
 #endif
 
 /* The maximum offset in bytes for a PA 1.X pc-relative call to the
-   head of the preceding stub table.  The selected offsets have been
-   chosen so that approximately one call stub is allocated for every
-   86.7 instructions.  A long branch stub is two instructions when
-   not generating PIC code.  For HP-UX and ELF targets, PIC stubs are
-   seven and four instructions, respectively.  */  
-#define MAX_PCREL17F_OFFSET \
-  (flag_pic ? (TARGET_HPUX ? 198164 : 221312) : 240000)
+   head of the preceding stub table.  A long branch stub is two or three
+   instructions for non-PIC and PIC, respectively.  Import stubs are
+   seven and five instructions for HP-UX and ELF targets, respectively.
+   The default stub group size for ELF targets is 217856 bytes.
+   FIXME: We need an option to set the maximum offset.  */  
+#define MAX_PCREL17F_OFFSET (TARGET_HPUX ? 198164 : 217856)
+
+#define NEED_INDICATE_EXEC_STACK 0
+
+/* Output default function prologue for hpux.  */
+#define TARGET_ASM_FUNCTION_PROLOGUE pa_output_function_prologue

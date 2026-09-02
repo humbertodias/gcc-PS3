@@ -1,5 +1,5 @@
 /* Target definitions for GNU compiler for PowerPC running System V.4
-   Copyright (C) 1995-2017 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    Contributed by Cygnus Support.
 
    This file is part of GCC.
@@ -23,9 +23,10 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* Header files should be C++ aware in general.  */
-#undef  NO_IMPLICIT_EXTERN_C
-#define NO_IMPLICIT_EXTERN_C
+#undef GNU_USER_TARGET_CRTI
+#define GNU_USER_TARGET_CRTI "%{mnewlib:ecrti.o%s;:crti.o%s}"
+#undef GNU_USER_TARGET_CRTN
+#define GNU_USER_TARGET_CRTN "%{mnewlib:ecrtn.o%s;:crtn.o%s}"
 
 /* Yes!  We are ELF.  */
 #define	TARGET_OBJECT_FORMAT OBJECT_ELF
@@ -38,9 +39,9 @@
 
 /* Override rs6000.h definition.  */
 #undef	ASM_DEFAULT_SPEC
-#define	ASM_DEFAULT_SPEC "-mppc"
+#define	ASM_DEFAULT_SPEC "-mppc%{m64:64}"
 
-#define	TARGET_TOC		(TARGET_64BIT				\
+#define	TARGET_HAS_TOC		(TARGET_64BIT				\
 				 || (TARGET_MINIMAL_TOC			\
 				     && flag_pic > 1)			\
 				 || DEFAULT_ABI != ABI_V4)
@@ -49,13 +50,17 @@
 #define	TARGET_BIG_ENDIAN	(! TARGET_LITTLE_ENDIAN)
 #define	TARGET_PROTOTYPE	target_prototype
 #define	TARGET_NO_PROTOTYPE	(! TARGET_PROTOTYPE)
-#define	TARGET_NO_TOC		(! TARGET_TOC)
 #define	TARGET_NO_EABI		(! TARGET_EABI)
 #define	TARGET_REGNAMES		rs6000_regnames
 
 #ifdef HAVE_AS_REL16
 #undef TARGET_SECURE_PLT
 #define TARGET_SECURE_PLT	secure_plt
+#endif
+
+#if HAVE_AS_PLTSEQ
+#undef TARGET_PLTSEQ
+#define TARGET_PLTSEQ rs6000_pltseq
 #endif
 
 #define SDATA_DEFAULT_SIZE 8
@@ -65,7 +70,7 @@
 
 #define SUBTARGET_OVERRIDE_OPTIONS					\
 do {									\
-  if (!global_options_set.x_g_switch_value)				\
+  if (!OPTION_SET_P (g_switch_value))				\
     g_switch_value = SDATA_DEFAULT_SIZE;				\
 									\
   if (rs6000_abi_name == NULL)						\
@@ -108,7 +113,7 @@ do {									\
   else									\
     {									\
       rs6000_current_abi = ABI_V4;					\
-      error ("bad value for -mcall-%s", rs6000_abi_name);		\
+      error ("bad value for %<%s-%s%>", "-mcall", rs6000_abi_name);	\
     }									\
 									\
   if (rs6000_sdata_name)						\
@@ -124,7 +129,7 @@ do {									\
       else if (!strcmp (rs6000_sdata_name, "eabi"))			\
 	rs6000_sdata = SDATA_EABI;					\
       else								\
-	error ("bad value for -msdata=%s", rs6000_sdata_name);		\
+	error ("bad value for %<%s=%s%>", "-msdata", rs6000_sdata_name);\
     }									\
   else if (DEFAULT_ABI == ABI_V4)					\
     {									\
@@ -141,8 +146,8 @@ do {									\
       (rs6000_sdata == SDATA_EABI || rs6000_sdata == SDATA_SYSV))	\
     {									\
       rs6000_sdata = SDATA_DATA;					\
-      error ("-mrelocatable and -msdata=%s are incompatible",		\
-	     rs6000_sdata_name);					\
+      error ("%qs and %<%s=%s%> are incompatible", rs6000_sdata_name,	\
+	     "-mrelocatable", "-msdata");				\
     }									\
 									\
   else if (flag_pic && DEFAULT_ABI == ABI_V4				\
@@ -150,17 +155,17 @@ do {									\
 	       || rs6000_sdata == SDATA_SYSV))				\
     {									\
       rs6000_sdata = SDATA_DATA;					\
-      error ("-f%s and -msdata=%s are incompatible",			\
+      error ("%<-f%s%> and %<%s=%s%> are incompatible",			\
 	     (flag_pic > 1) ? "PIC" : "pic",				\
-	     rs6000_sdata_name);					\
+	     "-msdata", rs6000_sdata_name);				\
     }									\
 									\
   if ((rs6000_sdata != SDATA_NONE && DEFAULT_ABI != ABI_V4)		\
       || (rs6000_sdata == SDATA_EABI && !TARGET_EABI))			\
     {									\
       rs6000_sdata = SDATA_NONE;					\
-      error ("-msdata=%s and -mcall-%s are incompatible",		\
-	     rs6000_sdata_name, rs6000_abi_name);			\
+      error ("%<%s=%s%> and %<%s-%s%> are incompatible",		\
+	     "-msdata", rs6000_sdata_name, "-mcall", rs6000_abi_name);	\
     }									\
 									\
   targetm.have_srodata_section = rs6000_sdata == SDATA_EABI;		\
@@ -168,26 +173,47 @@ do {									\
   if (TARGET_RELOCATABLE && !TARGET_MINIMAL_TOC)			\
     {									\
       rs6000_isa_flags |= OPTION_MASK_MINIMAL_TOC;			\
-      error ("-mrelocatable and -mno-minimal-toc are incompatible");	\
+      error ("%qs and %qs are incompatible", "-mrelocatable",		\
+	     "-mno-minimal-toc");					\
     }									\
 									\
   if (TARGET_RELOCATABLE && rs6000_current_abi != ABI_V4)		\
     {									\
       rs6000_isa_flags &= ~OPTION_MASK_RELOCATABLE;			\
-      error ("-mrelocatable and -mcall-%s are incompatible",		\
-	     rs6000_abi_name);						\
+      error ("%qs and %<%s-%s%> are incompatible",			\
+	     "-mrelocatable", "-mcall", rs6000_abi_name);		\
     }									\
 									\
   if (!TARGET_64BIT && flag_pic > 1 && rs6000_current_abi != ABI_V4)	\
     {									\
       flag_pic = 0;							\
-      error ("-fPIC and -mcall-%s are incompatible",			\
-	     rs6000_abi_name);						\
+      error ("%qs and %<%s-%s%> are incompatible",			\
+	     "-fPIC", "-mcall", rs6000_abi_name);			\
     }									\
 									\
   if (TARGET_SECURE_PLT != secure_plt)					\
     {									\
-      error ("-msecure-plt not supported by your assembler");		\
+      error ("%qs not supported by your assembler", "-msecure-plt");	\
+    }									\
+									\
+  if (TARGET_PLTSEQ != rs6000_pltseq					\
+      && OPTION_SET_P (rs6000_pltseq))				\
+    {									\
+      error ("%qs not supported by your assembler", "-mpltseq");	\
+    }									\
+									\
+  if (DEFAULT_ABI == ABI_V4 && TARGET_PLTSEQ && !TARGET_SECURE_PLT)	\
+    {									\
+      if (OPTION_SET_P (rs6000_pltseq))				\
+	{								\
+	  if (OPTION_SET_P (secure_plt))				\
+	    error ("%qs and %qs are incompatible",			\
+		   "-mpltseq", "-mbss-plt");				\
+	  else								\
+	    secure_plt = true;						\
+	}								\
+      if (!TARGET_SECURE_PLT)						\
+	rs6000_pltseq = false;						\
     }									\
 									\
   if (flag_pic > 1 && DEFAULT_ABI == ABI_V4)				\
@@ -215,7 +241,7 @@ do {									\
 # define SUBSUBTARGET_OVERRIDE_OPTIONS					\
 do {									\
   if ((TARGET_DEFAULT ^ rs6000_isa_flags) & OPTION_MASK_64BIT)		\
-    error ("-m%s not supported in this configuration",			\
+    error ("%<-m%s%> not supported in this configuration",		\
 	   (rs6000_isa_flags & OPTION_MASK_64BIT) ? "64" : "32");	\
 } while (0)
 #endif
@@ -283,7 +309,7 @@ do {									\
    in bits).  This macro must evaluate to a value equal to or larger
    than STACK_BOUNDARY.
    For the SYSV ABI and variants the alignment of the stack pointer
-   is usually controlled manually in rs6000.c. However, to maintain
+   is usually controlled manually in rs6000.cc. However, to maintain
    alignment across alloca () in all circumstances,
    PREFERRED_STACK_BOUNDARY needs to be set as well.
    This has the additional advantage of allowing a bigger maximum
@@ -299,8 +325,7 @@ do {									\
 /* An expression for the alignment of a structure field FIELD if the
    alignment computed in the usual way is COMPUTED.  */
 #define ADJUST_FIELD_ALIGN(FIELD, TYPE, COMPUTED)			      \
-	(rs6000_special_adjust_field_align_p ((TYPE), (COMPUTED))	      \
-	 ? 128 : COMPUTED)
+	(COMPUTED)
 
 #undef  BIGGEST_FIELD_ALIGNMENT
 
@@ -351,14 +376,14 @@ do {									\
 #undef	ASM_OUTPUT_SPECIAL_POOL_ENTRY_P
 #define	ASM_OUTPUT_SPECIAL_POOL_ENTRY_P(X, MODE)			\
   (TARGET_TOC								\
-   && (GET_CODE (X) == SYMBOL_REF					\
+   && (SYMBOL_REF_P (X)							\
        || (GET_CODE (X) == CONST && GET_CODE (XEXP (X, 0)) == PLUS	\
-	   && GET_CODE (XEXP (XEXP (X, 0), 0)) == SYMBOL_REF)		\
+	   && SYMBOL_REF_P (XEXP (XEXP (X, 0), 0)))			\
        || GET_CODE (X) == LABEL_REF					\
-       || (GET_CODE (X) == CONST_INT 					\
+       || (CONST_INT_P (X)						\
 	   && GET_MODE_BITSIZE (MODE) <= GET_MODE_BITSIZE (Pmode))	\
        || (!TARGET_NO_FP_IN_TOC						\
-	   && GET_CODE (X) == CONST_DOUBLE				\
+	   && CONST_DOUBLE_P (X)					\
 	   && SCALAR_FLOAT_MODE_P (GET_MODE (X))			\
 	   && BITS_PER_WORD == HOST_BITS_PER_INT)))
 
@@ -479,9 +504,6 @@ extern int fixuplabelno;
 #undef  PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
 
-/* Historically we have also supported stabs debugging.  */
-#define DBX_DEBUGGING_INFO 1
-
 #define TARGET_ENCODE_SECTION_INFO  rs6000_elf_encode_section_info
 #define TARGET_IN_SMALL_DATA_P  rs6000_elf_in_small_data_p
 
@@ -489,11 +511,6 @@ extern int fixuplabelno;
 
 #define	RS6000_OUTPUT_BASENAME(FILE, NAME)	\
     assemble_name (FILE, NAME)
-
-/* We have to output the stabs for the function name *first*, before
-   outputting its label.  */
-
-#define	DBX_FUNCTION_FIRST
 
 /* This is the end of what might become sysv4dbx.h.  */
 
@@ -559,8 +576,8 @@ ENDIAN_SELECT(" -mbig", " -mlittle", DEFAULT_ASM_ENDIAN)
     %{mcall-openbsd: -mno-eabi }}} \
 %{msdata: -msdata=default} \
 %{mno-sdata: -msdata=none} \
-%{!mbss-plt: %{!msecure-plt: %(cc1_secure_plt_default)}} \
-%{profile: -p}"
+%{!mbss-plt: %{!msecure-plt: %(cc1_secure_plt_default)}}" \
+GNU_USER_TARGET_CC1_SPEC
 
 /* Default starting address if specified.  */
 #define LINK_START_SPEC "\
@@ -606,9 +623,6 @@ ENDIAN_SELECT(" -mbig", " -mlittle", DEFAULT_ASM_ENDIAN)
                : %(link_os_default)     }"
 
 #define LINK_OS_DEFAULT_SPEC ""
-
-#define DRIVER_SELF_SPECS "%{mfpu=none: %<mfpu=* \
- 	%<msingle-float %<mdouble-float}"
 
 /* Override rs6000.h definition.  */
 #undef	CPP_SPEC
@@ -745,75 +759,32 @@ ENDIAN_SELECT(" -mbig", " -mlittle", DEFAULT_ASM_ENDIAN)
   %{symbolic:-Bsymbolic}"
 
 /* GNU/Linux support.  */
-#define LIB_LINUX_SPEC "%{mnewlib: --start-group -llinux -lc --end-group } \
-%{!mnewlib: %{pthread:-lpthread} %{shared:-lc} \
-%{!shared: %{profile:-lc_p} %{!profile:-lc}}}"
+#define LIB_LINUX_SPEC \
+  "%{mnewlib: --start-group -llinux -lc --end-group; \
+     :" GNU_USER_TARGET_LIB_SPEC "}"
 
-#if ENABLE_OFFLOADING == 1
-#define CRTOFFLOADBEGIN "%{fopenacc|fopenmp:crtoffloadbegin%O%s}"
-#define CRTOFFLOADEND "%{fopenacc|fopenmp:crtoffloadend%O%s}"
-#else
-#define CRTOFFLOADBEGIN ""
-#define CRTOFFLOADEND ""
-#endif
+#define	STARTFILE_LINUX_SPEC GNU_USER_TARGET_STARTFILE_SPEC
 
-#ifdef HAVE_LD_PIE
-#define	STARTFILE_LINUX_SPEC "\
-%{!shared: %{pg|p|profile:gcrt1.o%s;pie:Scrt1.o%s;:crt1.o%s}} \
-%{mnewlib:ecrti.o%s;:crti.o%s} \
-%{static:crtbeginT.o%s;shared|pie:crtbeginS.o%s;:crtbegin.o%s} \
-" CRTOFFLOADBEGIN
-#else
-#define	STARTFILE_LINUX_SPEC "\
-%{!shared: %{pg|p|profile:gcrt1.o%s;:crt1.o%s}} \
-%{mnewlib:ecrti.o%s;:crti.o%s} \
-%{static:crtbeginT.o%s;shared|pie:crtbeginS.o%s;:crtbegin.o%s} \
-" CRTOFFLOADBEGIN
-#endif
-
-#define	ENDFILE_LINUX_SPEC "\
-%{shared|pie:crtendS.o%s;:crtend.o%s} \
-%{mnewlib:ecrtn.o%s;:crtn.o%s} \
-" CRTOFFLOADEND
+#define ENDFILE_LINUX_SPEC GNU_USER_TARGET_ENDFILE_SPEC
 
 #define LINK_START_LINUX_SPEC ""
 
 #define MUSL_DYNAMIC_LINKER_E ENDIAN_SELECT("","le","")
 
 #define GLIBC_DYNAMIC_LINKER "/lib/ld.so.1"
-#define UCLIBC_DYNAMIC_LINKER "/lib/ld-uClibc.so.0"
+#undef MUSL_DYNAMIC_LINKER
 #define MUSL_DYNAMIC_LINKER \
   "/lib/ld-musl-powerpc" MUSL_DYNAMIC_LINKER_E "%{msoft-float:-sf}.so.1"
-#if DEFAULT_LIBC == LIBC_UCLIBC
-#define CHOOSE_DYNAMIC_LINKER(G, U, M) \
-  "%{mglibc:" G ";:%{mmusl:" M ";:" U "}}"
-#elif DEFAULT_LIBC == LIBC_MUSL
-#define CHOOSE_DYNAMIC_LINKER(G, U, M) \
-  "%{mglibc:" G ";:%{muclibc:" U ";:" M "}}"
-#elif !defined (DEFAULT_LIBC) || DEFAULT_LIBC == LIBC_GLIBC
-#define CHOOSE_DYNAMIC_LINKER(G, U, M) \
-  "%{muclibc:" U ";:%{mmusl:" M ";:" G "}}"
-#else
-#error "Unsupported DEFAULT_LIBC"
+
+#ifndef GNU_USER_DYNAMIC_LINKER
+#define GNU_USER_DYNAMIC_LINKER GLIBC_DYNAMIC_LINKER
 #endif
-#define GNU_USER_DYNAMIC_LINKER \
-  CHOOSE_DYNAMIC_LINKER (GLIBC_DYNAMIC_LINKER, UCLIBC_DYNAMIC_LINKER, \
-			 MUSL_DYNAMIC_LINKER)
 
 #define LINK_OS_LINUX_SPEC "-m elf32ppclinux %{!shared: %{!static: \
   %{rdynamic:-export-dynamic} \
   -dynamic-linker " GNU_USER_DYNAMIC_LINKER "}}"
 
-#if defined(HAVE_LD_EH_FRAME_HDR)
-# define LINK_EH_SPEC "%{!static:--eh-frame-hdr} "
-#endif
-
-#define CPP_OS_LINUX_SPEC "-D__unix__ -D__gnu_linux__ -D__linux__ \
-%{!undef:							  \
-  %{!ansi:							  \
-    %{!std=*:-Dunix -D__unix -Dlinux -D__linux}			  \
-    %{std=gnu*:-Dunix -D__unix -Dlinux -D__linux}}}		  \
--Asystem=linux -Asystem=unix -Asystem=posix %{pthread:-D_REENTRANT}"
+#define CPP_OS_LINUX_SPEC "%{pthread:-D_REENTRANT}"
 
 /* NetBSD support.  */
 #define LIB_NETBSD_SPEC "\

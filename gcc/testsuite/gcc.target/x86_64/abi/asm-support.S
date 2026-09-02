@@ -1,4 +1,3 @@
-	.file	"snapshot.S"
 #ifdef __AVX__
 	.sse_check none
 #endif
@@ -83,3 +82,6 @@ snapshot_ret:
 	.comm	xmm_regs,256,32
 	.comm	x87_regs,128,32
 	.comm   volatile_var,8,8
+#ifdef __linux__
+	.section	.note.GNU-stack,"",@progbits
+#endif

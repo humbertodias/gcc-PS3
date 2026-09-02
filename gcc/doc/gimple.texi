@@ -1,4 +1,4 @@
-@c Copyright (C) 2008-2017 Free Software Foundation, Inc.
+@c Copyright (C) 2008-2023 Free Software Foundation, Inc.
 @c Free Software Foundation, Inc.
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
@@ -682,8 +682,7 @@ more than two slots on the RHS.  For instance, a @code{COND_EXPR}
 expression of the form @code{(a op b) ? x : y} could be flattened
 out on the operand vector using 4 slots, but it would also
 require additional processing to distinguish @code{c = a op b}
-from @code{c = a op b ? x : y}.  Something similar occurs with
-@code{ASSERT_EXPR}.   In time, these special case tree
+from @code{c = a op b ? x : y}.  In time, these special case tree
 expressions should be flattened into the operand vector.
 @end itemize
 
@@ -793,7 +792,7 @@ the address of a function local variable).
 
 @deftypefn {GIMPLE function} bool is_gimple_ip_invariant (tree t)
 Return true if t is an interprocedural invariant.  This means that t
-is a valid invariant in all functions (e.g. it can be an address of a
+is a valid invariant in all functions (e.g.@: it can be an address of a
 global variable but not of a local one).
 @end deftypefn
 
@@ -831,6 +830,21 @@ expression to a variable.
 Return true if g is any of the OpenMP codes.
 @end deftypefn
 
+@deftypefn {GIMPLE function} bool gimple_debug_begin_stmt_p (gimple g)
+Return true if g is a @code{GIMPLE_DEBUG} that marks the beginning of
+a source statement.
+@end deftypefn
+
+@deftypefn {GIMPLE function} bool gimple_debug_inline_entry_p (gimple g)
+Return true if g is a @code{GIMPLE_DEBUG} that marks the entry
+point of an inlined function.
+@end deftypefn
+
+@deftypefn {GIMPLE function} bool gimple_debug_nonbind_marker_p (gimple g)
+Return true if g is a @code{GIMPLE_DEBUG} that marks a program location,
+without any variable binding.
+@end deftypefn
+
 @node Manipulating GIMPLE statements
 @section Manipulating GIMPLE statements
 @cindex Manipulating GIMPLE statements
@@ -851,14 +865,6 @@ Return the basic block to which statement @code{G} belongs to.
 
 @deftypefn {GIMPLE function} tree gimple_block (gimple g)
 Return the lexical scope block holding statement @code{G}.
-@end deftypefn
-
-@deftypefn {GIMPLE function} tree gimple_expr_type (gimple stmt)
-Return the type of the main expression computed by @code{STMT}. Return
-@code{void_type_node} if @code{STMT} computes nothing. This will only return
-something meaningful for @code{GIMPLE_ASSIGN}, @code{GIMPLE_COND} and
-@code{GIMPLE_CALL}.  For all other tuple codes, it will return
-@code{void_type_node}.
 @end deftypefn
 
 @deftypefn {GIMPLE function} {enum tree_code} gimple_expr_code (gimple stmt)
@@ -1310,11 +1316,13 @@ operand is validated with @code{is_gimple_operand}).
 @end deftypefn
 
 
-@deftypefn {GIMPLE function} gcall *gimple_build_call_from_tree (tree call_expr)
-Build a @code{GIMPLE_CALL} from a @code{CALL_EXPR} node.  The arguments and the
-function are taken from the expression directly.  This routine
-assumes that @code{call_expr} is already in GIMPLE form.  That is, its
-operands are GIMPLE values and the function call needs no further
+@deftypefn {GIMPLE function} gcall *gimple_build_call_from_tree (tree call_expr, @
+tree fnptrtype)
+Build a @code{GIMPLE_CALL} from a @code{CALL_EXPR} node.  The arguments
+and the function are taken from the expression directly.  The type of the
+@code{GIMPLE_CALL} is set from the second parameter passed by a caller.
+This routine assumes that @code{call_expr} is already in GIMPLE form.
+That is, its operands are GIMPLE values and the function call needs no further
 simplification.  All the call flags in @code{call_expr} are copied over
 to the new @code{GIMPLE_CALL}.
 @end deftypefn
@@ -1528,10 +1536,12 @@ Set the conditional @code{COND_STMT} to be of the form 'if (1 == 1)'.
 @subsection @code{GIMPLE_DEBUG}
 @cindex @code{GIMPLE_DEBUG}
 @cindex @code{GIMPLE_DEBUG_BIND}
+@cindex @code{GIMPLE_DEBUG_BEGIN_STMT}
+@cindex @code{GIMPLE_DEBUG_INLINE_ENTRY}
 
 @deftypefn {GIMPLE function} gdebug *gimple_build_debug_bind (tree var, @
 tree value, gimple stmt)
-Build a @code{GIMPLE_DEBUG} statement with @code{GIMPLE_DEBUG_BIND} of
+Build a @code{GIMPLE_DEBUG} statement with @code{GIMPLE_DEBUG_BIND}
 @code{subcode}.  The effect of this statement is to tell debug
 information generation machinery that the value of user variable
 @code{var} is given by @code{value} at that point, and to remain with
@@ -1600,6 +1610,29 @@ that the variable becomes unbound.
 @deftypefn {GIMPLE function} bool gimple_debug_bind_has_value_p (gimple stmt)
 Return @code{TRUE} if @code{stmt} binds a user variable to a value,
 and @code{FALSE} if it unbinds the variable.
+@end deftypefn
+
+@deftypefn {GIMPLE function} gimple gimple_build_debug_begin_stmt (tree block, location_t location)
+Build a @code{GIMPLE_DEBUG} statement with
+@code{GIMPLE_DEBUG_BEGIN_STMT} @code{subcode}.  The effect of this
+statement is to tell debug information generation machinery that the
+user statement at the given @code{location} and @code{block} starts at
+the point at which the statement is inserted.  The intent is that side
+effects (e.g.@: variable bindings) of all prior user statements are
+observable, and that none of the side effects of subsequent user
+statements are.
+@end deftypefn
+
+@deftypefn {GIMPLE function} gimple gimple_build_debug_inline_entry (tree block, location_t location)
+Build a @code{GIMPLE_DEBUG} statement with
+@code{GIMPLE_DEBUG_INLINE_ENTRY} @code{subcode}.  The effect of this
+statement is to tell debug information generation machinery that a
+function call at @code{location} underwent inline substitution, that
+@code{block} is the enclosing lexical block created for the
+substitution, and that at the point of the program in which the stmt is
+inserted, all parameters for the inlined function are bound to the
+respective arguments, and none of the side effects of its stmts are
+observable.
 @end deftypefn
 
 @node @code{GIMPLE_EH_FILTER}
@@ -1931,11 +1964,10 @@ statements to be executed by just the master.
 
 @deftypefn {GIMPLE function} gimple gimple_build_omp_ordered (gimple_seq body)
 Build a @code{GIMPLE_OMP_ORDERED} statement.
-@end deftypefn
 
 @code{BODY} is the sequence of statements inside a loop that will
 executed in sequence.
-
+@end deftypefn
 
 @node @code{GIMPLE_OMP_PARALLEL}
 @subsection @code{GIMPLE_OMP_PARALLEL}
@@ -1944,12 +1976,12 @@ executed in sequence.
 @deftypefn {GIMPLE function} gomp_parallel *gimple_build_omp_parallel (@
 gimple_seq body, tree clauses, tree child_fn, tree data_arg)
 Build a @code{GIMPLE_OMP_PARALLEL} statement.
-@end deftypefn
 
 @code{BODY} is sequence of statements which are executed in parallel.
 @code{CLAUSES}, are the @code{OMP} parallel construct's clauses.  @code{CHILD_FN} is
 the function created for the parallel threads to execute.
 @code{DATA_ARG} are the shared data argument(s).
+@end deftypefn
 
 @deftypefn {GIMPLE function} bool gimple_omp_parallel_combined_p (gimple g)
 Return true if @code{OMP} parallel statement @code{G} has the
@@ -2043,9 +2075,9 @@ Return true if @code{OMP} return statement @code{G} has the
 
 @deftypefn {GIMPLE function} gimple gimple_build_omp_section (gimple_seq body)
 Build a @code{GIMPLE_OMP_SECTION} statement for a sections statement.
-@end deftypefn
 
 @code{BODY} is the sequence of statements in the section.
+@end deftypefn
 
 @deftypefn {GIMPLE function} bool gimple_omp_section_last_p (gimple g)
 Return true if @code{OMP} section statement @code{G} has the
@@ -2657,21 +2689,21 @@ modifying the file @code{gimple.def}, which contains all the GIMPLE
 codes.  Then you must add a corresponding gimple subclass
 located in @code{gimple.h}.  This in turn, will require you to add a
 corresponding @code{GTY} tag in @code{gsstruct.def}, and code to handle
-this tag in @code{gss_for_code} which is located in @code{gimple.c}.
+this tag in @code{gss_for_code} which is located in @code{gimple.cc}.
 
 In order for the garbage collector to know the size of the
 structure you created in @code{gimple.h}, you need to add a case to
 handle your new GIMPLE statement in @code{gimple_size} which is located
-in @code{gimple.c}.
+in @code{gimple.cc}.
 
 You will probably want to create a function to build the new
-gimple statement in @code{gimple.c}.  The function should be called
+gimple statement in @code{gimple.cc}.  The function should be called
 @code{gimple_build_@var{new-tuple-name}}, and should return the new tuple
 as a pointer to the appropriate gimple subclass.
 
 If your new statement requires accessors for any members or
 operands it may have, put simple inline accessors in
-@code{gimple.h} and any non-trivial accessors in @code{gimple.c} with a
+@code{gimple.h} and any non-trivial accessors in @code{gimple.cc} with a
 corresponding prototype in @code{gimple.h}.
 
 You should add the new statement subclass to the class hierarchy diagram

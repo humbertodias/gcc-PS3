@@ -1,5 +1,5 @@
 /* Command line option handling.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -24,8 +24,8 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Specifies how a switch's VAR_VALUE relates to its FLAG_VAR.  */
 enum cl_var_type {
-  /* The switch is enabled when FLAG_VAR is nonzero.  */
-  CLVC_BOOLEAN,
+  /* The switch is an integer value.  */
+  CLVC_INTEGER,
 
   /* The switch is enabled when FLAG_VAR == VAR_VALUE.  */
   CLVC_EQUAL,
@@ -35,6 +35,9 @@ enum cl_var_type {
 
   /* The switch is enabled when VAR_VALUE is set in FLAG_VAR.  */
   CLVC_BIT_SET,
+
+  /* The switch is enabled when FLAG_VAR is less than HOST_WIDE_INT_M1U.  */
+  CLVC_SIZE,
 
   /* The switch takes a string argument and FLAG_VAR points to that
      argument.  */
@@ -47,6 +50,18 @@ enum cl_var_type {
   /* The switch should be stored in the VEC pointed to by FLAG_VAR for
      later processing.  */
   CLVC_DEFER
+};
+
+/* Values for var_value member of CLVC_ENUM.  */
+enum cl_enum_var_value {
+  /* Enum without EnumSet or EnumBitSet.  */
+  CLEV_NORMAL,
+
+  /* EnumSet.  */
+  CLEV_SET,
+
+  /* EnumBitSet.  */
+  CLEV_BITSET
 };
 
 struct cl_option
@@ -70,7 +85,10 @@ struct cl_option
   unsigned short back_chain;
   /* Option length, not including initial '-'.  */
   unsigned char opt_len;
-  /* Next option in a sequence marked with Negative, or -1 if none.  */
+  /* Next option in a sequence marked with Negative, or -1 if none.
+     For a single option with both a negative and a positve form
+     (such as -Wall and -Wno-all), NEG_IDX is equal to the option's
+     own index (i.e., cl_options[IDX].neg_idx == IDX holds).  */
   int neg_index;
   /* CL_* flags for this option.  */
   unsigned int flags;
@@ -98,8 +116,8 @@ struct cl_option
   BOOL_BITFIELD cl_host_wide_int : 1;
   /* Argument should be converted to lowercase.  */
   BOOL_BITFIELD cl_tolower : 1;
-  /* Report argument with -fverbose-asm  */
-  BOOL_BITFIELD cl_report : 1;
+  /* Argument is an unsigned integer with an optional byte suffix.  */
+  BOOL_BITFIELD cl_byte_size: 1;
   /* Offset of field for this option in struct gcc_options, or
      (unsigned short) -1 if none.  */
   unsigned short flag_var_offset;
@@ -110,6 +128,18 @@ struct cl_option
   enum cl_var_type var_type;
   /* Value or bit-mask with which to set a field.  */
   HOST_WIDE_INT var_value;
+  /* Range info minimum, or -1.  */
+  int range_min;
+  /* Range info maximum, or -1.  */
+  int range_max;
+};
+
+struct cl_var
+{
+  /* Name of the variable.  */
+  const char *var_name;
+  /* Offset of field for this var in struct gcc_options.  */
+  unsigned short var_offset;
 };
 
 /* Records that the state of an option consists of SIZE bytes starting
@@ -122,6 +152,9 @@ struct cl_option_state {
 
 extern const struct cl_option cl_options[];
 extern const unsigned int cl_options_count;
+#ifdef ENABLE_PLUGIN
+extern const struct cl_var cl_vars[];
+#endif
 extern const char *const lang_names[];
 extern const unsigned int cl_lang_count;
 
@@ -149,6 +182,7 @@ extern const unsigned int cl_lang_count;
 /* Flags for an enumerated option argument.  */
 #define CL_ENUM_CANONICAL	(1 << 0) /* Canonical for this value.  */
 #define CL_ENUM_DRIVER_ONLY	(1 << 1) /* Only accepted in the driver.  */
+#define CL_ENUM_SET_SHIFT	2	 /* Shift for enum set.  */
 
 /* Structure describing an enumerated option argument.  */
 
@@ -200,10 +234,12 @@ extern const unsigned int cl_enums_count;
 #define CL_ERR_MISSING_ARG	(1 << 1) /* Argument required but missing.  */
 #define CL_ERR_WRONG_LANG	(1 << 2) /* Option for wrong language.  */
 #define CL_ERR_UINT_ARG		(1 << 3) /* Bad unsigned integer argument.  */
-#define CL_ERR_ENUM_ARG		(1 << 4) /* Bad enumerated argument.  */
-#define CL_ERR_NEGATIVE		(1 << 5) /* Negative form of option
+#define CL_ERR_INT_RANGE_ARG	(1 << 4) /* Bad unsigned integer argument.  */
+#define CL_ERR_ENUM_ARG		(1 << 5) /* Bad enumerated argument.  */
+#define CL_ERR_NEGATIVE		(1 << 6) /* Negative form of option
 					    not permitted (together
 					    with OPT_SPECIAL_unknown).  */
+#define CL_ERR_ENUM_SET_ARG	(1 << 7) /* Bad argument of enumerated set.  */
 
 /* Structure describing the result of decoding an option.  */
 
@@ -238,8 +274,13 @@ struct cl_decoded_option
 
   /* For a boolean option, 1 for the true case and 0 for the "no-"
      case.  For an unsigned integer option, the value of the
-     argument.  1 in all other cases.  */
-  int value;
+     argument.  For enum the value of the enumerator corresponding
+     to argument string.  1 in all other cases.  */
+  HOST_WIDE_INT value;
+
+  /* For EnumSet the value mask.  Variable should be changed to
+     value | (prev_value & ~mask).  */
+  HOST_WIDE_INT mask;
 
   /* Any flags describing errors detected in this option.  */
   int errors;
@@ -267,7 +308,8 @@ struct cl_option_handler_func
 		   const struct cl_decoded_option *decoded,
 		   unsigned int lang_mask, int kind, location_t loc,
 		   const struct cl_option_handlers *handlers,
-		   diagnostic_context *dc);
+		   diagnostic_context *dc,
+		   void (*target_option_override_hook) (void));
 
   /* The mask that must have some bit in common with the flags for the
      option for this particular handler to be used.  */
@@ -288,6 +330,9 @@ struct cl_option_handlers
      language.  */
   void (*wrong_lang_callback) (const struct cl_decoded_option *decoded,
 			       unsigned int lang_mask);
+
+  /* Target option override hook.  */
+  void (*target_option_override_hook) (void);
 
   /* The number of individual handlers.  */
   size_t num_handlers;
@@ -315,7 +360,7 @@ extern char *opts_concat (const char *first, ...);
 extern struct obstack opts_obstack;
 
 size_t find_opt (const char *input, unsigned int lang_mask);
-extern int integral_argument (const char *arg);
+extern HOST_WIDE_INT integral_argument (const char *arg, int * = NULL, bool = false);
 extern bool enum_value_to_arg (const struct cl_enum_arg *enum_args,
 			       const char **argp, int value,
 			       unsigned int lang_mask);
@@ -328,33 +373,37 @@ extern void init_options_once (void);
 extern void init_options_struct (struct gcc_options *opts,
 				 struct gcc_options *opts_set);
 extern void init_opts_obstack (void);
-extern void finalize_options_struct (struct gcc_options *opts);
 extern void decode_cmdline_options_to_array_default_mask (unsigned int argc,
 							  const char **argv, 
 							  struct cl_decoded_option **decoded_options,
 							  unsigned int *decoded_options_count);
-extern void set_default_handlers (struct cl_option_handlers *handlers);
+extern void set_default_handlers (struct cl_option_handlers *handlers,
+				  void (*target_option_override_hook) (void));
 extern void decode_options (struct gcc_options *opts,
 			    struct gcc_options *opts_set,
 			    struct cl_decoded_option *decoded_options,
 			    unsigned int decoded_options_count,
 			    location_t loc,
-			    diagnostic_context *dc);
-extern int option_enabled (int opt_idx, void *opts);
+			    diagnostic_context *dc,
+			    void (*target_option_override_hook) (void));
+extern int option_enabled (int opt_idx, unsigned lang_mask, void *opts);
+
 extern bool get_option_state (struct gcc_options *, int,
 			      struct cl_option_state *);
 extern void set_option (struct gcc_options *opts,
 			struct gcc_options *opts_set,
-			int opt_index, int value, const char *arg, int kind,
-			location_t loc, diagnostic_context *dc);
+			int opt_index, HOST_WIDE_INT value, const char *arg,
+			int kind, location_t loc, diagnostic_context *dc,
+			HOST_WIDE_INT = 0);
 extern void *option_flag_var (int opt_index, struct gcc_options *opts);
 bool handle_generated_option (struct gcc_options *opts,
 			      struct gcc_options *opts_set,
-			      size_t opt_index, const char *arg, int value,
+			      size_t opt_index, const char *arg,
+			      HOST_WIDE_INT value,
 			      unsigned int lang_mask, int kind, location_t loc,
 			      const struct cl_option_handlers *handlers,
 			      bool generated_p, diagnostic_context *dc);
-void generate_option (size_t opt_index, const char *arg, int value,
+void generate_option (size_t opt_index, const char *arg, HOST_WIDE_INT value,
 		      unsigned int lang_mask,
 		      struct cl_decoded_option *decoded);
 void generate_option_input_file (const char *file,
@@ -378,23 +427,31 @@ extern void print_ignored_options (void);
 extern void handle_common_deferred_options (void);
 unsigned int parse_sanitizer_options (const char *, location_t, int,
 				      unsigned int, int, bool);
+
+unsigned int parse_no_sanitize_attribute (char *value);
 extern bool common_handle_option (struct gcc_options *opts,
 				  struct gcc_options *opts_set,
 				  const struct cl_decoded_option *decoded,
 				  unsigned int lang_mask, int kind,
 				  location_t loc,
 				  const struct cl_option_handlers *handlers,
-				  diagnostic_context *dc);
+				  diagnostic_context *dc,
+				  void (*target_option_override_hook) (void));
 extern bool target_handle_option (struct gcc_options *opts,
 				  struct gcc_options *opts_set,
 				  const struct cl_decoded_option *decoded,
 				  unsigned int lang_mask, int kind,
 				  location_t loc,
 				  const struct cl_option_handlers *handlers,
-				  diagnostic_context *dc);
+				  diagnostic_context *dc,
+				  void (*target_option_override_hook) (void));
 extern void finish_options (struct gcc_options *opts,
 			    struct gcc_options *opts_set,
 			    location_t loc);
+extern void diagnose_options (gcc_options *opts, gcc_options *opts_set,
+			      location_t loc);
+extern void print_help (struct gcc_options *opts, unsigned int lang_mask, const
+			char *help_option_argument);
 extern void default_options_optimization (struct gcc_options *opts,
 					  struct gcc_options *opts_set,
 					  struct cl_decoded_option *decoded_options,
@@ -407,7 +464,8 @@ extern void set_struct_debug_option (struct gcc_options *opts,
 				     location_t loc,
 				     const char *value);
 extern bool opt_enum_arg_to_value (size_t opt_index, const char *arg,
-				   int *value, unsigned int lang_mask);
+				   int *value,
+				   unsigned int lang_mask);
 
 extern const struct sanitizer_opts_s
 {
@@ -415,7 +473,16 @@ extern const struct sanitizer_opts_s
   unsigned int flag;
   size_t len;
   bool can_recover;
+  bool can_trap;
 } sanitizer_opts[];
+
+extern const struct zero_call_used_regs_opts_s
+{
+  const char *const name;
+  unsigned int flag;
+} zero_call_used_regs_opts[];
+
+extern vec<const char *> help_option_arguments;
 
 extern void add_misspelling_candidates (auto_vec<char *> *candidates,
 					const struct cl_option *option,
@@ -423,5 +490,77 @@ extern void add_misspelling_candidates (auto_vec<char *> *candidates,
 extern const char *candidates_list_and_hint (const char *arg, char *&str,
 					     const auto_vec <const char *> &
 					     candidates);
+
+
+extern bool parse_and_check_align_values (const char *flag,
+					  const char *name,
+					  auto_vec<unsigned> &result_values,
+					  bool report_error,
+					  location_t loc);
+
+extern void parse_and_check_patch_area (const char *arg, bool report_error,
+					HOST_WIDE_INT *patch_area_size,
+					HOST_WIDE_INT *patch_area_start);
+
+extern void parse_options_from_collect_gcc_options (const char *, obstack *,
+						    int *);
+
+extern void prepend_xassembler_to_collect_as_options (const char *, obstack *);
+
+extern char *gen_command_line_string (cl_decoded_option *options,
+				      unsigned int options_count);
+extern char *gen_producer_string (const char *language_string,
+				  cl_decoded_option *options,
+				  unsigned int options_count);
+
+/* Set OPTION in OPTS to VALUE if the option is not set in OPTS_SET.  */
+
+#define SET_OPTION_IF_UNSET(OPTS, OPTS_SET, OPTION, VALUE) \
+  do \
+  { \
+    if (!(OPTS_SET)->x_ ## OPTION) \
+      (OPTS)->x_ ## OPTION = VALUE; \
+  } \
+  while (false)
+
+/* Return true if OPTION is set by user in global options.  */
+
+#define OPTION_SET_P(OPTION) global_options_set.x_ ## OPTION
+
+/* Find all the switches given to us
+   and make a vector describing them.
+   The elements of the vector are strings, one per switch given.
+   If a switch uses following arguments, then the `part1' field
+   is the switch itself and the `args' field
+   is a null-terminated vector containing the following arguments.
+   Bits in the `live_cond' field are:
+   SWITCH_LIVE to indicate this switch is true in a conditional spec.
+   SWITCH_FALSE to indicate this switch is overridden by a later switch.
+   SWITCH_IGNORE to indicate this switch should be ignored (used in %<S).
+   SWITCH_IGNORE_PERMANENTLY to indicate this switch should be ignored.
+   SWITCH_KEEP_FOR_GCC to indicate that this switch, otherwise ignored,
+   should be included in COLLECT_GCC_OPTIONS.
+   in all do_spec calls afterwards.  Used for %<S from self specs.
+   The `known' field describes whether this is an internal switch.
+   The `validated' field describes whether any spec has looked at this switch;
+   if it remains false at the end of the run, the switch must be meaningless.
+   The `ordering' field is used to temporarily mark switches that have to be
+   kept in a specific order.  */
+
+#define SWITCH_LIVE    			(1 << 0)
+#define SWITCH_FALSE   			(1 << 1)
+#define SWITCH_IGNORE			(1 << 2)
+#define SWITCH_IGNORE_PERMANENTLY	(1 << 3)
+#define SWITCH_KEEP_FOR_GCC		(1 << 4)
+
+struct switchstr
+{
+  const char *part1;
+  const char **args;
+  unsigned int live_cond;
+  bool known;
+  bool validated;
+  bool ordering;
+};
 
 #endif

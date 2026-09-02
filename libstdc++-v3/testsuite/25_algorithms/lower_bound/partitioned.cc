@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2017 Free Software Foundation, Inc.
+// Copyright (C) 2016-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -17,7 +17,7 @@
 
 // { dg-options "-D_GLIBCXX_DEBUG" }
 // { dg-do run { target c++11 } }
-// { dg-skip-if "" { *-*-* } { "-D_GLIBCXX_PROFILE" } }
+// { dg-skip-if "" { *-*-* } { "-D_GLIBCXX_PARALLEL" } }
 
 #include <algorithm>
 #include <functional>
@@ -84,10 +84,10 @@ test02()
 
   auto part3 = std::lower_bound(c.begin(), c.end(), Y{1.0});
   VERIFY( part3 != c.end() );
-  VERIFY( part3->val == 1.2 );
+  VERIFY( part3->val == seq[1].val );
   auto part4 = std::lower_bound(c.begin(), c.end(), Y{1.0}, std::less<Y>{});
   VERIFY( part4 != c.end() );
-  VERIFY( part4->val == 1.2 );
+  VERIFY( part4->val == seq[1].val );
 }
 
 int

@@ -1,5 +1,6 @@
 /* { dg-do run { target openacc_nvidia_accel_selected } } */
 /* { dg-additional-options "-lcuda" } */
+/* { dg-require-effective-target openacc_cuda } */
 
 #include <stdio.h>
 #include <unistd.h>
@@ -100,6 +101,13 @@ main (int argc, char **argv)
   if (acc_async_test (0) != 0)
     {
       fprintf (stderr, "asynchronous operation not running\n");
+      abort ();
+    }
+
+  /* Test unseen async-argument.  */
+  if (acc_async_test (1) != 1)
+    {
+      fprintf (stderr, "acc_async_test failed on unseen async-argument\n");
       abort ();
     }
 

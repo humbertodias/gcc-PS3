@@ -1,5 +1,5 @@
 ;; microblaze.md -- Machine description for Xilinx MicroBlaze processors.
-;; Copyright (C) 2009-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 ;; Contributed by Michael Eager <eager@eagercon.com>.
 
@@ -41,6 +41,8 @@
   (UNSPEC_CMP		104)    ;; signed compare
   (UNSPEC_CMPU		105)    ;; unsigned compare
   (UNSPEC_TLS           106)    ;; jump table
+  (UNSPEC_SET_TEXT      107)    ;; set text start
+  (UNSPEC_TEXT          108)    ;; data text relative
 ])
 
 (define_c_enum "unspec" [
@@ -122,10 +124,10 @@
      DEFINE_AUTOMATON).
 
      All define_reservations and define_cpu_units should have unique
-     names which can not be "nothing".
+     names which cannot be "nothing".
 
    o (exclusion_set string string) means that each CPU function unit
-     in the first string can not be reserved simultaneously with each
+     in the first string cannot be reserved simultaneously with each
      unit whose name is in the second string and vise versa.  CPU
      units in the string are separated by commas. For example, it is
      useful for description CPU with fully pipelined floating point
@@ -133,18 +135,18 @@
      floating point insns or only double floating point insns.
 
    o (presence_set string string) means that each CPU function unit in
-     the first string can not be reserved unless at least one of units
+     the first string cannot be reserved unless at least one of units
      whose names are in the second string is reserved.  This is an
      asymmetric relation.  CPU units in the string are separated by
      commas.  For example, it is useful for description that slot1 is
      reserved after slot0 reservation for a VLIW processor.
 
    o (absence_set string string) means that each CPU function unit in
-     the first string can not be reserved only if each unit whose name
+     the first string cannot be reserved only if each unit whose name
      is in the second string is not reserved.  This is an asymmetric
      relation (actually exclusion set is analogous to this one but it
      is symmetric).  CPU units in the string are separated by commas.
-     For example, it is useful for description that slot0 can not be
+     For example, it is useful for description that slot0 cannot be
      reserved after slot1 or slot2 reservation for a VLIW processor.
 
    o (define_bypass number out_insn_names in_insn_names) names bypass with
@@ -167,7 +169,7 @@
      case, you describe common part and use one its name (the 1st
      parameter) in regular expression in define_insn_reservation.  All
      define_reservations, define results and define_cpu_units should
-     have unique names which can not be "nothing".
+     have unique names which cannot be "nothing".
 
    o (define_insn_reservation name default_latency condition regexpr)
      describes reservation of cpu functional units (the 3nd operand)
@@ -1136,13 +1138,13 @@
   (set_attr "mode"	"QI")
   (set_attr "length"	"4,4,8,4,8,4,8")])
 
-;; Block moves, see microblaze.c for more details.
+;; Block moves, see microblaze.cc for more details.
 ;; Argument 0 is the destination
 ;; Argument 1 is the source
 ;; Argument 2 is the length
 ;; Argument 3 is the alignment
  
-(define_expand "movmemsi"
+(define_expand "cpymemsi"
   [(parallel [(set (match_operand:BLK 0 "general_operand")
 		   (match_operand:BLK 1 "general_operand"))
 	      (use (match_operand:SI 2 ""))
@@ -1848,7 +1850,7 @@
   {
     gcc_assert (GET_MODE (operands[0]) == Pmode);
 
-    if (!flag_pic)
+    if (!flag_pic || TARGET_PIC_DATA_TEXT_REL)
       emit_jump_insn (gen_tablejump_internal1 (operands[0], operands[1]));
     else
       emit_jump_insn (gen_tablejump_internal3 (operands[0], operands[1]));
@@ -2053,7 +2055,8 @@
   {
     rtx addr = XEXP (operands[0], 0);
 
-    if (flag_pic == 2 && GET_CODE (addr) == SYMBOL_REF 
+    if (flag_pic == 2 && !TARGET_PIC_DATA_TEXT_REL
+    && GET_CODE (addr) == SYMBOL_REF
 	&& !SYMBOL_REF_LOCAL_P (addr)) 
       {
         rtx temp = gen_rtx_UNSPEC (Pmode, gen_rtvec (1, addr), UNSPEC_PLT);
@@ -2104,8 +2107,8 @@
   (use (reg:SI R_GOT))]
   "flag_pic"
   {
-    register rtx target2 = gen_rtx_REG (Pmode, 
-			      GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
+    rtx target2
+      = gen_rtx_REG (Pmode, GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
     gen_rtx_CLOBBER (VOIDmode, target2);
     return "brlid\tr15,%0\;%#";
   }
@@ -2119,9 +2122,9 @@
   (clobber (reg:SI R_SR))]
   ""
   {
-    register rtx target = operands[0];
-    register rtx target2 = gen_rtx_REG (Pmode,
-			      GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
+    rtx target = operands[0];
+    rtx target2
+      = gen_rtx_REG (Pmode, GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
     if (GET_CODE (target) == SYMBOL_REF) {
         if (microblaze_break_function_p (SYMBOL_REF_DECL (target))) {
             gen_rtx_CLOBBER (VOIDmode, target2);
@@ -2144,7 +2147,7 @@
   (set_attr "mode"	"none")
   (set_attr "length"	"4")])
 
-;; calls.c now passes a fourth argument, make saber happy
+;; calls.cc now passes a fourth argument, make saber happy
 
 (define_expand "call_value"
   [(parallel [(set (match_operand 0 "register_operand" "=d")
@@ -2156,7 +2159,8 @@
   {
     rtx addr = XEXP (operands[1], 0);
 
-    if (flag_pic == 2 && GET_CODE (addr) == SYMBOL_REF
+    if (flag_pic == 2 && !TARGET_PIC_DATA_TEXT_REL
+    && GET_CODE (addr) == SYMBOL_REF
 	&& !SYMBOL_REF_LOCAL_P (addr)) 
       {
         rtx temp = gen_rtx_UNSPEC (Pmode, gen_rtvec (1, addr), UNSPEC_PLT);
@@ -2212,7 +2216,8 @@
    (use (match_operand:SI 4 "register_operand"))]
   "flag_pic"
   { 
-    register rtx target2=gen_rtx_REG (Pmode,GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
+    rtx target2
+      = gen_rtx_REG (Pmode,GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
 
     gen_rtx_CLOBBER (VOIDmode,target2);
     return "brlid\tr15,%1\;%#";
@@ -2228,8 +2233,9 @@
    (clobber (match_operand:SI 3 "register_operand" "=d"))]
   ""
   { 
-    register rtx target = operands[1];
-    register rtx target2=gen_rtx_REG (Pmode,GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
+    rtx target = operands[1];
+    rtx target2
+      = gen_rtx_REG (Pmode,GP_REG_FIRST + MB_ABI_SUB_RETURN_ADDR_REGNUM);
 
     if (GET_CODE (target) == SYMBOL_REF)
     {
@@ -2299,7 +2305,7 @@
 (define_insn "trap"
   [(trap_if (const_int 1) (const_int 0))]
   ""
-  "brki\tr0,-1"
+  "bri\t0"
  [(set_attr "type" "trap")]
 )
 
@@ -2312,6 +2318,18 @@
   "mfs\t%0,rpc\n\taddik\t%0,%0,_GLOBAL_OFFSET_TABLE_+8"
   [(set_attr "type" "multi")
    (set_attr "length" "12")])
+
+;; The insn to set TEXT.
+;; The hardcoded number "8" accounts for $pc difference
+;; between "mfs" and "addik" instructions.
+(define_insn "set_text"
+  [(set (match_operand:SI 0 "register_operand" "=r")
+    (unspec:SI[(const_int 0)] UNSPEC_SET_TEXT))]
+  ""
+  "mfs\t%0,rpc\n\taddik\t%0,%0,8@TXTPCREL"
+  [(set_attr "type" "multi")
+   (set_attr "length" "12")])
+
 
 ;; This insn gives the count of leading number of zeros for the second
 ;; operand and stores the result in first operand.

@@ -1,6 +1,6 @@
 // Allocator traits -*- C++ -*-
 
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,12 +31,7 @@
 
 #pragma GCC system_header
 
-#if __cplusplus >= 201103L
-# include <bits/move.h>
 # include <bits/alloc_traits.h>
-#else
-# include <bits/allocator.h>  // for __alloc_swap
-#endif
 
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
@@ -46,7 +41,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
  * @brief  Uniform interface to C++98 and C++11 allocators.
  * @ingroup allocators
 */
-template<typename _Alloc>
+template<typename _Alloc, typename = typename _Alloc::value_type>
   struct __alloc_traits
 #if __cplusplus >= 201103L
   : std::allocator_traits<_Alloc>
@@ -78,44 +73,58 @@ template<typename _Alloc>
   public:
     // overload construct for non-standard pointer types
     template<typename _Ptr, typename... _Args>
-      static typename std::enable_if<__is_custom_pointer<_Ptr>::value>::type
+      [[__gnu__::__always_inline__]]
+      static _GLIBCXX14_CONSTEXPR
+      std::__enable_if_t<__is_custom_pointer<_Ptr>::value>
       construct(_Alloc& __a, _Ptr __p, _Args&&... __args)
+      noexcept(noexcept(_Base_type::construct(__a, std::__to_address(__p),
+					      std::forward<_Args>(__args)...)))
       {
-	_Base_type::construct(__a, std::addressof(*__p),
+	_Base_type::construct(__a, std::__to_address(__p),
 			      std::forward<_Args>(__args)...);
       }
 
     // overload destroy for non-standard pointer types
     template<typename _Ptr>
-      static typename std::enable_if<__is_custom_pointer<_Ptr>::value>::type
+      [[__gnu__::__always_inline__]]
+      static _GLIBCXX14_CONSTEXPR
+      std::__enable_if_t<__is_custom_pointer<_Ptr>::value>
       destroy(_Alloc& __a, _Ptr __p)
-      { _Base_type::destroy(__a, std::addressof(*__p)); }
+      noexcept(noexcept(_Base_type::destroy(__a, std::__to_address(__p))))
+      { _Base_type::destroy(__a, std::__to_address(__p)); }
 
-    static _Alloc _S_select_on_copy(const _Alloc& __a)
+    [[__gnu__::__always_inline__]]
+    static constexpr _Alloc _S_select_on_copy(const _Alloc& __a)
     { return _Base_type::select_on_container_copy_construction(__a); }
 
-    static void _S_on_swap(_Alloc& __a, _Alloc& __b)
+    [[__gnu__::__always_inline__]]
+    static _GLIBCXX14_CONSTEXPR void _S_on_swap(_Alloc& __a, _Alloc& __b)
     { std::__alloc_on_swap(__a, __b); }
 
+    [[__gnu__::__always_inline__]]
     static constexpr bool _S_propagate_on_copy_assign()
     { return _Base_type::propagate_on_container_copy_assignment::value; }
 
+    [[__gnu__::__always_inline__]]
     static constexpr bool _S_propagate_on_move_assign()
     { return _Base_type::propagate_on_container_move_assignment::value; }
 
+    [[__gnu__::__always_inline__]]
     static constexpr bool _S_propagate_on_swap()
     { return _Base_type::propagate_on_container_swap::value; }
 
+    [[__gnu__::__always_inline__]]
     static constexpr bool _S_always_equal()
     { return _Base_type::is_always_equal::value; }
 
+    __attribute__((__always_inline__))
     static constexpr bool _S_nothrow_move()
     { return _S_propagate_on_move_assign() || _S_always_equal(); }
 
     template<typename _Tp>
       struct rebind
       { typedef typename _Base_type::template rebind_alloc<_Tp> other; };
-#else
+#else // ! C++11
 
     typedef typename _Alloc::pointer                pointer;
     typedef typename _Alloc::const_pointer          const_pointer;
@@ -125,25 +134,38 @@ template<typename _Alloc>
     typedef typename _Alloc::size_type              size_type;
     typedef typename _Alloc::difference_type        difference_type;
 
+    __attribute__((__always_inline__)) _GLIBCXX_NODISCARD
     static pointer
     allocate(_Alloc& __a, size_type __n)
     { return __a.allocate(__n); }
 
+    template<typename _Hint>
+      __attribute__((__always_inline__)) _GLIBCXX_NODISCARD
+      static pointer
+      allocate(_Alloc& __a, size_type __n, _Hint __hint)
+      { return __a.allocate(__n, __hint); }
+
+    __attribute__((__always_inline__))
     static void deallocate(_Alloc& __a, pointer __p, size_type __n)
     { __a.deallocate(__p, __n); }
 
     template<typename _Tp>
+      __attribute__((__always_inline__))
       static void construct(_Alloc& __a, pointer __p, const _Tp& __arg)
       { __a.construct(__p, __arg); }
 
+    __attribute__((__always_inline__))
     static void destroy(_Alloc& __a, pointer __p)
     { __a.destroy(__p); }
 
+    __attribute__((__always_inline__))
     static size_type max_size(const _Alloc& __a)
     { return __a.max_size(); }
 
+    __attribute__((__always_inline__))
     static const _Alloc& _S_select_on_copy(const _Alloc& __a) { return __a; }
 
+    __attribute__((__always_inline__))
     static void _S_on_swap(_Alloc& __a, _Alloc& __b)
     {
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
@@ -154,7 +176,7 @@ template<typename _Alloc>
     template<typename _Tp>
       struct rebind
       { typedef typename _Alloc::template rebind<_Tp>::other other; };
-#endif
+#endif // C++11
   };
 
 _GLIBCXX_END_NAMESPACE_VERSION

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2015, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -51,13 +51,7 @@ package Sem_Eval is
 
    --    Is_Static_Expression
 
-   --      This flag is set on any expression that is static according to the
-   --      rules in (RM 4.9(3-32)). This flag should be tested during testing
-   --      of legality of parts of a larger static expression. For all other
-   --      contexts that require static expressions, use the separate predicate
-   --      Is_OK_Static_Expression, since an expression that meets the RM 4.9
-   --      requirements, but raises a constraint error when evaluated in a non-
-   --      static context does not meet the legality requirements.
+   --      True for static expressions, as defined in RM-4.9.
 
    --    Raises_Constraint_Error
 
@@ -68,30 +62,27 @@ package Sem_Eval is
    --      (i.e. the flag is accurate for static expressions, and conservative
    --      for non-static expressions.
 
-   --  If a static expression does not raise constraint error, then it will
-   --  have the flag Raises_Constraint_Error flag False, and the expression
-   --  must be computed at compile time, which means that it has the form of
-   --  either a literal, or a constant that is itself (recursively) either a
-   --  literal or a constant.
+   --  See also Is_OK_Static_Expression, which is True for static
+   --  expressions that do not raise Constraint_Error. This is used in most
+   --  legality checks, because static expressions that raise Constraint_Error
+   --  are usually illegal.
 
-   --  The above rules must be followed exactly in order for legality checks to
-   --  be accurate. For subexpressions that are not static according to the RM
-   --  definition, they are sometimes folded anyway, but of course in this case
-   --  Is_Static_Expression is not set.
+   --  See also Compile_Time_Known_Value, which is True for an expression whose
+   --  value is known at compile time. In this case, the expression is folded
+   --  to a literal or to a constant that is itself (recursively) either a
+   --  literal or a constant
+
+   --  Is_[OK_]Static_Expression are used for legality checks, whereas
+   --  Compile_Time_Known_Value is used for optimization purposes.
 
    --  When we are analyzing and evaluating static expressions, we propagate
-   --  both flags accurately. Usually if a subexpression raises a constraint
-   --  error, then so will its parent expression, and Raise_Constraint_Error
-   --  will be propagated to this parent. The exception is conditional cases
-   --  like (True or else 1/0 = 0) which results in an expresion that has the
+   --  both flags. Usually if a subexpression raises a Constraint_Error, then
+   --  so will its parent expression, and Raise_Constraint_Error will be
+   --  propagated to this parent. The exception is conditional cases like
+   --  (True or else 1/0 = 0), which results in an expression that has the
    --  Is_Static_Expression flag True, and Raises_Constraint_Error False. Even
    --  though 1/0 would raise an exception, the right operand is never actually
    --  executed, so the expression as a whole does not raise CE.
-
-   --  For constructs in the language where static expressions are part of the
-   --  required semantics, we need an expression that meets the 4.9 rules and
-   --  does not raise CE. So nearly everywhere, callers should call function
-   --  Is_OK_Static_Expression rather than Is_Static_Expression.
 
    --  Finally, the case of static predicates. These are applied only to entire
    --  expressions, not to subexpressions, so we do not have the case of having
@@ -122,7 +113,7 @@ package Sem_Eval is
    --  The expression 'C' is not static in the technical RM sense, but for many
    --  simple record types, the size is in fact known at compile time. When we
    --  are trying to perform compile time constant folding (for instance for
-   --  expressions like C + 1, Is_Static_Expression or Is_OK_Static_Expression
+   --  expressions like C + 1), Is_Static_Expression or Is_OK_Static_Expression
    --  are not the right functions to test if folding is possible. Instead, we
    --  use Compile_Time_Known_Value. All static expressions that do not raise
    --  constraint error (i.e. those for which Is_OK_Static_Expression is true)
@@ -134,15 +125,18 @@ package Sem_Eval is
    -----------------
 
    procedure Check_Expression_Against_Static_Predicate
-     (Expr : Node_Id;
-      Typ  : Entity_Id);
+     (Expr                    : Node_Id;
+      Typ                     : Entity_Id;
+      Static_Failure_Is_Error : Boolean := False);
    --  Determine whether an arbitrary expression satisfies the static predicate
    --  of a type. The routine does nothing if Expr is not known at compile time
-   --  or Typ lacks a static predicate, otherwise it may emit a warning if the
-   --  expression is prohibited by the predicate. If the expression is a static
-   --  expression and it fails a predicate that was not explicitly stated to be
-   --  a dynamic predicate, then an additional warning is given, and the flag
-   --  Is_Static_Expression is reset on Expr.
+   --  or Typ lacks a static predicate; otherwise it may emit a warning if the
+   --  expression is prohibited by the predicate, or if Static_Failure_Is_Error
+   --  is True then an error will be flagged. If the expression is a static
+   --  expression, it fails a predicate that was not explicitly stated to be
+   --  a dynamic predicate, and Static_Failure_Is_Error is False, then an
+   --  additional warning is given, and the flag Is_Static_Expression is reset
+   --  on Expr.
 
    procedure Check_Non_Static_Context (N : Node_Id);
    --  Deals with the special check required for a static expression that
@@ -155,10 +149,9 @@ package Sem_Eval is
    --
    --  Note: most cases of non-static context checks are handled within
    --  Sem_Eval itself, including all cases of expressions at the outer level
-   --  (i.e. those that are not a subexpression). Currently the only outside
-   --  customer for this procedure is Sem_Attr (because Eval_Attribute is
-   --  there). There is also one special case arising from ranges (see body of
-   --  Resolve_Range).
+   --  (i.e. those that are not a subexpression). The outside customers for
+   --  this procedure are Sem_Aggr, Sem_Attr (because Eval_Attribute is there)
+   --  and Sem_Res (for a special case arising from ranges, see Resolve_Range).
    --
    --  Note: this procedure is also called by GNATprove on real literals
    --  that are not sub-expressions of static expressions, to convert them to
@@ -170,6 +163,14 @@ package Sem_Eval is
    --  case, the situation is already dealt with, and the call has no effect.
    --  In the former case, if the target type, Ttyp is constrained, then a
    --  check is made to see if the string literal is of appropriate length.
+
+   function Checking_Potentially_Static_Expression return Boolean;
+   --  Returns True if the checking for potentially static expressions is
+   --  enabled; otherwise returns False.
+
+   procedure Set_Checking_Potentially_Static_Expression (Value : Boolean);
+   --  Enables checking for potentially static expressions if Value is True,
+   --  and disables such checking if Value is False.
 
    type Compare_Result is (LT, LE, EQ, GT, GE, NE, Unknown);
    subtype Compare_GE is Compare_Result range EQ .. GE;
@@ -233,14 +234,7 @@ package Sem_Eval is
    --  efficient with compile time known values, e.g. range analysis for the
    --  purpose of removing checks is more effective if we know precise bounds.
 
-   function Compile_Time_Known_Value_Or_Aggr (Op : Node_Id) return Boolean;
-   --  Similar to Compile_Time_Known_Value, but also returns True if the value
-   --  is a compile-time-known aggregate, i.e. an aggregate all of whose
-   --  constituent expressions are either compile-time-known values (based on
-   --  calling Compile_Time_Known_Value) or compile-time-known aggregates.
-   --  Note that the aggregate could still involve run-time checks that might
-   --  fail (such as for subtype checks in component associations), but the
-   --  evaluation of the expressions themselves will not raise an exception.
+   --  WARNING: There is a matching C declaration of this subprogram in fe.h
 
    function CRT_Safe_Compile_Time_Known_Value (Op : Node_Id) return Boolean;
    --  In the case of configurable run-times, there may be an issue calling
@@ -283,7 +277,9 @@ package Sem_Eval is
    --  or character literals. In the latter two cases, the value returned is
    --  the Pos value in the relevant enumeration type. It can also be used for
    --  fixed-point values, in which case it returns the corresponding integer
-   --  value. It cannot be used for floating-point values.
+   --  value, but it cannot be used for floating-point values. Finally, it can
+   --  also be used for the Null access value, as well as for the result of an
+   --  unchecked conversion of the aforementioned handled values.
 
    function Expr_Value_E (N : Node_Id) return Entity_Id;
    --  Returns the folded value of the expression. This function is called in
@@ -324,6 +320,7 @@ package Sem_Eval is
    procedure Eval_Op_Not                 (N : Node_Id);
    procedure Eval_Real_Literal           (N : Node_Id);
    procedure Eval_Relational_Op          (N : Node_Id);
+   procedure Eval_Selected_Component     (N : Node_Id);
    procedure Eval_Shift                  (N : Node_Id);
    procedure Eval_Short_Circuit          (N : Node_Id);
    procedure Eval_Slice                  (N : Node_Id);
@@ -380,6 +377,10 @@ package Sem_Eval is
    --  known at compile time but not static, then the result is not static.
    --  The call has no effect if Raises_Constraint_Error (N) is True, since
    --  there is no point in folding if we have an error.
+
+   procedure Fold (N : Node_Id);
+   --  Rewrite N with the relevant value if Compile_Time_Known_Value (N) is
+   --  True, otherwise a no-op.
 
    function Is_In_Range
      (N            : Node_Id;
@@ -476,16 +477,29 @@ package Sem_Eval is
    --  it cannot be determined at compile time. Flag Fixed_Int is used as in
    --  routine Is_In_Range above.
 
+   function Machine_Number
+     (Typ : Entity_Id;
+      Val : Ureal;
+      N   : Node_Id) return Ureal;
+   --  Return the machine number of Typ corresponding to the specified Val as
+   --  per RM 4.9(38/2). N is a node only used to post warnings.
+
    function Not_Null_Range (Lo : Node_Id; Hi : Node_Id) return Boolean;
    --  Returns True if it can guarantee that Lo .. Hi is not a null range. If
    --  it cannot (because the value of Lo or Hi is not known at compile time)
    --  then it returns False.
 
+   function Predicates_Compatible (T1, T2 : Entity_Id) return Boolean;
+   --  In Ada 2012, subtypes are statically compatible if the predicates are
+   --  compatible as well. This function performs the required check that
+   --  predicates are compatible. Split from Subtypes_Statically_Compatible
+   --  so that it can be used in specializing error messages.
+
    function Predicates_Match (T1, T2 : Entity_Id) return Boolean;
-   --  In Ada 2012, subtypes statically match if their static predicates
-   --  match as well. This function performs the required check that
-   --  predicates match. Separated out from Subtypes_Statically_Match so
-   --  that it can be used in specializing error messages.
+   --  In Ada 2012, subtypes statically match if their predicates match as
+   --  as well. This function performs the required check that predicates
+   --  match. Separated out from Subtypes_Statically_Match so that it can
+   --  be used in specializing error messages.
 
    function Subtypes_Statically_Compatible
      (T1                      : Entity_Id;
@@ -508,6 +522,16 @@ package Sem_Eval is
    --  except when testing a generic actual T1 against an ancestor T2 in a
    --  formal derived type association (indicated by Formal_Derived_Matching).
 
+   procedure Test_Comparison
+     (Op           : Node_Id;
+      Assume_Valid : Boolean;
+      True_Result  : out Boolean;
+      False_Result : out Boolean);
+   --  Determine the outcome of evaluating comparison operator Op using routine
+   --  Compile_Time_Compare. Assume_Valid should be set when the operands are
+   --  to be assumed valid. Flags True_Result and False_Result are set when the
+   --  comparison evaluates to True or False respectively.
+
    procedure Why_Not_Static (Expr : Node_Id);
    --  This procedure may be called after generating an error message that
    --  complains that something is non-static. If it finds good reasons, it
@@ -529,8 +553,7 @@ package Sem_Eval is
    --  messages must always point to the same location as the parent message.
 
    procedure Initialize;
-   --  Initializes the internal data structures. Must be called before each
-   --  separate main program unit (e.g. in a GNSA/ASIS context).
+   --  Initializes the internal data structures
 
 private
    --  The Eval routines are all marked inline, since they are called once
@@ -549,5 +572,6 @@ private
    pragma Inline (Eval_Unchecked_Conversion);
 
    pragma Inline (Is_OK_Static_Expression);
+   pragma Inline (Machine_Number);
 
 end Sem_Eval;

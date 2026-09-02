@@ -1,5 +1,5 @@
-/* Header file for modules that link with gcc.c
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+/* Header file for modules that link with gcc.cc
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -45,21 +45,20 @@ class driver
   void putenv_COLLECT_GCC (const char *argv0) const;
   void maybe_putenv_COLLECT_LTO_WRAPPER () const;
   void maybe_putenv_OFFLOAD_TARGETS () const;
-  void build_option_suggestions (void);
-  const char *suggest_option (const char *bad_opt);
   void handle_unrecognized_options ();
   int maybe_print_and_exit () const;
   bool prepare_infiles ();
   void do_spec_on_infiles () const;
   void maybe_run_linker (const char *argv0) const;
   void final_actions () const;
+  void detect_jobserver () const;
   int get_exit_code () const;
 
  private:
   char *explicit_link_files;
   struct cl_decoded_option *decoded_options;
   unsigned int decoded_options_count;
-  auto_vec <char *> *m_option_suggestions;
+  option_proposer m_option_proposer;
 };
 
 /* The mapping of a spec function name to the C function that
@@ -70,13 +69,12 @@ struct spec_function
   const char *(*func) (int, const char **);
 };
 
-/* These are exported by gcc.c.  */
+/* These are exported by gcc.cc.  */
 extern int do_spec (const char *);
 extern void record_temp_file (const char *, int, int);
-extern void pfatal_with_name (const char *) ATTRIBUTE_NORETURN;
 extern void set_input (const char *);
 
-/* Spec files linked with gcc.c must provide definitions for these.  */
+/* Spec files linked with gcc.cc must provide definitions for these.  */
 
 /* Called before processing to change/add/remove arguments.  */
 extern void lang_specific_driver (struct cl_decoded_option **,
