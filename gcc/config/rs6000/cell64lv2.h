@@ -60,7 +60,6 @@ extern int dot_symbols;
 #undef TARGET_KEEP_LEAF_WHEN_PROFILED
 #define TARGET_KEEP_LEAF_WHEN_PROFILED rs6000_keep_leaf_when_profiled
 
-#define TARGET_USES_LINUX64_OPT 1
 #ifdef HAVE_LD_LARGE_TOC
 #undef TARGET_CMODEL
 #define TARGET_CMODEL rs6000_current_cmodel
