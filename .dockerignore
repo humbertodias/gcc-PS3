@@ -1,0 +1,28 @@
+.git
+.build
+.github
+**/.DS_Store
+
+# Drop DejaGnu trees, but keep gcc/testsuite/selftests: all.cross runs
+# cc1 with -fself-test=$(srcdir)/testsuite/selftests.
+gcc/testsuite/**
+!gcc/testsuite/selftests/
+!gcc/testsuite/selftests/**
+
+libgo
+gcc/go
+gotools
+gcc/ada
+libada
+gnattools
+gcc/fortran
+libgfortran
+# gcc/d is required: genhooks.o always depends on d/d-target.def.
+libphobos
+gcc/objc
+gcc/objcp
+libobjc
+gcc/jit
+gcc/m2
+libgm2
+libffi

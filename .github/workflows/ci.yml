@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docker:
+    name: linux-docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: gcc-ps3-ppu:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        run: |
+          docker run --rm gcc-ps3-ppu:ci powerpc64-ps3-elf-gcc -dumpmachine
+          docker run --rm gcc-ps3-ppu:ci powerpc64-ps3-elf-gcc -dumpversion
+
+  macos:
+    name: macos-${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - macos-26
+          - macos-26-intel
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Homebrew packages
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ENV_HINTS: 1
+        run: |
+          eval "$(brew shellenv)"
+          brew install \
+            autoconf automake gmp mpfr libmpc libelf wget \
+            make pkg-config texinfo
+
+      - name: Cache downloads
+        uses: actions/cache@v5
+        with:
+          path: .build/archives
+          key: ppu-archives-${{ hashFiles('ci/build-ppu.sh') }}
+
+      - name: Show host GCC version
+        shell: bash
+        run: |
+          echo "which gcc: $(command -v gcc || true)"
+          echo "which g++: $(command -v g++ || true)"
+          echo "which cc:  $(command -v cc || true)"
+          echo "----- gcc --version -----"
+          gcc --version
+          echo "----- g++ --version -----"
+          g++ --version
+          echo "----- cc --version -----"
+          cc --version
+          echo "----- gcc -dumpfullversion / -dumpmachine -----"
+          gcc -dumpfullversion -dumpversion
+          gcc -dumpmachine
+
+      - name: Build PPU GCC
+        run: |
+          eval "$(brew shellenv)"
+          chmod +x ci/build-ppu.sh ci/config.guess ci/config.sub
+          ./ci/build-ppu.sh

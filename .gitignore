@@ -69,3 +69,9 @@ stamp-*
 /mpc*
 /gmp*
 /isl*
+
+# CI helper patches (binutils/newlib), not generated GCC source diffs
+!/ci/patches/
+!/ci/patches/**
+
+.build
