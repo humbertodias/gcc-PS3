@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build linux netbsd openbsd dragonfly nacl
+//go:build hurd || linux || netbsd || (js && wasm)
 
 package os
 
@@ -11,26 +11,27 @@ import (
 	"runtime"
 )
 
-// We query the executable path at init time to avoid the problem of
-// readlink returns a path appended with " (deleted)" when the original
-// binary gets deleted.
-var executablePath, executablePathErr = func() (string, error) {
+func executable() (string, error) {
 	var procfn string
 	switch runtime.GOOS {
 	default:
 		return "", errors.New("Executable not implemented for " + runtime.GOOS)
-	case "linux", "android":
+	case "hurd", "linux", "android":
 		procfn = "/proc/self/exe"
 	case "netbsd":
 		procfn = "/proc/curproc/exe"
-	case "openbsd":
-		procfn = "/proc/curproc/file"
-	case "dragonfly":
-		procfn = "/proc/curproc/file"
 	}
-	return Readlink(procfn)
-}()
+	path, err := Readlink(procfn)
 
-func executable() (string, error) {
-	return executablePath, executablePathErr
+	// When the executable has been deleted then Readlink returns a
+	// path appended with " (deleted)".
+	return stringsTrimSuffix(path, " (deleted)"), err
+}
+
+// stringsTrimSuffix is the same as strings.TrimSuffix.
+func stringsTrimSuffix(s, suffix string) string {
+	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
+		return s[:len(s)-len(suffix)]
+	}
+	return s
 }

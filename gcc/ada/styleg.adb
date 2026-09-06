@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2015, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -27,16 +27,18 @@
 --  checking rules. For documentation of these rules, see comments on the
 --  individual procedures.
 
-with Atree;    use Atree;
-with Casing;   use Casing;
-with Csets;    use Csets;
-with Einfo;    use Einfo;
-with Err_Vars; use Err_Vars;
-with Opt;      use Opt;
-with Scans;    use Scans;
-with Sinfo;    use Sinfo;
-with Sinput;   use Sinput;
-with Stylesw;  use Stylesw;
+with Atree;          use Atree;
+with Casing;         use Casing;
+with Csets;          use Csets;
+with Einfo;          use Einfo;
+with Einfo.Utils;    use Einfo.Utils;
+with Err_Vars;       use Err_Vars;
+with Opt;            use Opt;
+with Scans;          use Scans;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinput;         use Sinput;
+with Stylesw;        use Stylesw;
 
 package body Styleg is
 
@@ -82,7 +84,6 @@ package body Styleg is
    function Is_White_Space (C : Character) return Boolean;
    pragma Inline (Is_White_Space);
    --  Returns True for space or HT, False otherwise
-   --  What about VT and FF, should they return True ???
 
    procedure Require_Following_Space;
    pragma Inline (Require_Following_Space);
@@ -98,12 +99,13 @@ package body Styleg is
    -- Check_Abs_Or_Not --
    ----------------------
 
-   --  In check token mode (-gnatyt), ABS/NOT must be followed by a space
+   --  In check token mode (-gnatyt), ABS/NOT must be followed by a space or
+   --  a line feed.
 
    procedure Check_Abs_Not is
    begin
       if Style_Check_Tokens then
-         if Source (Scan_Ptr) > ' ' then -- ???
+         if Source (Scan_Ptr) not in ' ' | ASCII.CR | ASCII.LF then
             Error_Space_Required (Scan_Ptr);
          end if;
       end if;
@@ -113,7 +115,7 @@ package body Styleg is
    -- Check_Apostrophe --
    ----------------------
 
-   --  Do not allow space before or after apostrophe -- OR AFTER???
+   --  Do not allow space after apostrophe
 
    procedure Check_Apostrophe is
    begin
@@ -127,20 +129,17 @@ package body Styleg is
    -----------------
 
    --  In check tokens mode (-gnatys), arrow must be surrounded by spaces,
-   --  except that within the argument of a Depends macro the required format
-   --  is =>+ rather than => +).
+   --  except that within the argument of a Depends or Refined_Depends aspect
+   --  or pragma the required format is "=>+ " rather than "=> +").
 
    procedure Check_Arrow (Inside_Depends : Boolean := False) is
    begin
       if Style_Check_Tokens then
          Require_Preceding_Space;
 
-         if not Inside_Depends then
-            Require_Following_Space;
+         --  Special handling for Depends and Refined_Depends
 
-         --  Special handling for Inside_Depends
-
-         else
+         if Inside_Depends then
             if Source (Scan_Ptr) = ' '
               and then Source (Scan_Ptr + 1) = '+'
             then
@@ -151,6 +150,11 @@ package body Styleg is
             then
                Require_Following_Space;
             end if;
+
+         --  Normal case
+
+         else
+            Require_Following_Space;
          end if;
       end if;
    end Check_Arrow;
@@ -205,13 +209,13 @@ package body Styleg is
 
       function OK_Boolean_Operand (N : Node_Id) return Boolean is
       begin
-         if Nkind_In (N, N_Identifier, N_Expanded_Name) then
+         if Nkind (N) in N_Identifier | N_Expanded_Name then
             return True;
 
          elsif Nkind (N) = N_Op_Not then
             return OK_Boolean_Operand (Original_Node (Right_Opnd (N)));
 
-         elsif Nkind_In (N, N_Op_And, N_Op_Or) then
+         elsif Nkind (N) in N_Op_And | N_Op_Or then
             return OK_Boolean_Operand (Original_Node (Left_Opnd (N)))
                      and then
                    OK_Boolean_Operand (Original_Node (Right_Opnd (N)));
@@ -231,7 +235,7 @@ package body Styleg is
             Orig : constant Node_Id := Original_Node (Node);
 
          begin
-            if Nkind_In (Orig, N_Op_And, N_Op_Or) then
+            if Nkind (Orig) in N_Op_And | N_Op_Or then
                declare
                   L : constant Node_Id := Original_Node (Left_Opnd  (Orig));
                   R : constant Node_Id := Original_Node (Right_Opnd (Orig));
@@ -492,10 +496,13 @@ package body Styleg is
    --  Start of processing for Check_Comment
 
    begin
-      --  Can never have a non-blank character preceding the first minus
+      --  Can never have a non-blank character preceding the first minus.
+      --  The "+ 3" is to leave room for a possible byte order mark (BOM);
+      --  we want to avoid a warning for a comment at the start of the
+      --  file just after the BOM.
 
       if Style_Check_Comments then
-         if Scan_Ptr > Source_First (Current_Source_File)
+         if Scan_Ptr > Source_First (Current_Source_File) + 3
            and then Source (Scan_Ptr - 1) > ' '
          then
             Error_Msg_S -- CODEFIX
@@ -605,6 +612,31 @@ package body Styleg is
       end if;
    end Check_Comment;
 
+   --------------------------------------
+   -- Check_Defining_Identifier_Casing --
+   --------------------------------------
+
+   procedure Check_Defining_Identifier_Casing is
+   begin
+      if Style_Check_Mixed_Case_Decls then
+         case Determine_Token_Casing is
+            when All_Lower_Case
+               | All_Upper_Case
+            =>
+               Error_Msg_SC -- CODEFIX
+                 ("(style) bad capitalization, mixed case required");
+
+            --  The Unknown case is something like A_B_C, which is both all
+            --  caps and mixed case.
+
+            when Mixed_Case
+               | Unknown
+            =>
+               null; -- OK
+         end case;
+      end if;
+   end Check_Defining_Identifier_Casing;
+
    -------------------
    -- Check_Dot_Dot --
    -------------------
@@ -689,15 +721,16 @@ package body Styleg is
       end if;
    end Check_Indentation;
 
-   ----------------------
-   -- Check_Left_Paren --
-   ----------------------
+   -------------------------------------
+   -- Check_Left_Paren_Square_Bracket --
+   -------------------------------------
 
    --  In check token mode (-gnatyt), left paren must not be preceded by an
    --  identifier character or digit (a separating space is required) and may
    --  never be followed by a space.
+   --  Same applies for the left square bracket starting from Ada version 2022.
 
-   procedure Check_Left_Paren is
+   procedure Check_Left_Paren_Square_Bracket is
    begin
       if Style_Check_Tokens then
          if Token_Ptr > Source_First (Current_Source_File)
@@ -708,7 +741,7 @@ package body Styleg is
 
          Check_No_Space_After;
       end if;
-   end Check_Left_Paren;
+   end Check_Left_Paren_Square_Bracket;
 
    ---------------------------
    -- Check_Line_Max_Length --
@@ -1051,16 +1084,17 @@ package body Styleg is
    --  In check token mode (-gnatyt), unary plus or minus must not be
    --  followed by a space.
 
-   --  Annoying exception: if we have the sequence =>+ within a Depends pragma
-   --  or aspect, then we insist on a space rather than forbidding it.
+   --  Annoying exception: if we have the sequence =>+ within a Depends or
+   --  Refined_Depends pragma or aspect, then we insist on a space rather
+   --  than forbidding it.
 
    procedure Check_Unary_Plus_Or_Minus (Inside_Depends : Boolean := False) is
    begin
       if Style_Check_Tokens then
-         if not Inside_Depends then
-            Check_No_Space_After;
-         else
+         if Inside_Depends then
             Require_Following_Space;
+         else
+            Check_No_Space_After;
          end if;
       end if;
    end Check_Unary_Plus_Or_Minus;

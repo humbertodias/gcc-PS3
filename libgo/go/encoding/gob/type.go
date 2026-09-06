@@ -36,31 +36,21 @@ const (
 	xText              // encoding.TextMarshaler or encoding.TextUnmarshaler
 )
 
-var (
-	// Protected by an RWMutex because we read it a lot and write
-	// it only when we see a new type, typically when compiling.
-	userTypeLock  sync.RWMutex
-	userTypeCache = make(map[reflect.Type]*userTypeInfo)
-)
+var userTypeCache sync.Map // map[reflect.Type]*userTypeInfo
 
 // validType returns, and saves, the information associated with user-provided type rt.
 // If the user type is not valid, err will be non-nil. To be used when the error handler
 // is not set up.
-func validUserType(rt reflect.Type) (ut *userTypeInfo, err error) {
-	userTypeLock.RLock()
-	ut = userTypeCache[rt]
-	userTypeLock.RUnlock()
-	if ut != nil {
-		return
+func validUserType(rt reflect.Type) (*userTypeInfo, error) {
+	if ui, ok := userTypeCache.Load(rt); ok {
+		return ui.(*userTypeInfo), nil
 	}
-	// Now set the value under the write lock.
-	userTypeLock.Lock()
-	defer userTypeLock.Unlock()
-	if ut = userTypeCache[rt]; ut != nil {
-		// Lost the race; not a problem.
-		return
-	}
-	ut = new(userTypeInfo)
+
+	// Construct a new userTypeInfo and atomically add it to the userTypeCache.
+	// If we lose the race, we'll waste a little CPU and create a little garbage
+	// but return the existing value anyway.
+
+	ut := new(userTypeInfo)
 	ut.base = rt
 	ut.user = rt
 	// A type that is just a cycle of pointers (such as type T *T) cannot
@@ -71,7 +61,7 @@ func validUserType(rt reflect.Type) (ut *userTypeInfo, err error) {
 	slowpoke := ut.base // walks half as fast as ut.base
 	for {
 		pt := ut.base
-		if pt.Kind() != reflect.Ptr {
+		if pt.Kind() != reflect.Pointer {
 			break
 		}
 		ut.base = pt.Elem()
@@ -108,8 +98,8 @@ func validUserType(rt reflect.Type) (ut *userTypeInfo, err error) {
 	// 	ut.externalDec, ut.decIndir = xText, indir
 	// }
 
-	userTypeCache[rt] = ut
-	return
+	ui, _ := userTypeCache.LoadOrStore(rt, ut)
+	return ui.(*userTypeInfo), nil
 }
 
 var (
@@ -136,7 +126,7 @@ func implementsInterface(typ, gobEncDecType reflect.Type) (success bool, indir i
 		if rt.Implements(gobEncDecType) {
 			return true, indir
 		}
-		if p := rt; p.Kind() == reflect.Ptr {
+		if p := rt; p.Kind() == reflect.Pointer {
 			indir++
 			if indir > 100 { // insane number of indirections
 				return false, 0
@@ -147,9 +137,9 @@ func implementsInterface(typ, gobEncDecType reflect.Type) (success bool, indir i
 		break
 	}
 	// No luck yet, but if this is a base type (non-pointer), the pointer might satisfy.
-	if typ.Kind() != reflect.Ptr {
+	if typ.Kind() != reflect.Pointer {
 		// Not a pointer, but does the pointer work?
-		if reflect.PtrTo(typ).Implements(gobEncDecType) {
+		if reflect.PointerTo(typ).Implements(gobEncDecType) {
 			return true, -1
 		}
 	}
@@ -254,7 +244,7 @@ var (
 	tBytes     = bootstrapType("bytes", (*[]byte)(nil), 5)
 	tString    = bootstrapType("string", (*string)(nil), 6)
 	tComplex   = bootstrapType("complex", (*complex128)(nil), 7)
-	tInterface = bootstrapType("interface", (*interface{})(nil), 8)
+	tInterface = bootstrapType("interface", (*any)(nil), 8)
 	// Reserve some Ids for compatible expansion
 	tReserved7 = bootstrapType("_reserved1", (*struct{ r7 int })(nil), 9)
 	tReserved6 = bootstrapType("_reserved1", (*struct{ r6 int })(nil), 10)
@@ -579,7 +569,7 @@ func isSent(field *reflect.StructField) bool {
 	// If the field is a chan or func or pointer thereto, don't send it.
 	// That is, treat it like an unexported field.
 	typ := field.Type
-	for typ.Kind() == reflect.Ptr {
+	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	if typ.Kind() == reflect.Chan || typ.Kind() == reflect.Func {
@@ -621,7 +611,7 @@ func checkId(want, got typeId) {
 
 // used for building the basic types; called only from init().  the incoming
 // interface always refers to a pointer.
-func bootstrapType(name string, e interface{}, expect typeId) typeId {
+func bootstrapType(name string, e any, expect typeId) typeId {
 	rt := reflect.TypeOf(e).Elem()
 	_, present := types[rt]
 	if present {
@@ -808,33 +798,33 @@ type GobDecoder interface {
 }
 
 var (
-	registerLock       sync.RWMutex
-	nameToConcreteType = make(map[string]reflect.Type)
-	concreteTypeToName = make(map[reflect.Type]string)
+	nameToConcreteType sync.Map // map[string]reflect.Type
+	concreteTypeToName sync.Map // map[reflect.Type]string
 )
 
 // RegisterName is like Register but uses the provided name rather than the
 // type's default.
-func RegisterName(name string, value interface{}) {
+func RegisterName(name string, value any) {
 	if name == "" {
 		// reserved for nil
 		panic("attempt to register empty name")
 	}
-	registerLock.Lock()
-	defer registerLock.Unlock()
+
 	ut := userType(reflect.TypeOf(value))
+
 	// Check for incompatible duplicates. The name must refer to the
 	// same user type, and vice versa.
-	if t, ok := nameToConcreteType[name]; ok && t != ut.user {
+
+	// Store the name and type provided by the user....
+	if t, dup := nameToConcreteType.LoadOrStore(name, reflect.TypeOf(value)); dup && t != ut.user {
 		panic(fmt.Sprintf("gob: registering duplicate types for %q: %s != %s", name, t, ut.user))
 	}
-	if n, ok := concreteTypeToName[ut.base]; ok && n != name {
+
+	// but the flattened type in the type table, since that's what decode needs.
+	if n, dup := concreteTypeToName.LoadOrStore(ut.base, name); dup && n != name {
+		nameToConcreteType.Delete(name)
 		panic(fmt.Sprintf("gob: registering duplicate names for %s: %q != %q", ut.user, n, name))
 	}
-	// Store the name and type provided by the user....
-	nameToConcreteType[name] = reflect.TypeOf(value)
-	// but the flattened type in the type table, since that's what decode needs.
-	concreteTypeToName[ut.base] = name
 }
 
 // Register records a type, identified by a value for that type, under its
@@ -843,7 +833,7 @@ func RegisterName(name string, value interface{}) {
 // transferred as implementations of interface values need to be registered.
 // Expecting to be used only during initialization, it panics if the mapping
 // between types and names is not a bijection.
-func Register(value interface{}) {
+func Register(value any) {
 	// Default to printed representation for unnamed types
 	rt := reflect.TypeOf(value)
 	name := rt.String()
@@ -852,7 +842,7 @@ func Register(value interface{}) {
 	// Dereference one pointer looking for a named type.
 	star := ""
 	if rt.Name() == "" {
-		if pt := rt; pt.Kind() == reflect.Ptr {
+		if pt := rt; pt.Kind() == reflect.Pointer {
 			star = "*"
 			// NOTE: The following line should be rt = pt.Elem() to implement
 			// what the comment above claims, but fixing it would break compatibility

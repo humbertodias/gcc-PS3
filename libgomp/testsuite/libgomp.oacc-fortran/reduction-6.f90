@@ -1,5 +1,8 @@
 ! { dg-do run }
-! { dg-additional-options "-cpp -w" }
+! { dg-additional-options "-cpp" }
+
+! { dg-additional-options "-Wopenacc-parallelism" } for testing/documenting
+! aspects of that functionality.
 
 program reduction
   implicit none
@@ -28,6 +31,7 @@ program reduction
   !$acc end parallel
 
   !$acc parallel num_workers (4) vector_length (32)
+  ! { dg-warning "region is vector partitioned but does not contain vector partitioned code" "" { target *-*-* } .-1 }
   !$acc loop reduction(+:ws1, ws2) worker
   do i = 1, n
      ws1 = ws1 + 1
@@ -57,17 +61,17 @@ program reduction
      hs2 = hs2 + 2
   end do
 
-  if (gs1 .ne. hs1) call abort ()
-  if (gs2 .ne. hs2) call abort ()
+  if (gs1 .ne. hs1) STOP 1
+  if (gs2 .ne. hs2) STOP 2
 
-  if (ws1 .ne. hs1) call abort ()
-  if (ws2 .ne. hs2) call abort ()
+  if (ws1 .ne. hs1) STOP 3
+  if (ws2 .ne. hs2) STOP 4
 
-  if (vs1 .ne. hs1) call abort ()
-  if (vs2 .ne. hs2) call abort ()
+  if (vs1 .ne. hs1) STOP 5
+  if (vs2 .ne. hs2) STOP 6
 
-  if (cs1 .ne. hs1) call abort ()
-  if (cs2 .ne. hs2) call abort ()
+  if (cs1 .ne. hs1) STOP 7
+  if (cs2 .ne. hs2) STOP 8
 
   ! Nested reductions.
 
@@ -90,5 +94,5 @@ program reduction
      end do
   end do
 
-  if (red .ne. vred) call abort ()
+  if (red .ne. vred) STOP 9
 end program reduction

@@ -1,5 +1,5 @@
 /* Exception handling and frame unwind runtime interface routines.
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -30,6 +30,7 @@
 
 #if defined (__SEH__) && !defined (__USING_SJLJ_EXCEPTIONS__)
 /* Only for _GCC_specific_handler.  */
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
@@ -287,5 +288,11 @@ EXCEPTION_DISPOSITION _GCC_specific_handler (PEXCEPTION_RECORD, void *,
 #ifndef HIDE_EXPORTS
 #pragma GCC visibility pop
 #endif
+
+/* Additional actions to unwind number of stack frames.  */
+#define _Unwind_Frames_Extra(frames)
+
+/* Increment frame count.  */
+#define _Unwind_Frames_Increment(exc, context, frames) frames++
 
 #endif /* unwind.h */

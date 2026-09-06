@@ -17,8 +17,7 @@ import (
 
 const filename = "<src>"
 
-func makePkg(t *testing.T, src string) (*Package, error) {
-	t.Skip("skipping for gccgo--no importer")
+func makePkg(src string) (*Package, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filename, src, parser.DeclarationErrors)
 	if err != nil {
@@ -90,12 +89,19 @@ var independentTestTypes = []testEntry{
 	dup("func(...int) string"),
 	dup("func(x ...int) string"),
 	dup("func(x ...int) (u string)"),
-	{"func(x, y ...int) (u string)", "func(x int, y ...int) (u string)"},
+	{"func(x int, y ...int) (u string)", "func(x int, y ...int) (u string)"},
 
 	// interfaces
 	dup("interface{}"),
 	dup("interface{m()}"),
 	dup(`interface{String() string; m(int) float32}`),
+	dup("interface{int|float32|complex128}"),
+	dup("interface{int|~float32|~complex128}"),
+	dup("any"),
+	dup("interface{comparable}"),
+	// TODO(gri) adjust test for EvalCompositeTest
+	// {"comparable", "interface{comparable}"},
+	// {"error", "interface{Error() string}"},
 
 	// maps
 	dup("map[string]int"),
@@ -127,12 +133,17 @@ func TestTypeString(t *testing.T) {
 
 	for _, test := range tests {
 		src := `package p; import "io"; type _ io.Writer; type T ` + test.src
-		pkg, err := makePkg(t, src)
+		pkg, err := makePkg(src)
 		if err != nil {
 			t.Errorf("%s: %s", src, err)
 			continue
 		}
-		typ := pkg.Scope().Lookup("T").Type().Underlying()
+		obj := pkg.Scope().Lookup("T")
+		if obj == nil {
+			t.Errorf("%s: T not found", test.src)
+			continue
+		}
+		typ := obj.Type().Underlying()
 		if got := typ.String(); got != test.str {
 			t.Errorf("%s: got %s, want %s", test.src, got, test.str)
 		}

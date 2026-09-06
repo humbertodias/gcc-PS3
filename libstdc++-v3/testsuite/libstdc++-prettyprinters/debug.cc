@@ -1,8 +1,7 @@
 // { dg-do run }
 // { dg-options "-g -O0 -std=gnu++98" }
-// { dg-skip-if "" { *-*-* } { "-D_GLIBCXX_PROFILE" } }
 
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -19,7 +18,9 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-#define _GLIBCXX_DEBUG
+#ifndef _GLIBCXX_DEBUG
+# define _GLIBCXX_DEBUG
+#endif
 
 #include <string>
 #include <deque>
@@ -28,6 +29,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <sstream>
 #include <vector>
 #include <ext/slist>
 
@@ -96,7 +98,7 @@ main()
   v.push_back(1);
   v.push_back(2);
   std::vector<int>::iterator viter0;
-// { dg-final { note-test viter0 {invalid iterator} } }
+// { dg-final { note-test viter0 {non-dereferenceable iterator for std::vector} } }
   std::vector<int>::iterator viter1 = v.begin();
   std::vector<int>::iterator viter2 = viter1 + 1;
   v.erase(viter1);
@@ -108,6 +110,20 @@ main()
 
   __gnu_cxx::slist<int>::iterator slliter = sll.begin();
 // { dg-final { note-test slliter {47} } }
+
+  std::stringstream sstream;
+  sstream << "abc";
+// { dg-final { note-test sstream "\"abc\"" } }
+  std::stringstream ssin("input", std::ios::in);
+// { dg-final { note-test ssin "\"input\"" } }
+  std::istringstream ssin2("input");
+// { dg-final { note-test ssin2 "\"input\"" } }
+  std::ostringstream ssout;
+  ssout << "out";
+// { dg-final { note-test ssout "\"out\"" } }
+  std::stringstream redirected("xxx");
+  static_cast<std::basic_ios<std::stringstream::char_type>&>(redirected).rdbuf(sstream.rdbuf());
+// { dg-final { regexp-test redirected {std::.*stringstream redirected to .*} } }
 
   std::cout << "\n";
   return 0;			// Mark SPOT

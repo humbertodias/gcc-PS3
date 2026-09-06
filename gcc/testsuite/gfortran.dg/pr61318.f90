@@ -18,6 +18,5 @@ end module gbl_interfaces
 program test
   use gbl_message
   use gbl_interfaces
-  call gagout(seve%e,'Some string') ! { dg-error "Type mismatch in argument" }
+  call gagout(seve%e,'Some string') ! { dg-error "Type mismatch in argument|More actual than formal" }
 end program test
-! { dg-final { cleanup-modules "gbl_interfaces gbl_message" } }

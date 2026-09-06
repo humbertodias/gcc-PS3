@@ -1,6 +1,6 @@
 /* Legacy sub-word atomics for RISC-V.
  
-   Copyright (C) 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2016-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -29,6 +29,8 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 
 #define INVERT		"not %[tmp1], %[tmp1]\n\t"
 #define DONT_INVERT	""
+
+/* Logic duplicated in gcc/gcc/config/riscv/sync.md for use when inlining is enabled */
 
 #define GENERATE_FETCH_AND_OP(type, size, opname, insn, invert, cop)	\
   type __sync_fetch_and_ ## opname ## _ ## size (type *p, type v)	\

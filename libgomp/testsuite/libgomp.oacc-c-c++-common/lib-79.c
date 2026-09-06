@@ -1,5 +1,6 @@
 /* { dg-do run { target openacc_nvidia_accel_selected } } */
 /* { dg-additional-options "-lcuda" } */
+/* { dg-require-effective-target openacc_cuda } */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,6 +123,13 @@ main (int argc, char **argv)
 	}
     }
 
+  if (acc_async_test (0) != 0)
+    abort ();
+
+  /* Test unseen async-argument.  */
+  if (acc_async_test (1) != 1)
+    abort ();
+
   acc_wait_async (0, 1);
 
   if (acc_async_test (0) != 0)
@@ -129,6 +137,23 @@ main (int argc, char **argv)
 
   if (acc_async_test (1) != 0)
     abort ();
+
+  /* Test unseen async-argument.  */
+  {
+    if (acc_async_test (2) != 1)
+      abort ();
+
+    acc_wait_async (2, 1);
+
+    if (acc_async_test (0) != 0)
+      abort ();
+
+    if (acc_async_test (1) != 0)
+      abort ();
+
+    if (acc_async_test (2) != 1)
+      abort ();
+  }
 
   acc_wait (1);
 

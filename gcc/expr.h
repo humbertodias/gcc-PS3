@@ -1,5 +1,5 @@
 /* Definitions for code generation pass of GNU compiler.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -69,25 +69,34 @@ extern void convert_move (rtx, rtx, int);
 extern rtx convert_to_mode (machine_mode, rtx, int);
 
 /* Convert an rtx to MODE from OLDMODE and return the result.  */
-extern rtx convert_modes (machine_mode, machine_mode, rtx, int);
+extern rtx convert_modes (machine_mode mode, machine_mode oldmode,
+			  rtx x, int unsignedp);
+
+/* Variant of convert_modes for ABI parameter passing/return.  */
+extern rtx convert_float_to_wider_int (machine_mode mode, machine_mode fmode,
+				       rtx x);
+
+/* Variant of convert_modes for ABI parameter passing/return.  */
+extern rtx convert_wider_int_to_float (machine_mode mode, machine_mode imode,
+				       rtx x);
 
 /* Expand a call to memcpy or memmove or memcmp, and return the result.  */
 extern rtx emit_block_op_via_libcall (enum built_in_function, rtx, rtx, rtx,
 				      bool);
 
-static inline rtx
+inline rtx
 emit_block_copy_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMCPY, dst, src, size, tailcall);
 }
 
-static inline rtx
+inline rtx
 emit_block_move_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMMOVE, dst, src, size, tailcall);
 }
 
-static inline rtx
+inline rtx
 emit_block_comp_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMCMP, dst, src, size, tailcall);
@@ -100,17 +109,32 @@ enum block_op_methods
   BLOCK_OP_NO_LIBCALL,
   BLOCK_OP_CALL_PARM,
   /* Like BLOCK_OP_NORMAL, but the libcall can be tail call optimized.  */
-  BLOCK_OP_TAILCALL
+  BLOCK_OP_TAILCALL,
+  /* Like BLOCK_OP_NO_LIBCALL, but instead of emitting a libcall return
+     pc_rtx to indicate nothing has been emitted and let the caller handle
+     it.  */
+  BLOCK_OP_NO_LIBCALL_RET
 };
 
-typedef rtx (*by_pieces_constfn) (void *, HOST_WIDE_INT, machine_mode);
+typedef rtx (*by_pieces_constfn) (void *, void *, HOST_WIDE_INT,
+				  fixed_size_mode);
+
+/* The second pointer passed to by_pieces_constfn.  */
+struct by_pieces_prev
+{
+  rtx data;
+  fixed_size_mode mode;
+};
 
 extern rtx emit_block_move (rtx, rtx, rtx, enum block_op_methods);
 extern rtx emit_block_move_hints (rtx, rtx, rtx, enum block_op_methods,
 			          unsigned int, HOST_WIDE_INT,
 				  unsigned HOST_WIDE_INT,
 				  unsigned HOST_WIDE_INT,
-				  unsigned HOST_WIDE_INT);
+				  unsigned HOST_WIDE_INT,
+				  bool bail_out_libcall = false,
+				  bool *is_move_done = NULL,
+				  bool might_overlap = false);
 extern rtx emit_block_cmp_hints (rtx, rtx, rtx, tree, rtx, bool,
 				 by_pieces_constfn, void *);
 extern bool emit_storent_insn (rtx to, rtx from);
@@ -128,10 +152,10 @@ extern rtx gen_group_rtx (rtx);
 
 /* Load a BLKmode value into non-consecutive registers represented by a
    PARALLEL.  */
-extern void emit_group_load (rtx, rtx, tree, int);
+extern void emit_group_load (rtx, rtx, tree, poly_int64);
 
 /* Similarly, but load into new temporaries.  */
-extern rtx emit_group_load_into_temps (rtx, rtx, tree, int);
+extern rtx emit_group_load_into_temps (rtx, rtx, tree, poly_int64);
 
 /* Move a non-consecutive group of registers represented by a PARALLEL into
    a non-consecutive group of registers represented by a PARALLEL.  */
@@ -142,7 +166,7 @@ extern rtx emit_group_move_into_temps (rtx);
 
 /* Store a BLKmode value from non-consecutive registers represented by a
    PARALLEL.  */
-extern void emit_group_store (rtx, rtx, tree, int);
+extern void emit_group_store (rtx, rtx, tree, poly_int64);
 
 extern rtx maybe_emit_group_store (rtx, tree);
 
@@ -154,14 +178,14 @@ extern void clobber_reg_mode (rtx *, rtx, machine_mode);
 extern rtx copy_blkmode_to_reg (machine_mode, tree);
 
 /* Mark REG as holding a parameter for the next CALL_INSN.  */
-static inline void
+inline void
 use_reg (rtx *fusage, rtx reg)
 {
   use_reg_mode (fusage, reg, VOIDmode);
 }
 
 /* Mark REG as clobbered by the call with FUSAGE as CALL_INSN_FUNCTION_USAGE.  */
-static inline void
+inline void
 clobber_reg (rtx *fusage, rtx reg)
 {
   clobber_reg_mode (fusage, reg, VOIDmode);
@@ -186,7 +210,8 @@ extern rtx clear_storage_hints (rtx, rtx, enum block_op_methods,
 			        unsigned int, HOST_WIDE_INT,
 				unsigned HOST_WIDE_INT,
 				unsigned HOST_WIDE_INT,
-				unsigned HOST_WIDE_INT);
+				unsigned HOST_WIDE_INT,
+				unsigned);
 /* The same, but always output an library call.  */
 extern rtx set_storage_via_libcall (rtx, rtx, rtx, bool = false);
 
@@ -215,7 +240,17 @@ extern int can_store_by_pieces (unsigned HOST_WIDE_INT,
    MEMSETP is true if this is a real memset/bzero, not a copy.
    Returns TO + LEN.  */
 extern rtx store_by_pieces (rtx, unsigned HOST_WIDE_INT, by_pieces_constfn,
-			    void *, unsigned int, bool, int);
+			    void *, unsigned int, bool, memop_ret);
+
+/* If can_store_by_pieces passes for worst-case values near MAX_LEN, call
+   store_by_pieces within conditionals so as to handle variable LEN efficiently,
+   storing VAL, if non-NULL_RTX, or valc instead.  */
+extern bool try_store_by_multiple_pieces (rtx to, rtx len,
+					  unsigned int ctz_len,
+					  unsigned HOST_WIDE_INT min_len,
+					  unsigned HOST_WIDE_INT max_len,
+					  rtx val, char valc,
+					  unsigned int align);
 
 /* Emit insns to set X from Y.  */
 extern rtx_insn *emit_move_insn (rtx, rtx);
@@ -227,21 +262,21 @@ extern rtx_insn *emit_move_insn_1 (rtx, rtx);
 extern rtx_insn *emit_move_complex_push (machine_mode, rtx, rtx);
 extern rtx_insn *emit_move_complex_parts (rtx, rtx);
 extern rtx read_complex_part (rtx, bool);
-extern void write_complex_part (rtx, rtx, bool);
+extern void write_complex_part (rtx, rtx, bool, bool);
 extern rtx read_complex_part (rtx, bool);
 extern rtx emit_move_resolve_push (machine_mode, rtx);
 
 /* Push a block of length SIZE (perhaps variable)
    and return an rtx to address the beginning of the block.  */
-extern rtx push_block (rtx, int, int);
+extern rtx push_block (rtx, poly_int64, int);
 
 /* Generate code to push something onto the stack, given its mode and type.  */
 extern bool emit_push_insn (rtx, machine_mode, tree, rtx, unsigned int,
-			    int, rtx, int, rtx, rtx, int, rtx, bool);
+			    int, rtx, poly_int64, rtx, rtx, int, rtx, bool);
 
 /* Extract the accessible bit-range from a COMPONENT_REF.  */
-extern void get_bit_range (unsigned HOST_WIDE_INT *, unsigned HOST_WIDE_INT *,
-			   tree, HOST_WIDE_INT *, tree *);
+extern void get_bit_range (poly_uint64_pod *, poly_uint64_pod *, tree,
+			   poly_int64_pod *, tree *);
 
 /* Expand an assignment that stores the value of FROM into TO.  */
 extern void expand_assignment (tree, tree, bool);
@@ -250,7 +285,6 @@ extern void expand_assignment (tree, tree, bool);
    and storing the value into TARGET.
    If SUGGEST_REG is nonzero, copy the value through a register
    and return that register, if that is possible.  */
-extern rtx store_expr_with_bounds (tree, rtx, int, bool, bool, tree);
 extern rtx store_expr (tree, rtx, int, bool, bool);
 
 /* Given an rtx that may include add and multiply operations,
@@ -269,27 +303,34 @@ extern rtx expand_expr_real_2 (sepops, rtx, machine_mode,
 /* Generate code for computing expression EXP.
    An rtx for the computed value is returned.  The value is never null.
    In the case of a void EXP, const0_rtx is returned.  */
-static inline rtx
+inline rtx
 expand_expr (tree exp, rtx target, machine_mode mode,
 	     enum expand_modifier modifier)
 {
   return expand_expr_real (exp, target, mode, modifier, NULL, false);
 }
 
-static inline rtx
+inline rtx
 expand_normal (tree exp)
 {
   return expand_expr_real (exp, NULL_RTX, VOIDmode, EXPAND_NORMAL, NULL, false);
 }
 
 
-/* Return the tree node and offset if a given argument corresponds to
-   a string constant.  */
-extern tree string_constant (tree, tree *);
+/* Return STRING_CST and set offset, size and decl, if the first
+   argument corresponds to a string constant.  */
+extern tree string_constant (tree, tree *, tree *, tree *);
+/* Similar to string_constant, return a STRING_CST corresponding
+   to the value representation of the first argument if it's
+   a constant.  */
+extern tree byte_representation (tree, tree *, tree *, tree *);
+
+extern enum tree_code maybe_optimize_mod_cmp (enum tree_code, tree *, tree *);
+extern void maybe_optimize_sub_cmp_0 (enum tree_code, tree *, tree *);
 
 /* Two different ways of generating switch statements.  */
-extern int try_casesi (tree, tree, tree, tree, rtx, rtx, rtx, int);
-extern int try_tablejump (tree, tree, tree, tree, rtx, rtx, int);
+extern int try_casesi (tree, tree, tree, tree, rtx, rtx, rtx, profile_probability);
+extern int try_tablejump (tree, tree, tree, tree, rtx, rtx, profile_probability);
 
 extern int safe_from_p (const_rtx, tree, int);
 
@@ -304,7 +345,11 @@ extern bool can_move_by_pieces (unsigned HOST_WIDE_INT, unsigned int);
 extern unsigned HOST_WIDE_INT highest_pow2_factor (const_tree);
 
 extern bool categorize_ctor_elements (const_tree, HOST_WIDE_INT *,
-				      HOST_WIDE_INT *, bool *);
+				      HOST_WIDE_INT *, HOST_WIDE_INT *,
+				      bool *);
+extern bool immediate_const_ctor_p (const_tree, unsigned int words = 1);
+extern void store_constructor (tree, rtx, int, poly_int64, bool);
+extern HOST_WIDE_INT int_expr_size (const_tree exp);
 
 extern void expand_operands (tree, tree, rtx, rtx*, rtx*,
 			     enum expand_modifier);
@@ -312,5 +357,8 @@ extern void expand_operands (tree, tree, rtx, rtx*, rtx*,
 /* rtl.h and tree.h were included.  */
 /* Return an rtx for the size in bytes of the value of an expr.  */
 extern rtx expr_size (tree);
+
+extern bool mem_ref_refers_to_non_mem_p (tree);
+extern bool non_mem_decl_p (tree);
 
 #endif /* GCC_EXPR_H */

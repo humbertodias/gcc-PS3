@@ -1,4 +1,4 @@
-.. Copyright (C) 2014-2017 Free Software Foundation, Inc.
+.. Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Originally contributed by David Malcolm <dmalcolm@redhat.com>
 
    This is free software: you can redistribute it and/or modify it
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see
-   <http://www.gnu.org/licenses/>.
+   <https://www.gnu.org/licenses/>.
 
 .. default-domain:: c
 
@@ -35,7 +35,7 @@ Types can be created in several ways:
 
   .. code-block:: c
 
-      gcc_jit_type *int_type = gcc_jit_context_get_type (GCC_JIT_TYPE_INT);
+      gcc_jit_type *int_type = gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_INT);
 
   See :func:`gcc_jit_context_get_type` for the available types.
 
@@ -57,35 +57,78 @@ Standard types
 
    Access a specific type.  The available types are:
 
-   ==========================================  ================================
-   `enum gcc_jit_types` value                  Meaning
-   ==========================================  ================================
-   :c:data:`GCC_JIT_TYPE_VOID`                 C's ``void`` type.
-   :c:data:`GCC_JIT_TYPE_VOID_PTR`             C's ``void *``.
-   :c:data:`GCC_JIT_TYPE_BOOL`                 C++'s ``bool`` type; also C99's
-                                               ``_Bool`` type, aka ``bool`` if
-                                               using stdbool.h.
-   :c:data:`GCC_JIT_TYPE_CHAR`                 C's ``char`` (of some signedness)
-   :c:data:`GCC_JIT_TYPE_SIGNED_CHAR`          C's ``signed char``
-   :c:data:`GCC_JIT_TYPE_UNSIGNED_CHAR`        C's ``unsigned char``
-   :c:data:`GCC_JIT_TYPE_SHORT`                C's ``short`` (signed)
-   :c:data:`GCC_JIT_TYPE_UNSIGNED_SHORT`       C's ``unsigned short``
-   :c:data:`GCC_JIT_TYPE_INT`                  C's ``int`` (signed)
-   :c:data:`GCC_JIT_TYPE_UNSIGNED_INT`         C's ``unsigned int``
-   :c:data:`GCC_JIT_TYPE_LONG`                 C's ``long`` (signed)
-   :c:data:`GCC_JIT_TYPE_UNSIGNED_LONG`        C's ``unsigned long``
-   :c:data:`GCC_JIT_TYPE_LONG_LONG`            C99's ``long long`` (signed)
-   :c:data:`GCC_JIT_TYPE_UNSIGNED_LONG_LONG`   C99's ``unsigned long long``
-   :c:data:`GCC_JIT_TYPE_FLOAT`
-   :c:data:`GCC_JIT_TYPE_DOUBLE`
-   :c:data:`GCC_JIT_TYPE_LONG_DOUBLE`
-   :c:data:`GCC_JIT_TYPE_CONST_CHAR_PTR`       C type: ``(const char *)``
-   :c:data:`GCC_JIT_TYPE_SIZE_T`               C's ``size_t`` type
-   :c:data:`GCC_JIT_TYPE_FILE_PTR`             C type: ``(FILE *)``
-   :c:data:`GCC_JIT_TYPE_COMPLEX_FLOAT`        C99's ``_Complex float``
-   :c:data:`GCC_JIT_TYPE_COMPLEX_DOUBLE`       C99's ``_Complex double``
-   :c:data:`GCC_JIT_TYPE_COMPLEX_LONG_DOUBLE`  C99's ``_Complex long double``
-   ==========================================  ================================
+  .. list-table::
+     :header-rows: 1
+
+     * - `enum gcc_jit_types` value
+       - Meaning
+
+     * - :c:data:`GCC_JIT_TYPE_VOID`
+       - C's ``void`` type.
+     * - :c:data:`GCC_JIT_TYPE_VOID_PTR`
+       - C's ``void *``.
+     * - :c:data:`GCC_JIT_TYPE_BOOL`
+       - C++'s ``bool`` type; also C99's ``_Bool`` type, aka ``bool`` if using stdbool.h.
+     * - :c:data:`GCC_JIT_TYPE_CHAR`
+       - C's ``char`` (of some signedness)
+     * - :c:data:`GCC_JIT_TYPE_SIGNED_CHAR`
+       - C's ``signed char``
+     * - :c:data:`GCC_JIT_TYPE_UNSIGNED_CHAR`
+       - C's ``unsigned char``
+     * - :c:data:`GCC_JIT_TYPE_SHORT`
+       - C's ``short`` (signed)
+     * - :c:data:`GCC_JIT_TYPE_UNSIGNED_SHORT`
+       - C's ``unsigned short``
+     * - :c:data:`GCC_JIT_TYPE_INT`
+       - C's ``int`` (signed)
+     * - :c:data:`GCC_JIT_TYPE_UNSIGNED_INT`
+       - C's ``unsigned int``
+     * - :c:data:`GCC_JIT_TYPE_LONG`
+       - C's ``long`` (signed)
+     * - :c:data:`GCC_JIT_TYPE_UNSIGNED_LONG`
+       - C's ``unsigned long``
+     * - :c:data:`GCC_JIT_TYPE_LONG_LONG`
+       - C99's ``long long`` (signed)
+     * - :c:data:`GCC_JIT_TYPE_UNSIGNED_LONG_LONG`
+       - C99's ``unsigned long long``
+     * - :c:data:`GCC_JIT_TYPE_UINT8_T`
+       - C99's ``uint8_t``
+     * - :c:data:`GCC_JIT_TYPE_UINT16_T`
+       - C99's ``uint16_t``
+     * - :c:data:`GCC_JIT_TYPE_UINT32_T`
+       - C99's ``uint32_t``
+     * - :c:data:`GCC_JIT_TYPE_UINT64_T`
+       - C99's ``uint64_t``
+     * - :c:data:`GCC_JIT_TYPE_UINT128_T`
+       - C99's ``__uint128_t``
+     * - :c:data:`GCC_JIT_TYPE_INT8_T`
+       - C99's ``int8_t``
+     * - :c:data:`GCC_JIT_TYPE_INT16_T`
+       - C99's ``int16_t``
+     * - :c:data:`GCC_JIT_TYPE_INT32_T`
+       - C99's ``int32_t``
+     * - :c:data:`GCC_JIT_TYPE_INT64_T`
+       - C99's ``int64_t``
+     * - :c:data:`GCC_JIT_TYPE_INT128_T`
+       - C99's ``__int128_t``
+     * - :c:data:`GCC_JIT_TYPE_FLOAT`
+       -
+     * - :c:data:`GCC_JIT_TYPE_DOUBLE`
+       -
+     * - :c:data:`GCC_JIT_TYPE_LONG_DOUBLE`
+       -
+     * - :c:data:`GCC_JIT_TYPE_CONST_CHAR_PTR`
+       - C type: ``(const char *)``
+     * - :c:data:`GCC_JIT_TYPE_SIZE_T`
+       - C's ``size_t`` type
+     * - :c:data:`GCC_JIT_TYPE_FILE_PTR`
+       - C type: ``(FILE *)``
+     * - :c:data:`GCC_JIT_TYPE_COMPLEX_FLOAT`
+       - C99's ``_Complex float``
+     * - :c:data:`GCC_JIT_TYPE_COMPLEX_DOUBLE`
+       - C99's ``_Complex double``
+     * - :c:data:`GCC_JIT_TYPE_COMPLEX_LONG_DOUBLE`
+       - C99's ``_Complex long double``
 
 .. function:: gcc_jit_type *\
               gcc_jit_context_get_int_type (gcc_jit_context *ctxt, \
@@ -115,7 +158,70 @@ Pointers, `const`, and `volatile`
                                                gcc_jit_type *element_type, \
                                                int num_elements)
 
-   Given type "T", get type "T[N]" (for a constant N).
+   Given non-`void` type "T", get type "T[N]" (for a constant N).
+
+.. function::  gcc_jit_type *\
+               gcc_jit_type_get_aligned (gcc_jit_type *type, \
+                                         size_t alignment_in_bytes)
+
+   Given non-`void` type "T", get type:
+
+   .. code-block:: c
+
+      T __attribute__ ((aligned (ALIGNMENT_IN_BYTES)))
+
+   The alignment must be a power of two.
+
+   This entrypoint was added in :ref:`LIBGCCJIT_ABI_7`; you can test for
+   its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_gcc_jit_type_get_aligned
+
+Vector types
+------------
+
+.. function::  gcc_jit_type *\
+               gcc_jit_type_get_vector (gcc_jit_type *type, \
+                                        size_t num_units)
+
+   Given type "T", get type:
+
+   .. code-block:: c
+
+      T  __attribute__ ((vector_size (sizeof(T) * num_units))
+
+   T must be integral or floating point; num_units must be a power of two.
+
+   This can be used to construct a vector type in which operations
+   are applied element-wise.  The compiler will automatically
+   use SIMD instructions where possible.  See:
+   https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html
+
+   For example, assuming 4-byte ``ints``, then:
+
+   .. code-block:: c
+
+      typedef int v4si __attribute__ ((vector_size (16)));
+
+   can be obtained using:
+
+   .. code-block:: c
+
+      gcc_jit_type *int_type = gcc_jit_context_get_type (ctxt,
+                                                         GCC_JIT_TYPE_INT);
+      gcc_jit_type *v4si_type = gcc_jit_type_get_vector (int_type, 4);
+
+   This API entrypoint was added in :ref:`LIBGCCJIT_ABI_8`; you can test
+   for its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_gcc_jit_type_get_vector
+
+   Vector rvalues can be generated using
+   :func:`gcc_jit_context_new_rvalue_from_vector`.
 
 
 Structures and unions
@@ -129,7 +235,7 @@ A compound type analagous to a C `struct`.
 
 A field within a :c:type:`gcc_jit_struct`.
 
-You can model C `struct` types by creating :c:type:`gcc_jit_struct *` and
+You can model C `struct` types by creating :c:type:`gcc_jit_struct` and
 :c:type:`gcc_jit_field` instances, in either order:
 
 * by creating the fields, then the structure.  For example, to model:
@@ -180,9 +286,36 @@ You can model C `struct` types by creating :c:type:`gcc_jit_struct *` and
 
    Construct a new field, with the given type and name.
 
+   The parameter ``type`` must be non-`void`.
+
    The parameter ``name`` must be non-NULL.  The call takes a copy of the
    underlying string, so it is valid to pass in a pointer to an on-stack
    buffer.
+
+.. function:: gcc_jit_field *\
+              gcc_jit_context_new_bitfield (gcc_jit_context *ctxt,\
+                                            gcc_jit_location *loc,\
+                                            gcc_jit_type *type,\
+                                            int width,\
+                                            const char *name)
+
+   Construct a new bit field, with the given type width and name.
+
+   The parameter ``name`` must be non-NULL.  The call takes a copy of the
+   underlying string, so it is valid to pass in a pointer to an on-stack
+   buffer.
+
+   The parameter ``type`` must be an integer type.
+
+   The parameter ``width`` must be a positive integer that does not exceed the
+   size of ``type``.
+
+   This API entrypoint was added in :ref:`LIBGCCJIT_ABI_12`; you can test
+   for its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_gcc_jit_context_new_bitfield
 
 .. function:: gcc_jit_object *\
               gcc_jit_field_as_object (gcc_jit_field *field)
@@ -249,3 +382,162 @@ You can model C `struct` types by creating :c:type:`gcc_jit_struct *` and
        :start-after: /* Quote from here in docs/topics/types.rst.  */
        :end-before: /* Quote up to here in docs/topics/types.rst.  */
        :language: c
+
+Function pointer types
+----------------------
+
+Function pointer types can be created using
+:c:func:`gcc_jit_context_new_function_ptr_type`.
+
+Reflection API
+--------------
+
+.. function::  gcc_jit_type *\
+               gcc_jit_type_dyncast_array (gcc_jit_type *type)
+
+     Get the element type of an array type or NULL if it's not an array.
+
+.. function::  int\
+               gcc_jit_type_is_bool (gcc_jit_type *type)
+
+     Return non-zero if the type is a bool.
+
+.. function::  gcc_jit_function_type *\
+               gcc_jit_type_dyncast_function_ptr_type (gcc_jit_type *type)
+
+     Return the function type if it is one or NULL.
+
+.. function::  gcc_jit_type *\
+               gcc_jit_function_type_get_return_type (gcc_jit_function_type *function_type)
+
+     Given a function type, return its return type.
+
+.. function::  size_t\
+               gcc_jit_function_type_get_param_count (gcc_jit_function_type *function_type)
+
+     Given a function type, return its number of parameters.
+
+.. function::  gcc_jit_type *\
+               gcc_jit_function_type_get_param_type (gcc_jit_function_type *function_type,\
+                                                     size_t index)
+
+     Given a function type, return the type of the specified parameter.
+
+.. function::  int\
+               gcc_jit_type_is_integral (gcc_jit_type *type)
+
+     Return non-zero if the type is an integral.
+
+.. function::  gcc_jit_type *\
+               gcc_jit_type_is_pointer (gcc_jit_type *type)
+
+     Return the type pointed by the pointer type or NULL if it's not a pointer.
+
+.. function::  gcc_jit_vector_type *\
+               gcc_jit_type_dyncast_vector (gcc_jit_type *type)
+
+     Given a type, return a dynamic cast to a vector type or NULL.
+
+.. function::  gcc_jit_struct *\
+               gcc_jit_type_is_struct (gcc_jit_type *type)
+
+     Given a type, return a dynamic cast to a struct type or NULL.
+
+.. function::  size_t\
+               gcc_jit_vector_type_get_num_units (gcc_jit_vector_type *vector_type)
+
+     Given a vector type, return the number of units it contains.
+
+.. function::  gcc_jit_type *\
+               gcc_jit_vector_type_get_element_type (gcc_jit_vector_type * vector_type)
+
+     Given a vector type, return the type of its elements.
+
+.. function::  gcc_jit_type *\
+               gcc_jit_type_unqualified (gcc_jit_type *type)
+
+     Given a type, return the unqualified type, removing "const", "volatile" and
+     alignment qualifiers.
+
+.. function::  gcc_jit_field *\
+               gcc_jit_struct_get_field (gcc_jit_struct *struct_type,\
+                                         size_t index)
+
+     Get a struct field by index.
+
+.. function::  size_t\
+               gcc_jit_struct_get_field_count (gcc_jit_struct *struct_type)
+
+     Get the number of fields in the struct.
+
+   The API entrypoints related to the reflection API:
+
+      * :c:func:`gcc_jit_function_type_get_return_type`
+
+      * :c:func:`gcc_jit_function_type_get_param_count`
+
+      * :c:func:`gcc_jit_function_type_get_param_type`
+
+      * :c:func:`gcc_jit_type_unqualified`
+
+      * :c:func:`gcc_jit_type_dyncast_array`
+
+      * :c:func:`gcc_jit_type_is_bool`
+
+      * :c:func:`gcc_jit_type_dyncast_function_ptr_type`
+
+      * :c:func:`gcc_jit_type_is_integral`
+
+      * :c:func:`gcc_jit_type_is_pointer`
+
+      * :c:func:`gcc_jit_type_dyncast_vector`
+
+      * :c:func:`gcc_jit_vector_type_get_element_type`
+
+      * :c:func:`gcc_jit_vector_type_get_num_units`
+
+      * :c:func:`gcc_jit_struct_get_field`
+
+      * :c:func:`gcc_jit_type_is_struct`
+
+      * :c:func:`gcc_jit_struct_get_field_count`
+
+   were added in :ref:`LIBGCCJIT_ABI_16`; you can test for their presence
+   using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_REFLECTION
+
+   .. type:: gcc_jit_case
+
+.. function::  int\
+               gcc_jit_compatible_types (gcc_jit_type *ltype,\
+                                         gcc_jit_type *rtype)
+
+     Return non-zero if the two types are compatible. For instance,
+     if :c:data:`GCC_JIT_TYPE_UINT64_T` and :c:data:`GCC_JIT_TYPE_UNSIGNED_LONG`
+     are the same size on the target, this will return non-zero.
+     The parameters ``ltype`` and ``rtype`` must be non-NULL.
+     Return 0 on errors.
+
+   This entrypoint was added in :ref:`LIBGCCJIT_ABI_20`; you can test for
+   its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_SIZED_INTEGERS
+
+.. function::  ssize_t\
+               gcc_jit_type_get_size (gcc_jit_type *type)
+
+     Return the size of a type, in bytes. It only works on integer types for now.
+     The parameter ``type`` must be non-NULL.
+     Return -1 on errors.
+
+   This entrypoint was added in :ref:`LIBGCCJIT_ABI_20`; you can test for
+   its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_SIZED_INTEGERS

@@ -1,6 +1,6 @@
 // Locale support (codecvt) -*- C++ -*-
 
-// Copyright (C) 2000-2017 Free Software Foundation, Inc.
+// Copyright (C) 2000-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -35,14 +35,16 @@
 #ifndef _EXT_CODECVT_SPECIALIZATIONS_H
 #define _EXT_CODECVT_SPECIALIZATIONS_H 1
 
+#include <bits/requires_hosted.h> // GNU extensions are currently omitted
+
 #include <bits/c++config.h>
 #include <locale>
 #include <iconv.h>
 
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
-_GLIBCXX_BEGIN_NAMESPACE_CXX11
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
+_GLIBCXX_BEGIN_NAMESPACE_CXX11
 
   /// Extension to use iconv for dealing with character encodings.
   // This includes conversions and comparisons between various character
@@ -215,8 +217,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef typename std::fpos<state_type>		pos_type;
     };
 
-_GLIBCXX_END_NAMESPACE_VERSION
 _GLIBCXX_END_NAMESPACE_CXX11
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 
 

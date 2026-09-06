@@ -1,5 +1,5 @@
 /* Machine description for AArch64 architecture.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -25,23 +25,7 @@
 #define STARTFILE_SPEC " crti%O%s crtbegin%O%s crt0%O%s"
 #define ENDFILE_SPEC \
   " crtend%O%s crtn%O%s " \
-  "%{Ofast|ffast-math|funsafe-math-optimizations:crtfastmath.o%s}"
-
-#if TARGET_FIX_ERR_A53_835769_DEFAULT
-#define CA53_ERR_835769_SPEC \
-  " %{!mno-fix-cortex-a53-835769:--fix-cortex-a53-835769}"
-#else
-#define CA53_ERR_835769_SPEC \
-  " %{mfix-cortex-a53-835769:--fix-cortex-a53-835769}"
-#endif
-
-#if TARGET_FIX_ERR_A53_843419_DEFAULT
-#define CA53_ERR_843419_SPEC \
-  " %{!mno-fix-cortex-a53-843419:--fix-cortex-a53-843419}"
-#else
-#define CA53_ERR_843419_SPEC \
-  " %{mfix-cortex-a53-843419:--fix-cortex-a53-843419}"
-#endif
+  "%{Ofast|ffast-math|funsafe-math-optimizations:%{!shared:crtfastmath.o%s}}"
 
 #ifndef LINK_SPEC
 #define LINK_SPEC "%{h*}			\
@@ -51,8 +35,7 @@
    %{!static:%{rdynamic:-export-dynamic}}	\
    %{mbig-endian:-EB} %{mlittle-endian:-EL} -X	\
   -maarch64elf%{mabi=ilp32*:32}%{mbig-endian:b}" \
-  CA53_ERR_835769_SPEC \
-  CA53_ERR_843419_SPEC
+  AARCH64_ERRATA_LINK_SPEC
 #endif
 
 #endif /* GCC_AARCH64_ELF_RAW_H */

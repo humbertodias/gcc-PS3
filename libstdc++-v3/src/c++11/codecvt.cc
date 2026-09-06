@@ -1,6 +1,6 @@
 // Locale support (codecvt) -*- C++ -*-
 
-// Copyright (C) 2015-2017 Free Software Foundation, Inc.
+// Copyright (C) 2015-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -26,7 +26,6 @@
 #include <cstring>		// std::memcpy, std::memcmp
 #include <bits/stl_algobase.h>	// std::min
 
-#ifdef _GLIBCXX_USE_C99_STDINT_TR1
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -194,8 +193,9 @@ namespace
     }
 
   // If generate_header is set in mode write out UTF-8 BOM.
+  template<typename C>
   bool
-  write_utf8_bom(range<char>& to, codecvt_mode mode)
+  write_utf8_bom(range<C>& to, codecvt_mode mode)
   {
     if (mode & generate_header)
       return write_bom(to, utf8_bom);
@@ -219,8 +219,9 @@ namespace
   }
 
   // If consume_header is set in mode update from.next to after any BOM.
+  template<typename C>
   void
-  read_utf8_bom(range<const char>& from, codecvt_mode mode)
+  read_utf8_bom(range<const C>& from, codecvt_mode mode)
   {
     if (mode & consume_header)
       read_bom(from, utf8_bom);
@@ -246,27 +247,28 @@ namespace
   // Read a codepoint from a UTF-8 multibyte sequence.
   // Updates from.next if the codepoint is not greater than maxcode.
   // Returns invalid_mb_sequence, incomplete_mb_character or the code point.
+  template<typename C>
   char32_t
-  read_utf8_code_point(range<const char>& from, unsigned long maxcode)
+  read_utf8_code_point(range<const C>& from, unsigned long maxcode)
   {
     const size_t avail = from.size();
     if (avail == 0)
       return incomplete_mb_character;
-    unsigned char c1 = from[0];
+    char32_t c1 = (unsigned char) from[0];
     // https://en.wikipedia.org/wiki/UTF-8#Sample_code
-    if (c1 < 0x80)
+    if (c1 < 0x80) [[likely]]
     {
       ++from;
       return c1;
     }
-    else if (c1 < 0xC2) // continuation or overlong 2-byte sequence
+    else if (c1 < 0xC2) [[unlikely]] // continuation or overlong 2-byte sequence
       return invalid_mb_sequence;
     else if (c1 < 0xE0) // 2-byte sequence
     {
-      if (avail < 2)
+      if (avail < 2) [[unlikely]]
 	return incomplete_mb_character;
-      unsigned char c2 = from[1];
-      if ((c2 & 0xC0) != 0x80)
+      char32_t c2 = (unsigned char) from[1];
+      if ((c2 & 0xC0) != 0x80) [[unlikely]]
 	return invalid_mb_sequence;
       char32_t c = (c1 << 6) + c2 - 0x3080;
       if (c <= maxcode)
@@ -275,66 +277,73 @@ namespace
     }
     else if (c1 < 0xF0) // 3-byte sequence
     {
-      if (avail < 3)
+      if (avail < 2) [[unlikely]]
 	return incomplete_mb_character;
-      unsigned char c2 = from[1];
-      if ((c2 & 0xC0) != 0x80)
+      char32_t c2 = (unsigned char) from[1];
+      if ((c2 & 0xC0) != 0x80) [[unlikely]]
 	return invalid_mb_sequence;
-      if (c1 == 0xE0 && c2 < 0xA0) // overlong
+      if (c1 == 0xE0 && c2 < 0xA0) [[unlikely]] // overlong
 	return invalid_mb_sequence;
-      unsigned char c3 = from[2];
-      if ((c3 & 0xC0) != 0x80)
+      if (avail < 3) [[unlikely]]
+	return incomplete_mb_character;
+      char32_t c3 = (unsigned char) from[2];
+      if ((c3 & 0xC0) != 0x80) [[unlikely]]
 	return invalid_mb_sequence;
       char32_t c = (c1 << 12) + (c2 << 6) + c3 - 0xE2080;
       if (c <= maxcode)
 	from += 3;
       return c;
     }
-    else if (c1 < 0xF5) // 4-byte sequence
+    else if (c1 < 0xF5 && maxcode > 0xFFFF) // 4-byte sequence
     {
-      if (avail < 4)
+      if (avail < 2) [[unlikely]]
 	return incomplete_mb_character;
-      unsigned char c2 = from[1];
-      if ((c2 & 0xC0) != 0x80)
+      char32_t c2 = (unsigned char) from[1];
+      if ((c2 & 0xC0) != 0x80) [[unlikely]]
 	return invalid_mb_sequence;
-      if (c1 == 0xF0 && c2 < 0x90) // overlong
+      if (c1 == 0xF0 && c2 < 0x90) [[unlikely]] // overlong
 	return invalid_mb_sequence;
-      if (c1 == 0xF4 && c2 >= 0x90) // > U+10FFFF
-      return invalid_mb_sequence;
-      unsigned char c3 = from[2];
-      if ((c3 & 0xC0) != 0x80)
+      if (c1 == 0xF4 && c2 >= 0x90) [[unlikely]] // > U+10FFFF
 	return invalid_mb_sequence;
-      unsigned char c4 = from[3];
-      if ((c4 & 0xC0) != 0x80)
+      if (avail < 3) [[unlikely]]
+	return incomplete_mb_character;
+      char32_t c3 = (unsigned char) from[2];
+      if ((c3 & 0xC0) != 0x80) [[unlikely]]
+	return invalid_mb_sequence;
+      if (avail < 4) [[unlikely]]
+	return incomplete_mb_character;
+      char32_t c4 = (unsigned char) from[3];
+      if ((c4 & 0xC0) != 0x80) [[unlikely]]
 	return invalid_mb_sequence;
       char32_t c = (c1 << 18) + (c2 << 12) + (c3 << 6) + c4 - 0x3C82080;
       if (c <= maxcode)
 	from += 4;
       return c;
     }
-    else // > U+10FFFF
+    else [[unlikely]] // > U+10FFFF
       return invalid_mb_sequence;
   }
 
+  template<typename C>
   bool
-  write_utf8_code_point(range<char>& to, char32_t code_point)
+  write_utf8_code_point(range<C>& to, char32_t code_point)
   {
     if (code_point < 0x80)
       {
-	if (to.size() < 1)
+	if (to.size() < 1) [[unlikely]]
 	  return false;
 	to = code_point;
       }
     else if (code_point <= 0x7FF)
       {
-	if (to.size() < 2)
+	if (to.size() < 2) [[unlikely]]
 	  return false;
 	to = (code_point >> 6) + 0xC0;
 	to = (code_point & 0x3F) + 0x80;
       }
     else if (code_point <= 0xFFFF)
       {
-	if (to.size() < 3)
+	if (to.size() < 3) [[unlikely]]
 	  return false;
 	to = (code_point >> 12) + 0xE0;
 	to = ((code_point >> 6) & 0x3F) + 0x80;
@@ -342,14 +351,14 @@ namespace
       }
     else if (code_point <= 0x10FFFF)
       {
-	if (to.size() < 4)
+	if (to.size() < 4) [[unlikely]]
 	  return false;
 	to = (code_point >> 18) + 0xF0;
 	to = ((code_point >> 12) & 0x3F) + 0x80;
 	to = ((code_point >> 6) & 0x3F) + 0x80;
 	to = (code_point & 0x3F) + 0x80;
       }
-    else
+    else [[unlikely]]
       return false;
     return true;
   }
@@ -394,16 +403,16 @@ namespace
 			  unsigned long maxcode, codecvt_mode mode)
     {
       const size_t avail = from.size();
-      if (avail == 0)
+      if (avail == 0) [[unlikely]]
 	return incomplete_mb_character;
       int inc = 1;
       char32_t c = adjust_byte_order(from[0], mode);
       if (is_high_surrogate(c))
 	{
-	  if (avail < 2)
+	  if (avail < 2) [[unlikely]]
 	    return incomplete_mb_character;
 	  const char16_t c2 = adjust_byte_order(from[1], mode);
-	  if (is_low_surrogate(c2))
+	  if (is_low_surrogate(c2)) [[likely]]
 	    {
 	      c = surrogate_pair_to_code_point(c, c2);
 	      inc = 2;
@@ -411,7 +420,7 @@ namespace
 	  else
 	    return invalid_mb_sequence;
 	}
-      else if (is_low_surrogate(c))
+      else if (is_low_surrogate(c)) [[unlikely]]
 	return invalid_mb_sequence;
       if (c <= maxcode)
 	from += inc;
@@ -446,17 +455,18 @@ namespace
   }
 
   // utf8 -> ucs4
+  template<typename C>
   codecvt_base::result
-  ucs4_in(range<const char>& from, range<char32_t>& to,
+  ucs4_in(range<const C>& from, range<char32_t>& to,
           unsigned long maxcode = max_code_point, codecvt_mode mode = {})
   {
     read_utf8_bom(from, mode);
     while (from.size() && to.size())
       {
 	const char32_t codepoint = read_utf8_code_point(from, maxcode);
-	if (codepoint == incomplete_mb_character)
+	if (codepoint == incomplete_mb_character) [[unlikely]]
 	  return codecvt_base::partial;
-	if (codepoint > maxcode)
+	if (codepoint > maxcode) [[unlikely]]
 	  return codecvt_base::error;
 	to = codepoint;
       }
@@ -464,18 +474,19 @@ namespace
   }
 
   // ucs4 -> utf8
+  template<typename C>
   codecvt_base::result
-  ucs4_out(range<const char32_t>& from, range<char>& to,
+  ucs4_out(range<const char32_t>& from, range<C>& to,
            unsigned long maxcode = max_code_point, codecvt_mode mode = {})
   {
-    if (!write_utf8_bom(to, mode))
+    if (!write_utf8_bom(to, mode)) [[unlikely]]
       return codecvt_base::partial;
     while (from.size())
       {
 	const char32_t c = from[0];
-	if (c > maxcode)
+	if (c > maxcode) [[unlikely]]
 	  return codecvt_base::error;
-	if (!write_utf8_code_point(to, c))
+	if (!write_utf8_code_point(to, c)) [[unlikely]]
 	  return codecvt_base::partial;
 	++from;
       }
@@ -491,9 +502,9 @@ namespace
     while (from.size() && to.size())
       {
 	const char32_t codepoint = read_utf16_code_point(from, maxcode, mode);
-	if (codepoint == incomplete_mb_character)
+	if (codepoint == incomplete_mb_character) [[unlikely]]
 	  return codecvt_base::partial;
-	if (codepoint > maxcode)
+	if (codepoint > maxcode) [[unlikely]]
 	  return codecvt_base::error;
 	to = codepoint;
       }
@@ -505,14 +516,14 @@ namespace
   ucs4_out(range<const char32_t>& from, range<char16_t, false>& to,
            unsigned long maxcode = max_code_point, codecvt_mode mode = {})
   {
-    if (!write_utf16_bom(to, mode))
+    if (!write_utf16_bom(to, mode)) [[unlikely]]
       return codecvt_base::partial;
     while (from.size())
       {
 	const char32_t c = from[0];
-	if (c > maxcode)
+	if (c > maxcode) [[unlikely]]
 	  return codecvt_base::error;
-	if (!write_utf16_code_point(to, c, mode))
+	if (!write_utf16_code_point(to, c, mode)) [[unlikely]]
 	  return codecvt_base::partial;
 	++from;
       }
@@ -522,44 +533,38 @@ namespace
   // Flag indicating whether to process UTF-16 or UCS2
   enum class surrogates { allowed, disallowed };
 
-  // utf8 -> utf16 (or utf8 -> ucs2 if s == surrogates::disallowed)
-  template<typename C>
+  // utf8 -> utf16 (or utf8 -> ucs2 if maxcode <= 0xFFFF)
+  template <typename C8, typename C16>
   codecvt_base::result
-  utf16_in(range<const char>& from, range<C>& to,
-	   unsigned long maxcode = max_code_point, codecvt_mode mode = {},
-	   surrogates s = surrogates::allowed)
+  utf16_in(range<const C8> &from, range<C16> &to,
+	   unsigned long maxcode = max_code_point, codecvt_mode mode = {})
   {
     read_utf8_bom(from, mode);
     while (from.size() && to.size())
       {
 	auto orig = from;
 	const char32_t codepoint = read_utf8_code_point(from, maxcode);
-	if (codepoint == incomplete_mb_character)
-	  {
-	    if (s == surrogates::allowed)
-	      return codecvt_base::partial;
-	    else
-	      return codecvt_base::error; // No surrogates in UCS2
-	  }
+	if (codepoint == incomplete_mb_character) [[unlikely]]
+	  return codecvt_base::partial;
 	if (codepoint > maxcode)
 	  return codecvt_base::error;
-	if (!write_utf16_code_point(to, codepoint, mode))
+	if (!write_utf16_code_point(to, codepoint, mode)) [[unlikely]]
 	  {
 	    from = orig; // rewind to previous position
 	    return codecvt_base::partial;
 	  }
       }
-    return codecvt_base::ok;
+    return from.size() ? codecvt_base::partial : codecvt_base::ok;
   }
 
   // utf16 -> utf8 (or ucs2 -> utf8 if s == surrogates::disallowed)
-  template<typename C>
+  template<typename C16, typename C8>
   codecvt_base::result
-  utf16_out(range<const C>& from, range<char>& to,
+  utf16_out(range<const C16>& from, range<C8>& to,
 	    unsigned long maxcode = max_code_point, codecvt_mode mode = {},
 	    surrogates s = surrogates::allowed)
   {
-    if (!write_utf8_bom(to, mode))
+    if (!write_utf8_bom(to, mode)) [[unlikely]]
       return codecvt_base::partial;
     while (from.size())
       {
@@ -567,14 +572,14 @@ namespace
 	int inc = 1;
 	if (is_high_surrogate(c))
 	  {
-	    if (s == surrogates::disallowed)
+	    if (s == surrogates::disallowed) [[unlikely]]
 	      return codecvt_base::error; // No surrogates in UCS-2
 
-	    if (from.size() < 2)
-	      return codecvt_base::ok; // stop converting at this point
+	    if (from.size() < 2) [[unlikely]]
+	      return codecvt_base::partial; // stop converting at this point
 
 	    const char32_t c2 = from[1];
-	    if (is_low_surrogate(c2))
+	    if (is_low_surrogate(c2)) [[likely]]
 	      {
 		c = surrogate_pair_to_code_point(c, c2);
 		inc = 2;
@@ -582,11 +587,11 @@ namespace
 	    else
 	      return codecvt_base::error;
 	  }
-	else if (is_low_surrogate(c))
+	else if (is_low_surrogate(c)) [[unlikely]]
 	  return codecvt_base::error;
-	if (c > maxcode)
+	if (c > maxcode) [[unlikely]]
 	  return codecvt_base::error;
-	if (!write_utf8_code_point(to, c))
+	if (!write_utf8_code_point(to, c)) [[unlikely]]
 	  return codecvt_base::partial;
 	from += inc;
       }
@@ -594,11 +599,12 @@ namespace
   }
 
   // return pos such that [begin,pos) is valid UTF-16 string no longer than max
-  const char*
-  utf16_span(const char* begin, const char* end, size_t max,
+  template<typename C>
+  const C*
+  utf16_span(const C* begin, const C* end, size_t max,
 	     char32_t maxcode = max_code_point, codecvt_mode mode = {})
   {
-    range<const char> from{ begin, end };
+    range<const C> from{ begin, end };
     read_utf8_bom(from, mode);
     size_t count = 0;
     while (count+1 < max)
@@ -616,18 +622,20 @@ namespace
   }
 
   // utf8 -> ucs2
+  template<typename C>
   codecvt_base::result
-  ucs2_in(range<const char>& from, range<char16_t>& to,
+  ucs2_in(range<const C>& from, range<char16_t>& to,
 	  char32_t maxcode = max_code_point, codecvt_mode mode = {})
   {
     // UCS-2 only supports characters in the BMP, i.e. one UTF-16 code unit:
     maxcode = std::min(max_single_utf16_unit, maxcode);
-    return utf16_in(from, to, maxcode, mode, surrogates::disallowed);
+    return utf16_in(from, to, maxcode, mode);
   }
 
   // ucs2 -> utf8
+  template<typename C>
   codecvt_base::result
-  ucs2_out(range<const char16_t>& from, range<char>& to,
+  ucs2_out(range<const char16_t>& from, range<C>& to,
 	   char32_t maxcode = max_code_point, codecvt_mode mode = {})
   {
     // UCS-2 only supports characters in the BMP, i.e. one UTF-16 code unit:
@@ -688,11 +696,12 @@ namespace
     return reinterpret_cast<const char16_t*>(from.next);
   }
 
-  const char*
-  ucs2_span(const char* begin, const char* end, size_t max,
+  template<typename C>
+  const C*
+  ucs2_span(const C* begin, const C* end, size_t max,
             char32_t maxcode, codecvt_mode mode)
   {
-    range<const char> from{ begin, end };
+    range<const C> from{ begin, end };
     read_utf8_bom(from, mode);
     // UCS-2 only supports characters in the BMP, i.e. one UTF-16 code unit:
     maxcode = std::min(max_single_utf16_unit, maxcode);
@@ -703,11 +712,12 @@ namespace
   }
 
   // return pos such that [begin,pos) is valid UCS-4 string no longer than max
-  const char*
-  ucs4_span(const char* begin, const char* end, size_t max,
+  template<typename C>
+  const C*
+  ucs4_span(const C* begin, const C* end, size_t max,
             char32_t maxcode = max_code_point, codecvt_mode mode = {})
   {
-    range<const char> from{ begin, end };
+    range<const C> from{ begin, end };
     read_utf8_bom(from, mode);
     char32_t c = 0;
     while (max-- && c <= maxcode)
@@ -875,6 +885,156 @@ codecvt<char32_t, char, mbstate_t>::do_max_length() const throw()
   // up to 4 UTF-8 code units.
   return 4;
 }
+
+#if defined(_GLIBCXX_USE_CHAR8_T)
+// Define members of codecvt<char16_t, char8_t, mbstate_t> specialization.
+// Converts from UTF-8 to UTF-16.
+
+locale::id codecvt<char16_t, char8_t, mbstate_t>::id;
+
+codecvt<char16_t, char8_t, mbstate_t>::~codecvt() { }
+
+codecvt_base::result
+codecvt<char16_t, char8_t, mbstate_t>::
+do_out(state_type&,
+       const intern_type* __from,
+       const intern_type* __from_end, const intern_type*& __from_next,
+       extern_type* __to, extern_type* __to_end,
+       extern_type*& __to_next) const
+{
+  range<const char16_t> from{ __from, __from_end };
+  range<char8_t> to{ __to, __to_end };
+  auto res = utf16_out(from, to);
+  __from_next = from.next;
+  __to_next = to.next;
+  return res;
+}
+
+codecvt_base::result
+codecvt<char16_t, char8_t, mbstate_t>::
+do_unshift(state_type&, extern_type* __to, extern_type*,
+	   extern_type*& __to_next) const
+{
+  __to_next = __to;
+  return noconv; // we don't use mbstate_t for the unicode facets
+}
+
+codecvt_base::result
+codecvt<char16_t, char8_t, mbstate_t>::
+do_in(state_type&, const extern_type* __from, const extern_type* __from_end,
+      const extern_type*& __from_next,
+      intern_type* __to, intern_type* __to_end,
+      intern_type*& __to_next) const
+{
+  range<const char8_t> from{ __from, __from_end };
+  range<char16_t> to{ __to, __to_end };
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  codecvt_mode mode = {};
+#else
+  codecvt_mode mode = little_endian;
+#endif
+  auto res = utf16_in(from, to, max_code_point, mode);
+  __from_next = from.next;
+  __to_next = to.next;
+  return res;
+}
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::do_encoding() const throw()
+{ return 0; } // UTF-8 is not a fixed-width encoding
+
+bool
+codecvt<char16_t, char8_t, mbstate_t>::do_always_noconv() const throw()
+{ return false; }
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::
+do_length(state_type&, const extern_type* __from,
+	  const extern_type* __end, size_t __max) const
+{
+  __end = utf16_span(__from, __end, __max);
+  return __end - __from;
+}
+
+int
+codecvt<char16_t, char8_t, mbstate_t>::do_max_length() const throw()
+{
+  // A single character (one or two UTF-16 code units) requires
+  // up to four UTF-8 code units.
+  return 4;
+}
+
+// Define members of codecvt<char32_t, char8_t, mbstate_t> specialization.
+// Converts from UTF-8 to UTF-32 (aka UCS-4).
+
+locale::id codecvt<char32_t, char8_t, mbstate_t>::id;
+
+codecvt<char32_t, char8_t, mbstate_t>::~codecvt() { }
+
+codecvt_base::result
+codecvt<char32_t, char8_t, mbstate_t>::
+do_out(state_type&, const intern_type* __from, const intern_type* __from_end,
+       const intern_type*& __from_next,
+       extern_type* __to, extern_type* __to_end,
+       extern_type*& __to_next) const
+{
+  range<const char32_t> from{ __from, __from_end };
+  range<char8_t> to{ __to, __to_end };
+  auto res = ucs4_out(from, to);
+  __from_next = from.next;
+  __to_next = to.next;
+  return res;
+}
+
+codecvt_base::result
+codecvt<char32_t, char8_t, mbstate_t>::
+do_unshift(state_type&, extern_type* __to, extern_type*,
+	   extern_type*& __to_next) const
+{
+  __to_next = __to;
+  return noconv;
+}
+
+codecvt_base::result
+codecvt<char32_t, char8_t, mbstate_t>::
+do_in(state_type&, const extern_type* __from, const extern_type* __from_end,
+      const extern_type*& __from_next,
+      intern_type* __to, intern_type* __to_end,
+      intern_type*& __to_next) const
+{
+  range<const char8_t> from{ __from, __from_end };
+  range<char32_t> to{ __to, __to_end };
+  auto res = ucs4_in(from, to);
+  __from_next = from.next;
+  __to_next = to.next;
+  return res;
+}
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::do_encoding() const throw()
+{ return 0; } // UTF-8 is not a fixed-width encoding
+
+bool
+codecvt<char32_t, char8_t, mbstate_t>::do_always_noconv() const throw()
+{ return false; }
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::
+do_length(state_type&, const extern_type* __from,
+	  const extern_type* __end, size_t __max) const
+{
+  __end = ucs4_span(__from, __end, __max);
+  return __end - __from;
+}
+
+int
+codecvt<char32_t, char8_t, mbstate_t>::do_max_length() const throw()
+{
+  // A single character (one UTF-32 code unit) requires
+  // up to 4 UTF-8 code units.
+  return 4;
+}
+#endif // _GLIBCXX_USE_CHAR8_T
 
 // Define members of codecvt_utf8<char16_t> base class implementation.
 // Converts from UTF-8 to UCS-2.
@@ -1086,7 +1246,12 @@ do_in(state_type&, const extern_type* __from, const extern_type* __from_end,
     reinterpret_cast<char16_t*>(__to),
     reinterpret_cast<char16_t*>(__to_end)
   };
-  auto res = ucs2_in(from, to, _M_maxcode, _M_mode);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  codecvt_mode mode = {};
+#else
+  codecvt_mode mode = little_endian;
+#endif
+  auto res = ucs2_in(from, to, _M_maxcode, mode);
 #elif __SIZEOF_WCHAR_T__ == 4
   range<char32_t> to{
     reinterpret_cast<char32_t*>(__to),
@@ -1632,6 +1797,12 @@ inline template class __codecvt_abstract_base<char32_t, char, mbstate_t>;
 template class codecvt_byname<char16_t, char, mbstate_t>;
 template class codecvt_byname<char32_t, char, mbstate_t>;
 
+#if defined(_GLIBCXX_USE_CHAR8_T)
+inline template class __codecvt_abstract_base<char16_t, char8_t, mbstate_t>;
+inline template class __codecvt_abstract_base<char32_t, char8_t, mbstate_t>;
+template class codecvt_byname<char16_t, char8_t, mbstate_t>;
+template class codecvt_byname<char32_t, char8_t, mbstate_t>;
+#endif
+
 _GLIBCXX_END_NAMESPACE_VERSION
 }
-#endif // _GLIBCXX_USE_C99_STDINT_TR1

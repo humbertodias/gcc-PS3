@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -27,21 +27,22 @@
 --  is detected. Calls to these routines cause termination of the current
 --  compilation with appropriate error output.
 
-with Atree;    use Atree;
-with Debug;    use Debug;
-with Errout;   use Errout;
-with Gnatvsn;  use Gnatvsn;
-with Lib;      use Lib;
-with Namet;    use Namet;
-with Opt;      use Opt;
-with Osint;    use Osint;
-with Output;   use Output;
-with Sinfo;    use Sinfo;
-with Sinput;   use Sinput;
-with Sprint;   use Sprint;
-with Sdefault; use Sdefault;
-with Treepr;   use Treepr;
-with Types;    use Types;
+with Atree;          use Atree;
+with Debug;          use Debug;
+with Errout;         use Errout;
+with Gnatvsn;        use Gnatvsn;
+with Lib;            use Lib;
+with Namet;          use Namet;
+with Opt;            use Opt;
+with Osint;          use Osint;
+with Output;         use Output;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinput;         use Sinput;
+with Sprint;         use Sprint;
+with Sdefault;       use Sdefault;
+with Treepr;         use Treepr;
+with Types;          use Types;
 
 with Ada.Exceptions; use Ada.Exceptions;
 
@@ -243,16 +244,22 @@ package body Comperr is
             end if;
 
             End_Line;
+
          else
             Write_Str ("| Error detected at ");
             Write_Location (Sloc (Current_Error_Node));
             End_Line;
          end if;
 
+         Write_Str ("| Compiling ");
+         Write_Str (Get_First_Main_File_Name);
+         End_Line;
+
          --  There are two cases now. If the file gnat_bug.box exists,
          --  we use the contents of this file at this point.
 
          declare
+            FD  : File_Descriptor;
             Lo  : Source_Ptr;
             Hi  : Source_Ptr;
             Src : Source_Buffer_Ptr;
@@ -261,11 +268,11 @@ package body Comperr is
             Namet.Unlock;
             Name_Buffer (1 .. 12) := "gnat_bug.box";
             Name_Len := 12;
-            Read_Source_File (Name_Enter, 0, Hi, Src);
+            Read_Source_File (Name_Enter, 0, Hi, Src, FD);
 
             --  If we get a Src file, we use it
 
-            if Src /= null then
+            if not Null_Source_Buffer_Ptr (Src) then
                Lo := 0;
 
                Outer : while Lo < Hi loop
@@ -309,8 +316,8 @@ package body Comperr is
                   End_Line;
 
                   Write_Str
-                    ("| http://www.adacore.com/ " &
-                     "section 'send a report'.");
+                    ("| https://www.adacore.com/login?mode=gap " &
+                     "section 'Create New Ticket'.");
                   End_Line;
 
                   Write_Str
@@ -324,17 +331,17 @@ package body Comperr is
                   End_Line;
 
                   Write_Str
-                    ("| http://www.adacore.com/gnattracker/ " &
-                     "section 'send a report'.");
+                    ("| https://www.adacore.com/login " &
+                     "section 'Create New Ticket'.");
                   End_Line;
 
                   Write_Str
-                    ("| alternatively submit a bug report by email " &
-                     "to report@adacore.com,");
+                    ("| Or submit a bug report by email " &
+                     "to report@adacore.com");
                   End_Line;
 
                   Write_Str
-                    ("| including your customer number #nnn " &
+                    ("| and include your customer number #nnn " &
                      "in the subject line.");
                   End_Line;
                end if;
@@ -402,6 +409,7 @@ package body Comperr is
          Set_Standard_Output;
 
          Tree_Dump;
+         Sinput.Unlock; -- so Source_Dump can modify it
          Source_Dump;
          raise Unrecoverable_Error;
       end if;
@@ -416,7 +424,7 @@ package body Comperr is
       Unit_Name : Node_Id;
 
       Success : Boolean;
-      pragma Unreferenced (Success);
+      pragma Warnings (Off, "modified by call");
 
       procedure Decode_Name_Buffer;
       --  Replace "__" by "." in Name_Buffer, and adjust Name_Len accordingly
@@ -457,7 +465,7 @@ package body Comperr is
       --  If parsing was not successful, no Main_Unit is available, so return
       --  immediately.
 
-      if Main_Source_File = No_Source_File then
+      if Main_Source_File <= No_Source_File then
          return;
       end if;
 
@@ -470,18 +478,23 @@ package body Comperr is
          when N_Package_Declaration
             | N_Subprogram_Body
             | N_Subprogram_Declaration
+            | N_Subprogram_Renaming_Declaration
          =>
             Unit_Name := Defining_Unit_Name (Specification (Main));
 
          when N_Package_Body =>
             Unit_Name := Corresponding_Spec (Main);
 
-         when N_Package_Renaming_Declaration =>
+         when N_Package_Instantiation
+            | N_Package_Renaming_Declaration
+         =>
             Unit_Name := Defining_Unit_Name (Main);
 
-         --  No SCIL file generated for generic package declarations
+         --  No SCIL file generated for generic unit declarations
 
-         when N_Generic_Package_Declaration =>
+         when N_Generic_Declaration
+            | N_Generic_Renaming_Declaration
+         =>
             return;
 
          --  Should never happen, but can be ignored in production

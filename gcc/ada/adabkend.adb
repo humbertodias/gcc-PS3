@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---                     Copyright (C) 2001-2016, AdaCore                     --
+--                     Copyright (C) 2001-2023, AdaCore                     --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -22,14 +22,16 @@
 
 --  This is the version of the Back_End package for back ends written in Ada
 
+with Atree;         use Atree;
+with Backend_Utils; use Backend_Utils;
 with Debug;
 with Lib;
-with Opt;      use Opt;
-with Output;   use Output;
-with Osint;    use Osint;
-with Osint.C;  use Osint.C;
-with Switch.C; use Switch.C;
-with Types;    use Types;
+with Opt;           use Opt;
+with Output;        use Output;
+with Osint;         use Osint;
+with Osint.C;       use Osint.C;
+with Switch.C;      use Switch.C;
+with Types;         use Types;
 
 with System.OS_Lib; use System.OS_Lib;
 
@@ -56,12 +58,19 @@ package body Adabkend is
          Write_Eol;
       end if;
 
+      --  The front end leaves the Current_Error_Node at a location that is
+      --  meaningless and confusing when emitting bug boxes from the back end.
+      --  Reset the global variable in order to emit "No source file position
+      --  information available" messages on back end crashes.
+
+      Current_Error_Node := Empty;
+
       Driver (Lib.Cunit (Types.Main_Unit));
    end Call_Back_End;
 
-   ------------------------
-   -- Scan_Compiler_Args --
-   ------------------------
+   -----------------------------
+   -- Scan_Compiler_Arguments --
+   -----------------------------
 
    procedure Scan_Compiler_Arguments is
       Output_File_Name_Seen : Boolean := False;
@@ -83,7 +92,7 @@ package body Adabkend is
       --
       --  If the switch is not valid, control will not return. The switches
       --  must still be scanned to skip the "-o" arguments, or internal GCC
-      --  switches, which may be safely ignored by other back-ends.
+      --  switches, which may be safely ignored by other back ends.
 
       ----------------------------
       -- Scan_Back_End_Switches --
@@ -109,9 +118,11 @@ package body Adabkend is
 
          --  Set optimization indicators appropriately. In gcc-based GNAT this
          --  is picked up from imported variables set by the gcc driver, but
-         --  for compilers with non-gcc back ends we do it here to allow use
-         --  of these switches by the front end. Allowed optimization switches
-         --  are -Os (optimize for size), -O[0123], and -O (same as -O1).
+         --  for compilers with non-gcc back ends we do it here to allow use of
+         --  these switches by the front end. Allowed optimization switches are
+         --  -Os (optimize for size), -O[0123], -O (same as -O1), -Ofast
+         --  (disregard strict standards compliance), and -Og (optimize
+         --  debugging experience).
 
          elsif Switch_Chars (First) = 'O' then
             if First = Last then
@@ -126,9 +137,20 @@ package body Adabkend is
                   Optimization_Level :=
                     Character'Pos (Switch_Chars (Last)) - Character'Pos ('0');
 
+               --  Switch -Og is between -O0 and -O1 in GCC. Consider it like
+               --  -O0 for other back ends.
+
+               elsif Switch_Chars (Last) = 'g' then
+                  Optimization_Level := 0;
+
                else
                   Fail ("invalid switch: " & Switch_Chars);
                end if;
+
+            --  Switch -Ofast enables -O3
+
+            elsif Switch_Chars (First + 1 .. Last) = "fast" then
+               Optimization_Level := 3;
 
             else
                Fail ("invalid switch: " & Switch_Chars);
@@ -161,26 +183,11 @@ package body Adabkend is
 
             return;
 
-         --  Special check, the back end switch -fno-inline also sets the
-         --  front end flags to entirely inhibit all inlining. So we store it
-         --  and set the appropriate flags.
+         --  Ignore all other back-end switches
 
-         elsif Switch_Chars (First .. Last) = "fno-inline" then
-            Lib.Store_Compilation_Switch (Switch_Chars);
-            Opt.Disable_FE_Inline := True;
-            Opt.Disable_FE_Inline_Always := True;
-            return;
-
-         --  Similar processing for -fpreserve-control-flow
-
-         elsif Switch_Chars (First .. Last) = "fpreserve-control-flow" then
-            Lib.Store_Compilation_Switch (Switch_Chars);
-            Opt.Suppress_Control_Flow_Optimizations := True;
-            return;
-
-         --  Ignore all other back end switches
-
-         elsif Is_Back_End_Switch (Switch_Chars) then
+         elsif Scan_Common_Back_End_Switch (Switch_Chars)
+            or else Is_Back_End_Switch (Switch_Chars)
+         then
             null;
 
          --  Give error for junk switch
@@ -243,7 +250,7 @@ package body Adabkend is
                else
                   Add_Src_Search_Dir (Argv);
 
-                  --  Add directory to lib search so that back-end can take as
+                  --  Add directory to lib search so that back end can take as
                   --  input ALI files if needed. Otherwise this won't have any
                   --  impact on the compiler.
 

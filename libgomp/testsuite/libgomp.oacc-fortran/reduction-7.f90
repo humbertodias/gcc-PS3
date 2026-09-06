@@ -1,5 +1,9 @@
 ! { dg-do run }
-! { dg-additional-options "-w" }
+
+! { dg-additional-options -Wuninitialized }
+
+!TODO
+! { dg-xfail-run-if TODO { openacc_radeon_accel_selected && { ! __OPTIMIZE__ } } }
 
 ! subroutine reduction with private and firstprivate variables
 
@@ -19,7 +23,7 @@ program reduction
      do j = 1, n
         vsum = vsum + 1;
      end do
-     if (vsum .ne. arr(i)) call abort ()
+     if (vsum .ne. arr(i)) STOP 1
   end do
 end program reduction
 
@@ -45,7 +49,7 @@ subroutine redsub_private(sum, n, arr)
 
   ! verify the results
   do i = 1, 10
-     if (arr(i) .ne. 100+i) call abort ()
+     if (arr(i) .ne. 100+i) STOP 2
   end do
 end subroutine redsub_private
 
@@ -60,6 +64,8 @@ subroutine redsub_bogus(sum, n)
 
   !$acc parallel firstprivate(sum)
   !$acc loop gang worker vector reduction (+:sum)
+  ! { dg-bogus {'sum\.[0-9]+' is used uninitialized} TODO { xfail *-*-* } .-1 }
+  !   { dg-note {'sum\.[0-9]+' was declared here} {} { target *-*-* } .-2 }
   do i = 1, n
      sum = sum + 1
   end do
@@ -78,6 +84,8 @@ subroutine redsub_combined(sum, n, arr)
      sum = i;
 
      !$acc loop reduction(+:sum)
+     ! { dg-bogus {'sum\.[0-9]+' may be used uninitialized} TODO { xfail { ! __OPTIMIZE__ } } .-1 }
+     !   { dg-note {'sum\.[0-9]+' was declared here} {} { target { ! __OPTIMIZE__ } } .-2 }
      do j = 1, n
         sum = sum + 1
      end do

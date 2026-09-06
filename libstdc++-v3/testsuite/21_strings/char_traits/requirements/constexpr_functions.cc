@@ -1,6 +1,6 @@
 // { dg-do compile { target c++11 } }
 
-// Copyright (C) 2010-2017 Free Software Foundation, Inc.
+// Copyright (C) 2010-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,7 +31,7 @@ namespace __gnu_test
 	struct _Concept
 	{
 	  void __constraint()
-	  { 
+	  {
 	    typedef typename _Ttesttype::char_type char_type;
 	    typedef typename _Ttesttype::int_type int_type;
 	    const char_type c1(0);
@@ -64,8 +64,9 @@ int main()
 {
   __gnu_test::constexpr_member_functions test;
   test.operator()<std::char_traits<char>>();
-#ifdef _GLIBCXX_USE_WCHAR_T
   test.operator()<std::char_traits<wchar_t>>();
+#ifdef _GLIBCXX_USE_CHAR8_T
+  test.operator()<std::char_traits<char8_t>>();
 #endif
   test.operator()<std::char_traits<char16_t>>();
   test.operator()<std::char_traits<char32_t>>();

@@ -2,17 +2,19 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build !plan9
+//go:build !js && !plan9
 
 package net
 
 import (
+	"context"
 	"fmt"
 	"internal/testenv"
 	"os"
 	"runtime"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func (ln *TCPListener) port() string {
@@ -222,10 +224,10 @@ var dualStackTCPListenerTests = []struct {
 // to be greater than or equal to 4.4.
 func TestDualStackTCPListener(t *testing.T) {
 	switch runtime.GOOS {
-	case "nacl", "plan9":
+	case "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
-	if !supportsIPv4 || !supportsIPv6 {
+	if !supportsIPv4() || !supportsIPv6() {
 		t.Skip("both IPv4 and IPv6 are required")
 	}
 
@@ -235,7 +237,7 @@ func TestDualStackTCPListener(t *testing.T) {
 			continue
 		}
 
-		if !supportsIPv4map && differentWildcardAddr(tt.address1, tt.address2) {
+		if !supportsIPv4map() && differentWildcardAddr(tt.address1, tt.address2) {
 			tt.xerr = nil
 		}
 		var firstErr, secondErr error
@@ -312,10 +314,10 @@ var dualStackUDPListenerTests = []struct {
 // to be greater than or equal to 4.4.
 func TestDualStackUDPListener(t *testing.T) {
 	switch runtime.GOOS {
-	case "nacl", "plan9":
+	case "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
-	if !supportsIPv4 || !supportsIPv6 {
+	if !supportsIPv4() || !supportsIPv6() {
 		t.Skip("both IPv4 and IPv6 are required")
 	}
 
@@ -325,7 +327,7 @@ func TestDualStackUDPListener(t *testing.T) {
 			continue
 		}
 
-		if !supportsIPv4map && differentWildcardAddr(tt.address1, tt.address2) {
+		if !supportsIPv4map() && differentWildcardAddr(tt.address1, tt.address2) {
 			tt.xerr = nil
 		}
 		var firstErr, secondErr error
@@ -377,7 +379,7 @@ func differentWildcardAddr(i, j string) bool {
 	return true
 }
 
-func checkFirstListener(network string, ln interface{}) error {
+func checkFirstListener(network string, ln any) error {
 	switch network {
 	case "tcp":
 		fd := ln.(*TCPListener).fd
@@ -454,7 +456,7 @@ func checkDualStackAddrFamily(fd *netFD) error {
 		// and IPv6 IPv4-mapping capability, we can assume
 		// that the node listens on a wildcard address with an
 		// AF_INET6 socket.
-		if supportsIPv4map && fd.laddr.(*TCPAddr).isWildcard() {
+		if supportsIPv4map() && fd.laddr.(*TCPAddr).isWildcard() {
 			if fd.family != syscall.AF_INET6 {
 				return fmt.Errorf("Listen(%s, %v) returns %v; want %v", fd.net, fd.laddr, fd.family, syscall.AF_INET6)
 			}
@@ -468,7 +470,7 @@ func checkDualStackAddrFamily(fd *netFD) error {
 		// and IPv6 IPv4-mapping capability, we can assume
 		// that the node listens on a wildcard address with an
 		// AF_INET6 socket.
-		if supportsIPv4map && fd.laddr.(*UDPAddr).isWildcard() {
+		if supportsIPv4map() && fd.laddr.(*UDPAddr).isWildcard() {
 			if fd.family != syscall.AF_INET6 {
 				return fmt.Errorf("ListenPacket(%s, %v) returns %v; want %v", fd.net, fd.laddr, fd.family, syscall.AF_INET6)
 			}
@@ -530,12 +532,10 @@ func TestIPv4MulticastListener(t *testing.T) {
 	testenv.MustHaveExternalNetwork(t)
 
 	switch runtime.GOOS {
-	case "android", "nacl", "plan9":
+	case "android", "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
-	case "solaris":
-		t.Skipf("not supported on solaris, see golang.org/issue/7399")
 	}
-	if !supportsIPv4 {
+	if !supportsIPv4() {
 		t.Skip("IPv4 is not supported")
 	}
 
@@ -607,10 +607,8 @@ func TestIPv6MulticastListener(t *testing.T) {
 	switch runtime.GOOS {
 	case "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
-	case "solaris":
-		t.Skipf("not supported on solaris, see issue 7399")
 	}
-	if !supportsIPv6 {
+	if !supportsIPv6() {
 		t.Skip("IPv6 is not supported")
 	}
 	if os.Getuid() != 0 {
@@ -672,7 +670,7 @@ func checkMulticastListener(c *UDPConn, ip IP) error {
 
 func multicastRIBContains(ip IP) (bool, error) {
 	switch runtime.GOOS {
-	case "dragonfly", "netbsd", "openbsd", "plan9", "solaris", "windows":
+	case "aix", "dragonfly", "netbsd", "openbsd", "plan9", "solaris", "illumos", "windows":
 		return true, nil // not implemented yet
 	case "linux":
 		if runtime.GOARCH == "arm" || runtime.GOARCH == "alpha" {
@@ -695,4 +693,85 @@ func multicastRIBContains(ip IP) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// Issue 21856.
+func TestClosingListener(t *testing.T) {
+	ln := newLocalListener(t, "tcp")
+	addr := ln.Addr()
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+
+	// Let the goroutine start. We don't sleep long: if the
+	// goroutine doesn't start, the test will pass without really
+	// testing anything, which is OK.
+	time.Sleep(time.Millisecond)
+
+	ln.Close()
+
+	ln2, err := Listen("tcp", addr.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln2.Close()
+}
+
+func TestListenConfigControl(t *testing.T) {
+	switch runtime.GOOS {
+	case "plan9":
+		t.Skipf("not supported on %s", runtime.GOOS)
+	}
+
+	t.Run("StreamListen", func(t *testing.T) {
+		for _, network := range []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"} {
+			if !testableNetwork(network) {
+				continue
+			}
+			ln := newLocalListener(t, network)
+			address := ln.Addr().String()
+			// TODO: This is racy. The selected address could be reused in between
+			// this Close and the subsequent Listen.
+			ln.Close()
+			lc := ListenConfig{Control: controlOnConnSetup}
+			ln, err := lc.Listen(context.Background(), network, address)
+			if err != nil {
+				t.Error(err)
+				continue
+			}
+			ln.Close()
+		}
+	})
+	t.Run("PacketListen", func(t *testing.T) {
+		for _, network := range []string{"udp", "udp4", "udp6", "unixgram"} {
+			if !testableNetwork(network) {
+				continue
+			}
+			c := newLocalPacketListener(t, network)
+			address := c.LocalAddr().String()
+			// TODO: This is racy. The selected address could be reused in between
+			// this Close and the subsequent ListenPacket.
+			c.Close()
+			if network == "unixgram" {
+				os.Remove(address)
+			}
+			lc := ListenConfig{Control: controlOnConnSetup}
+			c, err := lc.ListenPacket(context.Background(), network, address)
+			if err != nil {
+				t.Error(err)
+				continue
+			}
+			c.Close()
+			if network == "unixgram" {
+				os.Remove(address)
+			}
+		}
+	})
 }

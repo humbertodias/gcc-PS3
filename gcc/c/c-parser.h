@@ -1,5 +1,5 @@
 /* Declarations for the parser for C and Objective-C.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
    Parser actions based on the old Bison parser; structure somewhat
    influenced by and fragments based on the C++ parser.
@@ -23,7 +23,7 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_C_PARSER_H
 #define GCC_C_PARSER_H
 
-/* The C lexer intermediates between the lexer in cpplib and c-lex.c
+/* The C lexer intermediates between the lexer in cpplib and c-lex.cc
    and the C parser.  Unlike the C++ lexer, the parser structure
    stores the lexer information instead of using a separate structure.
    Identifiers are separated into ordinary identifiers, type names,
@@ -136,11 +136,14 @@ extern c_token * c_parser_peek_token (c_parser *parser);
 extern c_token * c_parser_peek_2nd_token (c_parser *parser);
 extern c_token * c_parser_peek_nth_token (c_parser *parser, unsigned int n);
 extern bool c_parser_require (c_parser *parser, enum cpp_ttype type,
-			      const char *msgid);
-extern void c_parser_error (c_parser *parser, const char *gmsgid);
+			      const char *msgid,
+			      location_t matching_location = UNKNOWN_LOCATION,
+			      bool type_is_unique=true);
+extern bool c_parser_error (c_parser *parser, const char *gmsgid);
 extern void c_parser_consume_token (c_parser *parser);
 extern void c_parser_skip_until_found (c_parser *parser, enum cpp_ttype type,
-				       const char *msgid);
+				       const char *msgid,
+				       location_t = UNKNOWN_LOCATION);
 extern bool c_parser_next_token_starts_declspecs (c_parser *parser);
 bool c_parser_next_tokens_start_declaration (c_parser *parser);
 bool c_token_starts_typename (c_token *token);
@@ -152,10 +155,13 @@ extern c_token * c_parser_tokens_buf (c_parser *parser, unsigned n);
 extern bool c_parser_error (c_parser *parser);
 extern void c_parser_set_error (c_parser *parser, bool);
 
+/* A bit of a hack to have this here.  It would be better in a c-decl.h.  */
+extern bool old_style_parameter_scope (void);
+
 /* Return true if the next token from PARSER has the indicated
    TYPE.  */
 
-static inline bool
+inline bool
 c_parser_next_token_is (c_parser *parser, enum cpp_ttype type)
 {
   return c_parser_peek_token (parser)->type == type;
@@ -164,7 +170,7 @@ c_parser_next_token_is (c_parser *parser, enum cpp_ttype type)
 /* Return true if the next token from PARSER does not have the
    indicated TYPE.  */
 
-static inline bool
+inline bool
 c_parser_next_token_is_not (c_parser *parser, enum cpp_ttype type)
 {
   return !c_parser_next_token_is (parser, type);
@@ -173,17 +179,19 @@ c_parser_next_token_is_not (c_parser *parser, enum cpp_ttype type)
 /* Return true if the next token from PARSER is the indicated
    KEYWORD.  */
 
-static inline bool
+inline bool
 c_parser_next_token_is_keyword (c_parser *parser, enum rid keyword)
 {
   return c_parser_peek_token (parser)->keyword == keyword;
 }
 
+struct c_expr c_parser_string_literal (c_parser *, bool, bool);
 extern struct c_declarator *
 c_parser_declarator (c_parser *parser, bool type_seen_p, c_dtr_syn kind,
 		     bool *seen_id);
 extern void c_parser_declspecs (c_parser *, struct c_declspecs *, bool, bool,
-				bool, bool, bool, enum c_lookahead_kind);
-extern struct c_type_name *c_parser_type_name (c_parser *);
+				bool, bool, bool, bool, bool,
+				enum c_lookahead_kind);
+extern struct c_type_name *c_parser_type_name (c_parser *, bool = false);
 
 #endif

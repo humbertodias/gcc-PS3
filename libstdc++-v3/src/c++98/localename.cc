@@ -1,4 +1,4 @@
-// Copyright (C) 1997-2017 Free Software Foundation, Inc.
+// Copyright (C) 1997-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -19,6 +19,10 @@
 // a copy of the GCC Runtime Library Exception along with this program;
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
+
+#if __cplusplus != 201103L
+# error This file must be compiled as C++11
+#endif
 
 #define _GLIBCXX_USE_CXX11_ABI 1
 #include <clocale>
@@ -171,8 +175,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
   }
 
-const int num_facets = _GLIBCXX_NUM_FACETS + _GLIBCXX_NUM_UNICODE_FACETS
-  + (_GLIBCXX_USE_DUAL_ABI ? _GLIBCXX_NUM_CXX11_FACETS : 0);
+const int num_facets = (
+    _GLIBCXX_NUM_FACETS + _GLIBCXX_NUM_CXX11_FACETS
+#ifdef _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT
+    + _GLIBCXX_NUM_LBDL_ALT128_FACETS
+#endif
+    )
+#ifdef _GLIBCXX_USE_WCHAR_T
+  * 2
+#endif
+  + _GLIBCXX_NUM_UNICODE_FACETS;
 
   // Construct named _Impl.
   locale::_Impl::
@@ -269,13 +281,23 @@ const int num_facets = _GLIBCXX_NUM_FACETS + _GLIBCXX_NUM_UNICODE_FACETS
 	_M_init_facet(new std::messages<wchar_t>(__cloc, __s));
 #endif
 
-#ifdef _GLIBCXX_USE_C99_STDINT_TR1
+#if _GLIBCXX_NUM_UNICODE_FACETS != 0
         _M_init_facet(new codecvt<char16_t, char, mbstate_t>);
         _M_init_facet(new codecvt<char32_t, char, mbstate_t>);
+
+#ifdef _GLIBCXX_USE_CHAR8_T
+        _M_init_facet(new codecvt<char16_t, char8_t, mbstate_t>);
+        _M_init_facet(new codecvt<char32_t, char8_t, mbstate_t>);
+#endif
+
 #endif
 
 #if _GLIBCXX_USE_DUAL_ABI
         _M_init_extra(&__cloc, &__clocm, __s, __smon);
+#endif
+
+#ifdef _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT
+	_M_init_extra_ldbl128(false);
 #endif
 
 	locale::facet::_S_destroy_c_locale(__cloc);

@@ -6,24 +6,26 @@
 /* One-line substitute for objc/objc.h */
 typedef struct objc_object { struct objc_class *class_pointer; } *id;
 
+typedef __UINTPTR_TYPE__ uintptr_t;
+
 @protocol Proto
-- (long)someValue;
+- (uintptr_t)someValue;
 @end
 
 @interface Obj
-- (long)anotherValue;
+- (uintptr_t)anotherValue;
 @end
 
-long foo(void) {
-  long receiver = 2;
+uintptr_t foo(void) {
+  uintptr_t receiver = 2;
   Obj *objrcvr;
   Obj <Proto> *objrcvr2;
 
   /* NB: Since 'receiver' is an invalid ObjC message receiver, the compiler
      should warn but then search for methods as if we were messaging 'id'.  */
 
-  receiver += [receiver someValue]; /* { dg-warning "invalid receiver type .long int." } */
-  receiver += [receiver anotherValue]; /* { dg-warning "invalid receiver type .long int." } */
+  receiver += [receiver someValue]; /* { dg-warning "invalid receiver type .uintptr_t." } */
+  receiver += [receiver anotherValue]; /* { dg-warning "invalid receiver type .uintptr_t." } */
 
   receiver += [(Obj *)receiver someValue]; /* { dg-warning ".Obj. may not respond to .\\-someValue." } */
 /* { dg-error "invalid conversion" "" { target *-*-* } .-1 } */
@@ -47,6 +49,4 @@ long foo(void) {
   return receiver;
 }
 
-/* { dg-warning "Messages without a matching method signature" "" { target *-*-* } 0 } */
-/* { dg-warning "will be assumed to return .id. and accept" "" { target *-*-* } 0 } */
-/* { dg-warning ".\.\.\.. as arguments" "" { target *-*-* } 0 } */
+/* { dg-warning "messages without a matching method signature will be assumed to return .id. and accept .\.\.\.. as arguments" "" { target *-*-* } 0 } */

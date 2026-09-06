@@ -1,8 +1,6 @@
-/* This code uses nvptx inline assembly guarded with acc_on_device, which is
-   not optimized away at -O0, and then confuses the target assembler.
-   { dg-skip-if "" { *-*-* } { "-O0" } { "" } } */
-
 #include <stdio.h>
+#include <openacc.h>
+#include <gomp-constants.h>
 
 #define N (32*32*32+17)
 
@@ -12,13 +10,13 @@ void __attribute__ ((noinline)) gang (int ary[N])
 #pragma acc loop gang worker vector
   for (unsigned ix = 0; ix < N; ix++)
     {
-      if (__builtin_acc_on_device (5))
+      if (acc_on_device (acc_device_not_host))
 	{
-	  int g = 0, w = 0, v = 0;
+	  int g, w, v;
 
-	  __asm__ volatile ("mov.u32 %0,%%ctaid.x;" : "=r" (g));
-	  __asm__ volatile ("mov.u32 %0,%%tid.y;" : "=r" (w));
-	  __asm__ volatile ("mov.u32 %0,%%tid.x;" : "=r" (v));
+	  g = __builtin_goacc_parlevel_id (GOMP_DIM_GANG);
+	  w = __builtin_goacc_parlevel_id (GOMP_DIM_WORKER);
+	  v = __builtin_goacc_parlevel_id (GOMP_DIM_VECTOR);
 	  ary[ix] = (g << 16) | (w << 8) | v;
 	}
       else
@@ -32,26 +30,44 @@ int main ()
   int ix;
   int exit = 0;
   int ondev = 0;
+  int gangsize, workersize, vectorsize;
 
   for (ix = 0; ix < N;ix++)
     ary[ix] = -1;
   
-#pragma acc parallel num_gangs(32) num_workers(32) vector_length(32) copy(ary) copy(ondev)
+#define NG 32
+#define NW 32
+#define VL 32
+#pragma acc parallel num_gangs(NG) num_workers(NW) vector_length(VL) \
+  copy(ary) copy(ondev)
   {
-    ondev = __builtin_acc_on_device (5);
+    ondev = acc_on_device (acc_device_not_host);
     gang (ary);
   }
+  gangsize = NG;
+  workersize = NW;
+  vectorsize = VL;
+#ifdef ACC_DEVICE_TYPE_radeon
+  /* AMD GCN has an upper limit of 'num_workers(16)'.  */
+  if (workersize > 16)
+    workersize = 16;
+  /* AMD GCN uses the autovectorizer for the vector dimension: the use
+     of a function call in vector-partitioned code in this test is not
+     currently supported.  */
+  vectorsize = 1;
+#endif
 
   for (ix = 0; ix < N; ix++)
     {
       int expected = ix;
       if(ondev)
 	{
-	  int chunk_size = (N + 32*32*32 - 1) / (32*32*32);
+	  int chunk_size = (N + gangsize * workersize * vectorsize - 1)
+			   / (gangsize * workersize * vectorsize);
 	  
-	  int g = ix / (chunk_size * 32 * 32);
-	  int w = ix / 32 % 32;
-	  int v = ix % 32;
+	  int g = ix / (chunk_size * vectorsize * workersize);
+	  int w = (ix / vectorsize) % workersize;
+	  int v = ix % vectorsize;
 
 	  expected = (g << 16) | (w << 8) | v;
 	}

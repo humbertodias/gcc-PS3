@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler. NEC V850 series
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Contributed by Jeff Law (law@cygnus.com).
 
    This file is part of GCC.
@@ -25,9 +25,6 @@
 
 #ifndef GCC_V850_H
 #define GCC_V850_H
-
-extern GTY(()) rtx v850_compare_op0;
-extern GTY(()) rtx v850_compare_op1;
 
 #undef LIB_SPEC
 #define LIB_SPEC "%{!shared:%{!symbolic:--start-group -lc -lgcc --end-group}}"
@@ -291,28 +288,6 @@ extern GTY(()) rtx v850_compare_op1;
   34, 35								\
 }
 
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.  */
-
-#define HARD_REGNO_NREGS(REGNO, MODE)   \
-  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode
-   MODE.  */
-
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
- ((GET_MODE_SIZE (MODE) <= 4) || (((REGNO) & 1) == 0 && (REGNO) != 0))
-
-/* Value is 1 if it is a good idea to tie two pseudo registers
-   when one has mode MODE1 and one has mode MODE2.
-   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
-   for any hard reg, then this must be 0 for correct output.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) \
-  (MODE1 == MODE2 || (GET_MODE_SIZE (MODE1) <= 4 && GET_MODE_SIZE (MODE2) <= 4))
-
 
 /* Define the classes of registers for register constraints in the
    machine description.  Also define ranges of constants.
@@ -376,7 +351,7 @@ enum reg_class
    They give nonzero only if REGNO is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in reginfo.c during register
+   has been allocated, which happens in reginfo.cc during register
    allocation.  */
  
 #define REGNO_OK_FOR_BASE_P(regno)             \
@@ -419,13 +394,6 @@ enum reg_class
    goes at a more negative offset in the frame.  */
 
 #define FRAME_GROWS_DOWNWARD 1
-
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-
-#define STARTING_FRAME_OFFSET 0
 
 /* Offset of first parameter from the argument pointer register value.  */
 /* Is equal to the size of the saved fp + pc, even if an fp isn't
@@ -470,8 +438,9 @@ enum reg_class
 /* Base register for access to arguments of the function.  */
 #define ARG_POINTER_REGNUM 35
 
-/* Register in which static-chain is passed to a function.  */
-#define STATIC_CHAIN_REGNUM 20
+/* Register in which static-chain is passed to a function.
+   This must be a call used register.  */
+#define STATIC_CHAIN_REGNUM 19
 
 /* If defined, this macro specifies a table of register pairs used to
    eliminate unneeded registers that point into the stack frame.  If
@@ -596,25 +565,11 @@ struct cum_arg { int nbytes; };
 
 #define SELECT_CC_MODE(OP, X, Y)       v850_select_cc_mode (OP, X, Y)
 
-/* Tell final.c how to eliminate redundant test instructions.  */
-
-/* Here we define machine-dependent flags and fields in cc_status
-   (see `conditions.h').  No extra ones are needed for the VAX.  */
-
-/* Store in cc_status the expressions
-   that the condition codes will describe
-   after execution of an instruction whose pattern is EXP.
-   Do not alter them if the instruction would not alter the cc's.  */
-
-#define CC_OVERFLOW_UNUSABLE 0x200
-#define CC_NO_CARRY CC_NO_OVERFLOW
-#define NOTICE_UPDATE_CC(EXP, INSN) notice_update_cc(EXP, INSN)
-
 /* Nonzero if access to memory by bytes or half words is no faster
    than accessing full words.  */
 #define SLOW_BYTE_ACCESS 1
 
-/* According expr.c, a value of around 6 should minimize code size, and
+/* According expr.cc, a value of around 6 should minimize code size, and
    for the V850 series, that's our primary concern.  */
 #define MOVE_RATIO(speed) 6
 
@@ -739,12 +694,10 @@ typedef enum
   if ((LOG) != 0)			\
     fprintf (FILE, "\t.align %d\n", (LOG))
 
-/* We don't have to worry about dbx compatibility for the v850.  */
-#define DEFAULT_GDB_EXTENSIONS 1
-
 /* Use dwarf2 debugging info by default.  */
 #undef  PREFERRED_DEBUGGING_TYPE
 #define PREFERRED_DEBUGGING_TYPE   DWARF2_DEBUG
+#define DWARF2_DEBUGGING_INFO	   1
 
 #define DWARF2_FRAME_INFO          1
 #define DWARF2_UNWIND_INFO         0
@@ -772,7 +725,7 @@ typedef enum
 
 #undef ASM_OUTPUT_BEFORE_CASE_LABEL
 #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE) \
-  ASM_OUTPUT_ALIGN ((FILE), (TARGET_BIG_SWITCH ? 2 : 1));
+  ASM_OUTPUT_ALIGN ((FILE), (TARGET_BIG_SWITCH ? 2 : 1))
 
 #define WORD_REGISTER_OPERATIONS 1
 
@@ -787,10 +740,6 @@ typedef enum
    which implies one can omit a sign-extension or zero-extension
    of a shift count.  */
 #define SHIFT_COUNT_TRUNCATED 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction
@@ -817,7 +766,7 @@ typedef enum
 /* enum GHS_SECTION_KIND is an enumeration of the kinds of sections that
    can appear in the "ghs section" pragma.  These names are used to index
    into the GHS_default_section_names[] and GHS_current_section_names[]
-   that are defined in v850.c, and so the ordering of each must remain
+   that are defined in v850.cc, and so the ordering of each must remain
    consistent. 
 
    These arrays give the default and current names for each kind of 
@@ -883,12 +832,6 @@ extern const char * GHS_current_section_names [(int) COUNT_OF_GHS_SECTION_KINDS]
 #define SYMBOL_REF_SDA_P(X)	((SYMBOL_REF_FLAGS (X) & SYMBOL_FLAG_SDA) != 0)
 
 #define TARGET_ASM_INIT_SECTIONS v850_asm_init_sections
-
-/* Define this so that the cc1plus will not think that system header files
-   need an implicit 'extern "C" { ... }' assumed.  This breaks testing C++
-   in a build directory where the libstdc++ header files are found via a
-   -isystem <path-to-build-dir>.  */
-#define NO_IMPLICIT_EXTERN_C
 
 #define ADJUST_INSN_LENGTH(INSN, LENGTH) \
   ((LENGTH) = v850_adjust_insn_length ((INSN), (LENGTH)))

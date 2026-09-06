@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,33 +23,36 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Aspects;  use Aspects;
-with Atree;    use Atree;
-with Casing;   use Casing;
-with Debug;    use Debug;
-with Elists;   use Elists;
-with Errout;   use Errout;
-with Fname;    use Fname;
-with Lib;      use Lib;
-with Namet;    use Namet;
-with Namet.Sp; use Namet.Sp;
-with Nlists;   use Nlists;
-with Nmake;    use Nmake;
-with Opt;      use Opt;
-with Output;   use Output;
-with Par_SCO;  use Par_SCO;
-with Restrict; use Restrict;
-with Scans;    use Scans;
-with Scn;      use Scn;
-with Sem_Util; use Sem_Util;
-with Sinput;   use Sinput;
-with Sinput.L; use Sinput.L;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
+with Aspects;        use Aspects;
+with Atree;          use Atree;
+with Casing;         use Casing;
+with Debug;          use Debug;
+with Elists;         use Elists;
+with Errout;         use Errout;
+with Fname;          use Fname;
+with Lib;            use Lib;
+with Namet;          use Namet;
+with Namet.Sp;       use Namet.Sp;
+with Nlists;         use Nlists;
+with Nmake;          use Nmake;
+with Opt;            use Opt;
+with Output;         use Output;
+with Par_SCO;        use Par_SCO;
+with Restrict;       use Restrict;
+with Scans;          use Scans;
+with Scn;            use Scn;
+with Sem_Util;       use Sem_Util;
+with Sinput;         use Sinput;
+with Sinput.L;       use Sinput.L;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Stringt;        use Stringt;
 with Style;
-with Stylesw;  use Stylesw;
+with Stylesw;        use Stylesw;
 with Table;
-with Tbuild;   use Tbuild;
+with Tbuild;         use Tbuild;
 
 ---------
 -- Par --
@@ -57,21 +60,21 @@ with Tbuild;   use Tbuild;
 
 function Par (Configuration_Pragmas : Boolean) return List_Id is
 
-   Num_Library_Units : Natural := 0;
-   --  Count number of units parsed (relevant only in syntax check only mode,
-   --  since in semantics check mode only a single unit is permitted anyway).
-
-   Save_Config_Switches : Config_Switches_Type;
-   --  Variable used to save values of config switches while we parse the
-   --  new unit, to be restored on exit for proper recursive behavior.
+   Inside_Record_Definition : Boolean := False;
+   --  True within a record definition. Used to control warning for
+   --  redefinition of standard entities (not issued for field names).
 
    Loop_Block_Count : Nat := 0;
    --  Counter used for constructing loop/block names (see the routine
    --  Par.Ch5.Get_Loop_Block_Name).
 
-   Inside_Record_Definition : Boolean := False;
-   --  Flag set True within a record definition. Used to control warning
-   --  for redefinition of standard entities (not issued for field names).
+   Num_Library_Units : Natural := 0;
+   --  Count number of units parsed (relevant only in syntax check only mode,
+   --  since in semantics check mode only a single unit is permitted anyway).
+
+   Save_Config_Attrs : Config_Switches_Type;
+   --  Variable used to save values of config switches while we parse the
+   --  new unit, to be restored on exit for proper recursive behavior.
 
    --------------------
    -- Error Recovery --
@@ -151,8 +154,17 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
 
    SIS_Entry_Active : Boolean := False;
    --  Set True to indicate that an entry is active (i.e. that a subprogram
-   --  declaration has been encountered, and no body for this subprogram has
-   --  been encountered). The remaining fields are valid only if this is True.
+   --  declaration has been encountered, and no body for this subprogram
+   --  has been encountered). The remaining variables other than
+   --  SIS_Aspect_Import_Seen are valid only if this is True.
+
+   SIS_Aspect_Import_Seen : Boolean := False;
+   --  If this is True when a subprogram declaration has been encountered, we
+   --  do not set SIS_Entry_Active, because the Import means there is no body.
+   --  Set False at the start of P_Subprogram, set True when an Import aspect
+   --  specification is seen, and used when P_Subprogram finds a subprogram
+   --  declaration.  This is necessary because the aspects are parsed before
+   --  we know we have a subprogram declaration.
 
    SIS_Labl : Node_Id;
    --  Subprogram designator
@@ -350,36 +362,29 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
 
    Expr_Form : Expr_Form_Type;
 
-   --  The following type is used for calls to P_Subprogram, P_Package, P_Task,
-   --  P_Protected to indicate which of several possibilities is acceptable.
+   --  The following type is used by P_Subprogram, P_Package, to indicate which
+   --  of several possibilities is acceptable.
 
    type Pf_Rec is record
-      Spcn : Boolean;                  -- True if specification OK
-      Decl : Boolean;                  -- True if declaration OK
-      Gins : Boolean;                  -- True if generic instantiation OK
-      Pbod : Boolean;                  -- True if proper body OK
-      Rnam : Boolean;                  -- True if renaming declaration OK
-      Stub : Boolean;                  -- True if body stub OK
-      Pexp : Boolean;                  -- True if parameterized expression OK
-      Fil2 : Boolean;                  -- Filler to fill to 8 bits
+      Spcn : Boolean; -- True if specification OK
+      Decl : Boolean; -- True if declaration OK
+      Gins : Boolean; -- True if generic instantiation OK
+      Pbod : Boolean; -- True if proper body OK
+      Rnam : Boolean; -- True if renaming declaration OK
+      Stub : Boolean; -- True if body stub OK
+      Pexp : Boolean; -- True if parameterized expression OK
    end record;
    pragma Pack (Pf_Rec);
 
    function T return Boolean renames True;
    function F return Boolean renames False;
 
-   Pf_Decl_Gins_Pbod_Rnam_Stub_Pexp : constant Pf_Rec :=
-                                       Pf_Rec'(F, T, T, T, T, T, T, F);
-   Pf_Decl_Pexp                     : constant Pf_Rec :=
-                                       Pf_Rec'(F, T, F, F, F, F, T, F);
-   Pf_Decl_Gins_Pbod_Rnam_Pexp      : constant Pf_Rec :=
-                                       Pf_Rec'(F, T, T, T, T, F, T, F);
-   Pf_Decl_Pbod_Pexp                : constant Pf_Rec :=
-                                       Pf_Rec'(F, T, F, T, F, F, T, F);
-   Pf_Pbod_Pexp                     : constant Pf_Rec :=
-                                       Pf_Rec'(F, F, F, T, F, F, T, F);
-   Pf_Spcn                         : constant Pf_Rec :=
-                                       Pf_Rec'(T, F, F, F, F, F, F, F);
+   Pf_Decl_Gins_Pbod_Rnam_Stub_Pexp : constant Pf_Rec := (F, T, T, T, T, T, T);
+   Pf_Decl_Pexp                     : constant Pf_Rec := (F, T, F, F, F, F, T);
+   Pf_Decl_Gins_Pbod_Rnam_Pexp      : constant Pf_Rec := (F, T, T, T, T, F, T);
+   Pf_Decl_Pbod_Pexp                : constant Pf_Rec := (F, T, F, T, F, F, T);
+   Pf_Pbod_Pexp                     : constant Pf_Rec := (F, F, F, T, F, F, T);
+   Pf_Spcn                          : constant Pf_Rec := (T, F, F, F, F, F, F);
    --  The above are the only allowed values of Pf_Rec arguments
 
    type SS_Rec is record
@@ -394,15 +399,15 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
    end record;
    pragma Pack (SS_Rec);
 
-   SS_Eftm_Eltm_Sreq : constant SS_Rec := SS_Rec'(T, T, F, F, T, F, F, F);
-   SS_Eltm_Ortm_Tatm : constant SS_Rec := SS_Rec'(F, T, F, T, F, T, F, F);
-   SS_Extm_Sreq      : constant SS_Rec := SS_Rec'(F, F, T, F, T, F, F, F);
-   SS_None           : constant SS_Rec := SS_Rec'(F, F, F, F, F, F, F, F);
-   SS_Ortm_Sreq      : constant SS_Rec := SS_Rec'(F, F, F, T, T, F, F, F);
-   SS_Sreq           : constant SS_Rec := SS_Rec'(F, F, F, F, T, F, F, F);
-   SS_Sreq_Whtm      : constant SS_Rec := SS_Rec'(F, F, F, F, T, F, T, F);
-   SS_Whtm           : constant SS_Rec := SS_Rec'(F, F, F, F, F, F, T, F);
-   SS_Unco           : constant SS_Rec := SS_Rec'(F, F, F, F, F, F, F, T);
+   SS_Eftm_Eltm_Sreq : constant SS_Rec := (T, T, F, F, T, F, F, F);
+   SS_Eltm_Ortm_Tatm : constant SS_Rec := (F, T, F, T, F, T, F, F);
+   SS_Extm_Sreq      : constant SS_Rec := (F, F, T, F, T, F, F, F);
+   SS_None           : constant SS_Rec := (F, F, F, F, F, F, F, F);
+   SS_Ortm_Sreq      : constant SS_Rec := (F, F, F, T, T, F, F, F);
+   SS_Sreq           : constant SS_Rec := (F, F, F, F, T, F, F, F);
+   SS_Sreq_Whtm      : constant SS_Rec := (F, F, F, F, T, F, T, F);
+   SS_Whtm           : constant SS_Rec := (F, F, F, F, F, F, T, F);
+   SS_Unco           : constant SS_Rec := (F, F, F, F, F, F, F, T);
 
    Goto_List : Elist_Id;
    --  List of goto nodes appearing in the current compilation. Used to
@@ -473,11 +478,11 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  This field is used to provide the name of the construct being parsed
       --  and indirectly its kind. For loops and blocks, the field contains the
       --  source name or the generated one. For package specifications, bodies,
-      --  subprogram specifications and bodies the field holds the correponding
-      --  program unit name. For task declarations and bodies, protected types
-      --  and bodies, and accept statements the field hold the name of the type
-      --  or operation. For if-statements, case-statements, return statements,
-      --  and selects, the field is initialized to Error.
+      --  subprogram specifications and bodies the field holds the
+      --  corresponding program unit name. For task declarations and bodies,
+      --  protected types and bodies, and accept statements the field hold the
+      --  name of the type or operation. For if-statements, case-statements,
+      --  return statements, and selects, the field is initialized to Error.
 
       --  Note: this is a bit of an odd (mis)use of Error, since there is no
       --  Error, but we use this value as a place holder to indicate that it
@@ -535,11 +540,25 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
      Table_Increment      => 100,
      Table_Name           => "Scope");
 
+   type Scope_Table_Entry_Ptr is access all Scope_Table_Entry;
+
+   function Scopes (Index : Int) return Scope_Table_Entry_Ptr;
+   --  Return the indicated Scope_Table_Entry. We use a pointer for
+   --  efficiency. Callers should not save the pointer, but should do things
+   --  like Scopes (Scope.Last).Something. Note that there is one place in
+   --  Par.Ch5 that indexes the stack out of bounds, and can't call this.
+
+   function Scopes (Index : Int) return Scope_Table_Entry_Ptr is
+   begin
+      pragma Assert (Index in Scope.First .. Scope.Last);
+      return Scope.Table (Index)'Unrestricted_Access;
+   end Scopes;
+
    ------------------------------------------
    -- Table for Handling Suspicious Labels --
    ------------------------------------------
 
-   --  This is a special data structure which is used to deal very spefifically
+   --  This is a special data structure which is used to deal very specifically
    --  with the following error case
 
    --     label;
@@ -595,6 +614,12 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
    --  this may not be worth the effort. Also we could deal with the same
    --  situation for EXIT with a label, but for now don't bother with that.
 
+   Current_Assign_Node : Node_Id := Empty;
+   --  This is the node of the current assignment statement being compiled.
+   --  It is used to record the presence of target_names on its RHS. This
+   --  context-dependent trick simplifies the analysis of such nodes, where
+   --  the RHS must first be analyzed with expansion disabled.
+
    ---------------------------------
    -- Parsing Routines by Chapter --
    ---------------------------------
@@ -618,9 +643,17 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  procedure more than once for the same pragma. All parse-time pragma
       --  handling must be prepared to handle such multiple calls correctly.
 
-      function P_Identifier (C : Id_Check := None) return Node_Id;
+      function P_Identifier
+        (C         : Id_Check := None;
+         Force_Msg : Boolean  := False) return Node_Id;
       --  Scans out an identifier. The parameter C determines the treatment
       --  of reserved identifiers. See declaration of Id_Check for details.
+
+      --  An appropriate error message, pointing to the token, is also issued
+      --  if either this is the first occurrence of misuse of this identifier,
+      --  or if Force_Msg is True.
+
+      function P_Interpolated_String_Literal return Node_Id;
 
       function P_Pragmas_Opt return List_Id;
       --  This function scans for a sequence of pragmas in other than a
@@ -650,7 +683,6 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  begin message if indeed the BEGIN is missing.
 
       function P_Array_Type_Definition                return Node_Id;
-      function P_Basic_Declarative_Items              return List_Id;
       function P_Constraint_Opt                       return Node_Id;
       function P_Declarative_Part                     return List_Id;
       function P_Discrete_Choice_List                 return List_Id;
@@ -664,6 +696,37 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       function P_Subtype_Mark                         return Node_Id;
       function P_Subtype_Mark_Resync                  return Node_Id;
       function P_Unknown_Discriminant_Part_Opt        return Boolean;
+
+      procedure P_Declarative_Items
+        (Decls              : List_Id;
+         Declare_Expression : Boolean;
+         In_Spec            : Boolean;
+         In_Statements      : Boolean);
+      --  Parses a sequence of zero or more declarative items, and appends them
+      --  to Decls. Done indicates whether or not there might be additional
+      --  declarative items to parse. If Done is True, then there are no more
+      --  to parse; otherwise there might be more.
+      --
+      --  Declare_Expression is true if we are parsing a declare_expression, in
+      --  which case we want to suppress certain style checking.
+      --
+      --  In_Spec is true if we are scanning a package declaration, and is used
+      --  to generate an appropriate message if a statement is encountered in
+      --  such a context.
+      --
+      --  In_Statements is true if we are called to parse declarative items in
+      --  a sequence of statements. In this case, we do not give an error upon
+      --  encountering a statement, but return to the caller with Done = True,
+      --  so the caller can resume parsing statements.
+
+      function P_Basic_Declarative_Items
+        (Declare_Expression : Boolean) return List_Id;
+      --  Used to parse the declarative items in a package visible or
+      --  private part (in which case Declare_Expression is False), and
+      --  the declare_items of a declare_expression (in which case
+      --  Declare_Expression is True). Declare_Expression is used to
+      --  affect the wording of error messages, and to control style
+      --  checking.
 
       function P_Access_Definition
         (Null_Exclusion_Present : Boolean) return Node_Id;
@@ -758,11 +821,6 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       function P_Simple_Expression                    return Node_Id;
       function P_Simple_Expression_Or_Range_Attribute return Node_Id;
 
-      function P_Case_Expression return Node_Id;
-      --  Scans out a case expression. Called with Token pointing to the CASE
-      --  keyword, and returns pointing to the terminating right parent,
-      --  semicolon, or comma, but does not consume this terminating token.
-
       function P_Expression_If_OK return Node_Id;
       --  Scans out an expression allowing an unparenthesized case expression,
       --  if expression, or quantified expression to appear without enclosing
@@ -810,12 +868,19 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  conditional expression and passes it as an argument. This form of
       --  the call does not check for a following right parenthesis.
 
+      function P_Iterator_Specification (Def_Id : Node_Id) return Node_Id;
+      --  Parse an iterator specification. The defining identifier has already
+      --  been scanned, as it is the common prefix between loop and iterator
+      --  specification.
+
       function P_Loop_Parameter_Specification return Node_Id;
       --  Used in loop constructs and quantified expressions.
 
-      function P_Sequence_Of_Statements (SS_Flags : SS_Rec) return List_Id;
-      --  The argument indicates the acceptable termination tokens.
-      --  See body in Par.Ch5 for details of the use of this parameter.
+      function P_Sequence_Of_Statements
+        (SS_Flags : SS_Rec; Handled : Boolean := False) return List_Id;
+      --  SS_Flags indicates the acceptable termination tokens; see body for
+      --  details. Handled is true if we are parsing a handled sequence of
+      --  statements.
 
       procedure Parse_Decls_Begin_End (Parent : Node_Id);
       --  Parses declarations and handled statement sequence, setting
@@ -861,7 +926,7 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
    -------------
 
    package Ch8 is
-      function P_Use_Clause                           return Node_Id;
+      procedure P_Use_Clause (Item_List : List_Id);
    end Ch8;
 
    -------------
@@ -958,10 +1023,10 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       procedure P_Aspect_Specifications
         (Decl      : Node_Id;
          Semicolon : Boolean := True);
-      --  This procedure scans out a series of aspect spefications. If argument
-      --  Semicolon is True, a terminating semicolon is also scanned. If this
-      --  argument is False, the scan pointer is left pointing past the aspects
-      --  and the caller must check for a proper terminator.
+      --  This procedure scans out a series of aspect specifications. If
+      --  argument Semicolon is True, a terminating semicolon is also scanned.
+      --  If this argument is False, the scan pointer is left pointing past the
+      --  aspects and the caller must check for a proper terminator.
       --
       --  P_Aspect_Specifications is called with the current token pointing
       --  to either a WITH keyword starting an aspect specification, or an
@@ -1175,6 +1240,8 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       procedure T_Private;
       procedure T_Range;
       procedure T_Record;
+      procedure T_Right_Bracket;
+      procedure T_Right_Curly_Bracket;
       procedure T_Right_Paren;
       procedure T_Semicolon;
       procedure T_Then;
@@ -1311,6 +1378,18 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  conditions are met, an error message is issued, and the merge is
       --  carried out, modifying the Chars field of Prev.
 
+      function Missing_Semicolon_On_When return Boolean;
+      --  This function deals with the following specialized situations
+      --
+      --    when 'x' =>
+      --       exit/return [identifier]
+      --    when 'y' =>
+      --
+      --  This looks like a messed up EXIT WHEN or RETURN WHEN, when in fact
+      --  the problem is a missing semicolon. It is called with Token pointing
+      --  to the WHEN token, and returns True if a semicolon is missing before
+      --  the WHEN as in the above example.
+
       function Next_Token_Is (Tok : Token_Type) return Boolean;
       --  Looks at token after current one and returns True if the token type
       --  matches Tok. The scan is unconditionally restored on return.
@@ -1326,7 +1405,7 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
       --  Push a new entry onto the scope stack. Scope.Last (the stack pointer)
       --  is incremented. The Junk field is preinitialized to False. The caller
       --  is expected to fill in all remaining entries of the new top stack
-      --  entry at Scope.Table (Scope.Last).
+      --  entry at Scopes (Scope.Last).
 
       procedure Pop_Scope_Stack;
       --  Pop an entry off the top of the scope stack. Scope_Last (the scope
@@ -1451,6 +1530,8 @@ function Par (Configuration_Pragmas : Boolean) return List_Id is
    procedure Labl is separate;
    procedure Load is separate;
 
+   Result : List_Id := Empty_List;
+
 --  Start of processing for Par
 
 begin
@@ -1466,13 +1547,13 @@ begin
       begin
          loop
             if Token = Tok_EOF then
-               Compiler_State := Analyzing;
-               return Pragmas;
+               Result := Pragmas;
+               exit;
 
             elsif Token /= Tok_Pragma then
                Error_Msg_SC ("only pragmas allowed in configuration file");
-               Compiler_State := Analyzing;
-               return Error_List;
+               Result := Error_List;
+               exit;
 
             else
                P_Node := P_Pragma;
@@ -1506,10 +1587,14 @@ begin
          end loop;
       end;
 
+      if Config_Files_Store_Basename then
+         Complete_Source_File_Entry;
+      end if;
+
    --  Normal case of compilation unit
 
    else
-      Save_Opt_Config_Switches (Save_Config_Switches);
+      Save_Config_Attrs := Save_Config_Switches;
 
       --  The following loop runs more than once in syntax check mode
       --  where we allow multiple compilation units in the same file
@@ -1517,16 +1602,16 @@ begin
       --  we get to the unit we want.
 
       for Ucount in Pos loop
-         Set_Opt_Config_Switches
-           (Is_Internal_File_Name (File_Name (Current_Source_File)),
-            Current_Source_Unit = Main_Unit);
+         Set_Config_Switches
+           (Is_Internal_Unit (Current_Source_Unit),
+            Main_Unit => Current_Source_Unit = Main_Unit);
 
          --  Initialize scope table and other parser control variables
 
          Compiler_State := Parsing;
          Scope.Init;
          Scope.Increment_Last;
-         Scope.Table (0).Etyp := E_Dummy;
+         Scopes (0).Etyp := E_Dummy;
          SIS_Entry_Active := False;
          Last_Resync_Point := No_Location;
 
@@ -1592,14 +1677,12 @@ begin
                      Uname : constant String :=
                                Get_Name_String
                                  (Unit_Name (Current_Source_Unit));
-                     Name  : String (1 .. Uname'Length - 2);
-
-                  begin
+                     Name  : String renames
+                       Uname (Uname'First .. Uname'Last - 2);
                      --  Because Unit_Name includes "%s"/"%b", we need to strip
                      --  the last two characters to get the real unit name.
 
-                     Name := Uname (Uname'First .. Uname'Last - 2);
-
+                  begin
                      if Name = "ada"         or else
                         Name = "interfaces"  or else
                         Name = "system"
@@ -1653,7 +1736,7 @@ begin
 
          end if;
 
-         Restore_Opt_Config_Switches (Save_Config_Switches);
+         Restore_Config_Switches (Save_Config_Attrs);
       end loop;
 
       --  Now that we have completely parsed the source file, we can complete
@@ -1682,9 +1765,11 @@ begin
 
       --  Restore settings of switches saved on entry
 
-      Restore_Opt_Config_Switches (Save_Config_Switches);
+      Restore_Config_Switches (Save_Config_Attrs);
       Set_Comes_From_Source_Default (False);
-      Compiler_State := Analyzing;
-      return Empty_List;
    end if;
+
+   Compiler_State      := Analyzing;
+   Current_Source_File := No_Source_File;
+   return Result;
 end Par;

@@ -40,6 +40,15 @@ GLIBCXX_LDBL_3.4.21 {
   __gnu_cxx_ldbl1287num_getI[cw]*16_M_extract_floatB5cxx11*;
 } GLIBCXX_LDBL_3.4.10;
 
+GLIBCXX_LDBL_3.4.29 {
+  _ZSt10from_charsPKcS0_RgSt12chars_format;
+  _ZSt8to_charsPcS_g*;
+} GLIBCXX_LDBL_3.4.21;
+
+GLIBCXX_LDBL_3.4.31 {
+  _ZSt15__try_use_facetINSt17__gnu_cxx_ldbl128[789]*;
+} GLIBCXX_LDBL_3.4.29;
+
 CXXABI_LDBL_1.3 {
   _ZT[IS]g;
   _ZT[IS]Pg;

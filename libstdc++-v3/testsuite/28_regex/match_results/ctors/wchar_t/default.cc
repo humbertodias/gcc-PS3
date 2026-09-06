@@ -1,8 +1,9 @@
 // { dg-do run { target c++11 } }
+// { dg-timeout-factor 2 }
 
 // 2009-06-05  Stephen M. Webb  <stephen.webb@bregmasoft.com>
 //
-// Copyright (C) 2009-2017 Free Software Foundation, Inc.
+// Copyright (C) 2009-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -23,13 +24,16 @@
 
 #include <regex>
 #include <testsuite_hooks.h>
+#include <testsuite_common_types.h>
 
-// Tests default constructor of the match_result class.  
+// Tests default constructor of the match_result class.
 void test01()
 {
   std::wcmatch cm;
   VERIFY( cm.size() == 0 );
   VERIFY( !cm.ready() );
+  VERIFY( cm.empty() );
+  VERIFY( cm.begin() == cm.end() ); // PR libstdc++/83600
 }
 
 void test02()
@@ -37,12 +41,22 @@ void test02()
   std::wsmatch sm;
   VERIFY( sm.size() == 0 );
   VERIFY( !sm.ready() );
+  VERIFY( sm.empty() );
+  VERIFY( sm.begin() == sm.end() ); // PR libstdc++/83600
+}
+
+void test03()
+{
+  // P0935R0
+  __gnu_test::implicitly_default_constructible test;
+  test.operator()<std::wcmatch>();
+  test.operator()<std::wsmatch>();
 }
 
 int
 main()
-{ 
+{
   test01();
   test02();
-  return 0;
+  test03();
 }

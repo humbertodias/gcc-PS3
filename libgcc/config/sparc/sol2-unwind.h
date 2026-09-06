@@ -1,5 +1,5 @@
 /* DWARF2 EH unwinding support for SPARC Solaris.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -67,51 +67,7 @@ sparc64_is_sighandler (unsigned int *pc, void *cfa, int *nframes)
 	   libc.so.1:
 
 	   <call_user_handler+864>:     mov  %i1, %o1
-	   <call_user_handler+868>:     call __sighndlr
-
-	   This is the same setup as for Solaris 10, see below.  */
-	*nframes = 3;
-
-      else if (cuh_pattern == 0xd25fa7ef)
-	{
-	  /* This matches the call_user_handler pattern in Solaris 10
-	     libc.so.1:
-
-	     <call_user_handler+988>:     ldx  [ %fp + 0x7ef ], %o1
-	     <call_user_handler+992>:     call __sighndlr
-
-	     There are 2 cases so we look for the return address of the
-	     caller's caller frame in order to do more pattern matching.  */
-	  unsigned long sah_address = *(unsigned long *)(cfa + 176 + 15*8);
-
-          if (sah_address && *(unsigned int *)(sah_address - 4) == 0x92100019)
-	    /* We need to move up three frames:
-
-		<signal handler>	<-- context->cfa
-		__sighndlr
-		call_user_handler
-		sigacthandler
-		<kernel>  */
-	    *nframes = 3;
-	  else
-	    /* The sigacthandler frame isn't present in the chain.
-	       We need to move up two frames:
-
-		<signal handler>	<-- context->cfa
-		__sighndlr
-		call_user_handler
-		<kernel>  */
-	    *nframes = 2;
-	}
-
-      else if (cuh_pattern == 0x9410001a || cuh_pattern == 0x9410001b)
-	/* This matches the call_user_handler pattern in Solaris 9
-	   libthread.so.1:
-
-	   <call_user_handler+600>:     mov  %i2, %o2
-	   <call_user_handler+604>:     call  __sighndlr
-
-	   This is the same setup as for Solaris 10, see above.  */
+	   <call_user_handler+868>:     call __sighndlr  */
 	*nframes = 3;
 
       return 1;
@@ -140,7 +96,7 @@ sparc64_frob_update_context (struct _Unwind_Context *context,
       context->cfa -= STACK_BIAS;
 
       for (i = 0; i < __LIBGCC_DWARF_FRAME_REGISTERS__ + 1; ++i)
-	if (fs->regs.reg[i].how == REG_SAVED_OFFSET)
+	if (fs->regs.how[i] == REG_SAVED_OFFSET)
 	  _Unwind_SetGRPtr (context, i,
 			    _Unwind_GetGRPtr (context, i) - STACK_BIAS);
     }
@@ -184,51 +140,7 @@ sparc_is_sighandler (unsigned int *pc, void *cfa, int *nframes)
 	   libc.so.1:
 
 	   <call_user_handler+876>:     mov  %i1, %o1
-	   <call_user_handler+880>:     call __sighndlr
-
-	   This is the same setup as for Solaris 10, see below.  */
-	*nframes = 3;
-
-      else if (cuh_pattern == 0xd407a04c)
-	{
-	  /* This matches the call_user_handler pattern in Solaris 10
-	     libc.so.1:
-
-	     <call_user_handler+948>:     ld  [ %fp + 0x4c ], %o2
-	     <call_user_handler+952>:     call __sighndlr
-
-	     There are 2 cases so we look for the return address of the
-	     caller's caller frame in order to do more pattern matching.  */
-	  unsigned int sah_address = *(unsigned int *)(cfa + 96 + 15*4);
-
-          if (sah_address && *(unsigned int *)(sah_address - 4) == 0x92100019)
-	    /* We need to move up three frames:
-
-		<signal handler>	<-- context->cfa
-		__sighndlr
-		call_user_handler
-		sigacthandler
-		<kernel>  */
-	    *nframes = 3;
-	  else
-	    /* The sigacthandler frame isn't present in the chain.
-	       We need to move up two frames:
-
-		<signal handler>	<-- context->cfa
-		__sighndlr
-		call_user_handler
-		<kernel>  */
-	    *nframes = 2;
-	}
-
-      else if (cuh_pattern == 0x9410001a || cuh_pattern == 0x9410001b)
-	/* This matches the call_user_handler pattern in Solaris 9
-	   libthread.so.1:
-
-	   <call_user_handler+560>:      mov  %i2, %o2
-	   <call_user_handler+564>:      call  __sighndlr
-
-	   This is the same setup as for Solaris 10, see above.  */
+	   <call_user_handler+880>:     call __sighndlr  */
 	*nframes = 3;
 
       return 1;
@@ -309,7 +221,7 @@ MD_FALLBACK_FRAME_STATE_FOR (struct _Unwind_Context *context,
 	continue;
 
       /* First the global registers and then the out registers.  */
-      fs->regs.reg[i].how = REG_SAVED_OFFSET;
+      fs->regs.how[i] = REG_SAVED_OFFSET;
       fs->regs.reg[i].loc.offset = (long)&mctx->gregs[REG_Y + i] - new_cfa;
     }
 
@@ -317,7 +229,7 @@ MD_FALLBACK_FRAME_STATE_FOR (struct _Unwind_Context *context,
      the register window (in and local registers) was saved.  */
   for (i = 0; i < 16; i++)
     {
-      fs->regs.reg[i + 16].how = REG_SAVED_OFFSET;
+      fs->regs.how[i + 16] = REG_SAVED_OFFSET;
       fs->regs.reg[i + 16].loc.offset = i * sizeof(long);
     }
 
@@ -326,7 +238,7 @@ MD_FALLBACK_FRAME_STATE_FOR (struct _Unwind_Context *context,
     {
       for (i = 0; i < 32; i++)
 	{
-	  fs->regs.reg[i + 32].how = REG_SAVED_OFFSET;
+	  fs->regs.how[i + 32] = REG_SAVED_OFFSET;
 	  fs->regs.reg[i + 32].loc.offset
 	    = (long)&mctx->fpregs.fpu_fr.fpu_regs[i] - new_cfa;
 	}
@@ -338,7 +250,7 @@ MD_FALLBACK_FRAME_STATE_FOR (struct _Unwind_Context *context,
 	  if (i > 32 && (i & 1))
 	    continue;
 
-	  fs->regs.reg[i + 32].how = REG_SAVED_OFFSET;
+	  fs->regs.how[i + 32] = REG_SAVED_OFFSET;
 	  fs->regs.reg[i + 32].loc.offset
 	    = (long)&mctx->fpregs.fpu_fr.fpu_dregs[i/2] - new_cfa;
 	}
@@ -353,7 +265,7 @@ MD_FALLBACK_FRAME_STATE_FOR (struct _Unwind_Context *context,
   shifted_ra_location = &mctx->gregs[REG_Y];
   *(void **)shifted_ra_location = *(void **)ra_location - 8;
   fs->retaddr_column = 0;
-  fs->regs.reg[0].how = REG_SAVED_OFFSET;
+  fs->regs.how[0] = REG_SAVED_OFFSET;
   fs->regs.reg[0].loc.offset = (long)shifted_ra_location - new_cfa;
 
   /* SIGFPE for IEEE-754 exceptions is delivered after the faulting insn

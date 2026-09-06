@@ -25,15 +25,13 @@ target_priority = [
     "arm-netbsdelf",
     "c6x-elf",
     "epiphany-elf",
-    "hppa2.0-hpux10.1",
     "i686-mingw32crt",
     "i686-pc-msdosdjgpp",
     "mipsel-elf",
     "powerpc-eabisimaltivec",
     "rs6000-ibm-aix5.1.0",
     "sh-superh-elf",
-    "sparc64-elf",
-    "spu-elf"
+    "sparc64-elf"
 ]
 
 

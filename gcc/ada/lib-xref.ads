@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1998-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1998-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -26,9 +26,8 @@
 --  This package contains for collecting and outputting cross-reference
 --  information.
 
-with Einfo;           use Einfo;
-with Lib.Util;        use Lib.Util;
-with Put_SPARK_Xrefs;
+with Einfo.Entities; use Einfo.Entities;
+with SPARK_Xrefs;
 
 package Lib.Xref is
 
@@ -515,7 +514,6 @@ package Lib.Xref is
 
       E_Package_Body                               => ' ',
       E_Protected_Body                             => ' ',
-      E_Protected_Object                           => ' ',
       E_Subprogram_Body                            => ' ',
       E_Task_Body                                  => ' ');
 
@@ -580,44 +578,6 @@ package Lib.Xref is
    --  Export at line 4, that its body is exported to C, and that the link name
    --  as given in the pragma is "here".
 
-   -------------------------
-   -- Deferred_References --
-   -------------------------
-
-   --  Normally we generate references as we go along, but as discussed in
-   --  Sem_Util.Is_LHS, and Sem_Ch8.Find_Direct_Name/Find_Selected_Component,
-   --  we have one case where that is tricky, which is when we have something
-   --  like X.A := 3, where we don't know until we know the type of X whether
-   --  this is a reference (if X is an access type, so what we really have is
-   --  X.all.A := 3) or a modification, where X is not an access type.
-
-   --  What we do in such cases is to gather nodes, where we would have liked
-   --  to call Generate_Reference but we couldn't because we didn't know enough
-   --  into this table, Then we deal with generating references later on when
-   --  we have sufficient information to do it right.
-
-   type Deferred_Reference_Entry is record
-      E : Entity_Id;
-      N : Node_Id;
-   end record;
-   --  One entry, E, N are as required for Generate_Reference call
-
-   package Deferred_References is new Table.Table (
-     Table_Component_Type => Deferred_Reference_Entry,
-     Table_Index_Type     => Int,
-     Table_Low_Bound      => 0,
-     Table_Initial        => 512,
-     Table_Increment      => 200,
-     Table_Name           => "Name_Deferred_References");
-
-   procedure Process_Deferred_References;
-   --  This procedure is called from Frontend to process these table entries
-
-   function Has_Deferred_Reference (Ent : Entity_Id) return Boolean;
-   --  Determine whether arbitrary entity Ent has a pending reference in order
-   --  to suppress premature warnings about useless assignments. See comments
-   --  in Analyze_Assignment in sem_ch5.adb.
-
    -----------------------------
    -- SPARK Xrefs Information --
    -----------------------------
@@ -632,6 +592,11 @@ package Lib.Xref is
       --  Return the closest enclosing subprogram or library-level package.
       --  This ensures that GNATprove can distinguish local variables from
       --  global variables.
+      --
+      --  ??? This routine should only be used for processing related to
+      --  cross-references, where it might return wrong result but must avoid
+      --  crashes on ill-formed source code. It is wrong to use it where exact
+      --  result is needed.
 
       procedure Generate_Dereference
         (N   : Node_Id;
@@ -639,26 +604,15 @@ package Lib.Xref is
       --  This procedure is called to record a dereference. N is the location
       --  of the dereference.
 
-      procedure Collect_SPARK_Xrefs
-        (Sdep_Table : Unit_Ref_Table;
-         Num_Sdep   : Nat);
-      --  Collect SPARK cross-reference information from library units (for
-      --  files and scopes) and from shared cross-references. Fill in the
-      --  tables in library package called SPARK_Xrefs.
-
-      procedure Output_SPARK_Xrefs is new Put_SPARK_Xrefs;
-      --  Output SPARK cross-reference information to the ALI files, based on
-      --  the information collected in the tables in library package called
-      --  SPARK_Xrefs, and using routines in Lib.Util.
-
       generic
-         with procedure Process (N : Node_Id) is <>;
-      procedure Traverse_Compilation_Unit
-        (CU           : Node_Id;
-         Inside_Stubs : Boolean);
-      --  Call Process on all declarations within compilation unit CU. If
-      --  Inside_Stubs is True, then the body of stubs is also traversed.
-      --  Generic declarations are ignored.
+         with procedure Process
+           (Index : Int;
+            Xref  : SPARK_Xrefs.SPARK_Xref_Record);
+      procedure Iterate_SPARK_Xrefs;
+      --  Call Process on cross-references relevant to the SPARK backend with
+      --  parameter Xref holding the relevant subset of the xref entry and
+      --  Index holding the position in the original tables with references
+      --  (if positive) or dereferences (if negative).
 
    end SPARK_Specific;
 

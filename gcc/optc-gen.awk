@@ -1,4 +1,4 @@
-#  Copyright (C) 2003-2017 Free Software Foundation, Inc.
+#  Copyright (C) 2003-2023 Free Software Foundation, Inc.
 #  Contributed by Kelley Cook, June 2004.
 #  Original code from Neil Booth, May 2003.
 #
@@ -25,7 +25,7 @@
 # opt-read.awk.
 #
 # Usage: awk -f opt-functions.awk -f opt-read.awk -f optc-gen.awk \
-#            [-v header_name=header.h] < inputfile > options.c
+#            [-v header_name=header.h] < inputfile > options.cc
 
 # Dump that array of options into a C file.
 END {
@@ -98,12 +98,61 @@ for (i = 0; i < n_opts; i++) {
 
     enabledby_arg = opt_args("LangEnabledBy", flags[i]);
     if (enabledby_arg != "") {
-        enabledby_langs = nth_arg(0, enabledby_arg);
-        enabledby_name = nth_arg(1, enabledby_arg);
-        enabledby_posarg = nth_arg(2, enabledby_arg);
-	enabledby_negarg = nth_arg(3, enabledby_arg);
-        lang_enabled_by(enabledby_langs, enabledby_name, enabledby_posarg, enabledby_negarg);
+	enabledby_n_args = n_args(enabledby_arg)
+	if (enabledby_n_args != 2 \
+	    && enabledby_n_args != 4) {
+	    print "#error " opts[i] " LangEnabledBy(" enabledby_arg ") must specify two or four arguments"
+	}
+
+	enabledby_langs = nth_arg(0, enabledby_arg);
+	if (enabledby_langs == "")
+	    print "#error " opts[i] " LangEnabledBy(" enabledby_arg ") must specify LANGUAGE"
+	enabledby_opt = nth_arg(1, enabledby_arg);
+	if (enabledby_opt == "")
+	    print "#error " opts[i] " LangEnabledBy(" enabledby_arg ") must specify OPT"
+
+	enabledby_posarg_negarg = ""
+	if (enabledby_n_args == 4) {
+	    enabledby_posarg = nth_arg(2, enabledby_arg);
+	    enabledby_negarg = nth_arg(3, enabledby_arg);
+	    if (enabledby_posarg == "" \
+		|| enabledby_negarg == "")
+		print "#error " opts[i] " LangEnabledBy(" enabledby_arg ") with four arguments must specify POSARG and NEGARG"
+	    else
+		enabledby_posarg_negarg = "," enabledby_posarg "," enabledby_negarg
+	}
+
+	n_enabledby_arg_langs = split(enabledby_langs, enabledby_arg_langs, " ");
+	n_enabledby_array = split(enabledby_opt, enabledby_array, " \\|\\| ");
+	for (k = 1; k <= n_enabledby_array; k++) {
+	    enabledby_index = opt_numbers[enabledby_array[k]];
+	    if (enabledby_index == "") {
+		print "#error " opts[i] " LangEnabledBy(" enabledby_arg "), unknown option '" enabledby_opt "'"
+		continue
+	    }
+
+	    for (j = 1; j <= n_enabledby_arg_langs; j++) {
+		lang_name = enabledby_arg_langs[j]
+		lang_index = lang_numbers[lang_name];
+		if (lang_index == "") {
+		    print "#error " opts[i] " LangEnabledBy(" enabledby_arg "), unknown language '" lang_name "'"
+		    continue
+		}
+
+		lang_name = lang_sanitized_name(lang_name);
+
+		if (enables[lang_name,enabledby_array[k]] == "") {
+		    enabledby[lang_name,n_enabledby_lang[lang_index]] = enabledby_array[k];
+		    n_enabledby_lang[lang_index]++;
+		}
+		enables[lang_name,enabledby_array[k]] \
+		    = enables[lang_name,enabledby_array[k]] opts[i] enabledby_posarg_negarg ";";
+	    }
+	}
     }
+
+    if (flag_set_p("Param", flags[i]) && !(opts[i] ~ "^-param="))
+      print "#error Parameter option name '" opts[i] "' must start with '-param='"
 }
 
 
@@ -192,10 +241,14 @@ for (i = 0; i < n_extra_vars; i++) {
 }
 for (i = 0; i < n_opts; i++) {
 	name = var_name(flags[i]);
-	if (name == "")
-		continue;
-
 	init = opt_args("Init", flags[i])
+
+	if (name == "") {
+		if (init != "")
+		    print "#error " opts[i] " must specify Var to use Init"
+		continue;
+	}
+
 	if (init != "") {
 		if (name in var_init && var_init[name] != init)
 			print "#error multiple initializers for " name
@@ -263,9 +316,12 @@ for (i = 0; i < n_opts; i++) {
 		flags[i + 1] = flags[i] " " flags[i + 1];
 		if (help[i + 1] == "")
 			help[i + 1] = help[i]
-		else if (help[i] != "" && help[i + 1] != help[i])
+		else if (help[i] != "" && help[i + 1] != help[i]) {
 			print "#error Multiple different help strings for " \
-				opts[i] ":\n\t" help[i] "\n\t" help[i + 1]
+				opts[i] ":"
+			print "#error   " help[i]
+			print "#error   " help[i + 1]
+		}
 				
 		i++;
 		back_chain[i] = "N_OPTS";
@@ -274,6 +330,7 @@ for (i = 0; i < n_opts; i++) {
 	j++;
 }
 
+optindex = 0
 for (i = 0; i < n_opts; i++) {
 	# With identical flags, pick only the last one.  The
 	# earlier loop ensured that it has all flags merged,
@@ -284,6 +341,13 @@ for (i = 0; i < n_opts; i++) {
 
 	len = length (opts[i]);
 	enum = opt_enum(opts[i])
+
+	# Do not allow Joined and Separate properties if
+	# an options ends with '='.
+	if (flag_set_p("Joined", flags[i]) && flag_set_p("Separate", flags[i]) && opts[i] ~ "=$") {
+		print "#error Option '" opts[i] "' ending with '=' cannot have " \
+			"both Joined and Separate properties"
+	}
 
 	# If this switch takes joined arguments, back-chain all
 	# subsequent switches to it for which it is a prefix.  If
@@ -303,32 +367,46 @@ for (i = 0; i < n_opts; i++) {
 		comma = ""
 
 	if (help[i] == "")
-		hlp = "0"
+		hlp = "NULL"
 	else
 		hlp = quote help[i] quote;
 
 	missing_arg_error = opt_args("MissingArgError", flags[i])
 	if (missing_arg_error == "")
-		missing_arg_error = "0"
+		missing_arg_error = "NULL"
 	else
 		missing_arg_error = quote missing_arg_error quote
 
 
 	warn_message = opt_args("Warn", flags[i])
 	if (warn_message == "")
-		warn_message = "0"
+		warn_message = "NULL"
 	else
 		warn_message = quote warn_message quote
 
 	alias_arg = opt_args("Alias", flags[i])
 	if (alias_arg == "") {
-		if (flag_set_p("Ignore", flags[i]))
-			alias_data = "NULL, NULL, OPT_SPECIAL_ignore"
+		if (flag_set_p("Ignore", flags[i])) {
+			  alias_data = "NULL, NULL, OPT_SPECIAL_ignore"
+        if (warn_message != "NULL")
+				  print "#error Ignored option with Warn"
+        if (var_name(flags[i]) != "")
+				  print "#error Ignored option with Var"
+      }
+    else if (flag_set_p("Deprecated", flags[i]))
+        print "#error Deprecated was replaced with WarnRemoved"
+    else if (flag_set_p("WarnRemoved", flags[i])) {
+			  alias_data = "NULL, NULL, OPT_SPECIAL_warn_removed"
+        if (warn_message != "NULL")
+				  print "#error WarnRemoved option with Warn"
+      }
 		else
 			alias_data = "NULL, NULL, N_OPTS"
 		if (flag_set_p("Enum.*", flags[i])) {
 			if (!flag_set_p("RejectNegative", flags[i]) \
-			    && opts[i] ~ "^[Wfm]")
+			    && !flag_set_p("EnumSet", flags[i]) \
+			    && !flag_set_p("EnumBitSet", flags[i]) \
+			    && opts[i] ~ "^[Wfgm]")
 				print "#error Enum allowing negative form"
 		}
 	} else {
@@ -336,7 +414,7 @@ for (i = 0; i < n_opts; i++) {
 		alias_posarg = nth_arg(1, alias_arg)
 		alias_negarg = nth_arg(2, alias_arg)
 
-		if (var_ref(opts[i], flags[i]) != "-1")
+		if (var_ref(opts[i], flags[i]) != "(unsigned short) -1")
 			print "#error Alias setting variable"
 
 		if (alias_posarg != "" && alias_negarg == "") {
@@ -370,7 +448,7 @@ for (i = 0; i < n_opts; i++) {
 		if (flag_set_p("RejectNegative", flags[i]))
 			idx = -1;
 		else {
-			if (opts[i] ~ "^[Wfm]")
+			if (opts[i] ~ "^[Wfgm]")
 				idx = indices[opts[i]];
 			else
 				idx = -1;
@@ -378,10 +456,11 @@ for (i = 0; i < n_opts; i++) {
 	}
 	# Split the printf after %u to work around an ia64-hp-hpux11.23
 	# awk bug.
-	printf("  { %c-%s%c,\n    %s,\n    %s,\n    %s,\n    %s, %s, %u,",
+	printf(" /* [%i] = */ {\n", optindex)
+	printf("    %c-%s%c,\n    %s,\n    %s,\n    %s,\n    %s, %s, %u,",
 	       quote, opts[i], quote, hlp, missing_arg_error, warn_message,
 	       alias_data, back_chain[i], len)
-	printf(" %d,\n", idx)
+	printf(" /* .neg_idx = */ %d,\n", idx)
 	condition = opt_args("Condition", flags[i])
 	cl_flags = switch_flags(flags[i])
 	cl_bit_fields = switch_bit_fields(flags[i])
@@ -399,9 +478,13 @@ for (i = 0; i < n_opts; i++) {
 		printf("    %s,\n" \
 		       "    0, %s,\n",
 		       cl_flags, cl_bit_fields)
-	printf("    %s, %s }%s\n", var_ref(opts[i], flags[i]),
-	       var_set(flags[i]), comma)
-}
+	printf("    %s, %s, %s }%s\n", var_ref(opts[i], flags[i]),
+	       var_set(flags[i]), integer_range_info(opt_args("IntegerRange", flags[i]),
+		    opt_args("Init", flags[i]), opts[i], flag_set_p("UInteger", flags[i])), comma)
+
+	# Bump up the informational option index.
+	++optindex
+ }
 
 print "};"
 
@@ -416,7 +499,7 @@ print "                           const struct cl_option_handlers *handlers, "
 print "                           diagnostic_context *dc)                    "
 print "{                                                                     "
 print "  size_t scode = decoded->opt_index;                                  "
-print "  int value = decoded->value;                                         "
+print "  HOST_WIDE_INT value = decoded->value;                               "
 print "  enum opt_code code = (enum opt_code) scode;                         "
 print "                                                                      "
 print "  gcc_assert (decoded->canonical_option_num_elements <= 2);           "
@@ -466,7 +549,7 @@ for (i = 0; i < n_langs; i++) {
     print "bool                                                                  "
     print lang_name "_handle_option_auto (struct gcc_options *opts" mark_unused ",              "
     print "                           struct gcc_options *opts_set" mark_unused ",              "
-    print "                           size_t scode" mark_unused ", const char *arg" mark_unused ", int value" mark_unused ",  "
+    print "                           size_t scode" mark_unused ", const char *arg" mark_unused ", HOST_WIDE_INT value" mark_unused ",  "
     print "                           unsigned int lang_mask" mark_unused ", int kind" mark_unused ",          "
     print "                           location_t loc" mark_unused ",                            "
     print "                           const struct cl_option_handlers *handlers" mark_unused ", "
@@ -570,5 +653,29 @@ for (i = 0; i < n_opts; i++) {
 }
 print "}               "
 
+split("", var_seen, ":")
+print "\n#if !defined(GENERATOR_FILE) && defined(ENABLE_PLUGIN)"
+print "DEBUG_VARIABLE const struct cl_var cl_vars[] =\n{"
+
+for (i = 0; i < n_opts; i++) {
+	name = var_name(flags[i]);
+	if (name == "")
+		continue;
+	var_seen[name] = 1;
 }
 
+for (i = 0; i < n_extra_vars; i++) {
+	var = extra_vars[i]
+	sub(" *=.*", "", var)
+	name = var
+	sub("^.*[ *]", "", name)
+	sub("\\[.*\\]$", "", name)
+	if (name in var_seen)
+		continue;
+	print "  { " quote name quote ", offsetof (struct gcc_options, x_" name ") },"
+	var_seen[name] = 1
+}
+
+print "  { NULL, (unsigned short) -1 }\n};\n#endif"
+
+}

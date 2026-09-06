@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1996-2015, Free Software Foundation, Inc.         --
+--          Copyright (C) 1996-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,23 +23,26 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;    use Atree;
-with Einfo;    use Einfo;
-with Errout;   use Errout;
-with Fname;    use Fname;
-with Lib;      use Lib;
-with Namet;    use Namet;
-with Nlists;   use Nlists;
-with Nmake;    use Nmake;
-with Opt;      use Opt;
-with Rtsfind;  use Rtsfind;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Eval; use Sem_Eval;
-with Sem_Util; use Sem_Util;
-with Sem_Warn; use Sem_Warn;
-with Sinfo;    use Sinfo;
-with Stringt;  use Stringt;
-with Tbuild;   use Tbuild;
+with Atree;          use Atree;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Errout;         use Errout;
+with Lib;            use Lib;
+with Namet;          use Namet;
+with Nlists;         use Nlists;
+with Nmake;          use Nmake;
+with Opt;            use Opt;
+with Rtsfind;        use Rtsfind;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Eval;       use Sem_Eval;
+with Sem_Util;       use Sem_Util;
+with Sem_Warn;       use Sem_Warn;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Stringt;        use Stringt;
+with Tbuild;         use Tbuild;
 
 package body Exp_Code is
 
@@ -274,9 +277,7 @@ package body Exp_Code is
          --  referenced entity is in a runtime routine.
 
          if Is_Entity_Name (N)
-           and then
-             Is_Predefined_File_Name (Unit_File_Name
-                                       (Get_Source_Unit (Entity (N))))
+           and then Is_Predefined_Unit (Get_Source_Unit (Entity (N)))
          then
             return;
 
@@ -470,11 +471,7 @@ package body Exp_Code is
       --  Case of list of arguments
 
       elsif Nkind (Arg) = N_Aggregate then
-         if Expressions (Arg) = No_List then
-            Operand_Var := Empty;
-         else
-            Operand_Var := First (Expressions (Arg));
-         end if;
+         Operand_Var := First (Expressions (Arg));
 
       --  Otherwise must be default (no operands) case
 

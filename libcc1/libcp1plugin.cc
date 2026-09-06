@@ -1,5 +1,5 @@
 /* Library interface to C++ front end.
-   Copyright (C) 2014-2017 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.  As it interacts with GDB through libcc1,
    they all become a single program as regards the GNU GPL's requirements.
@@ -32,13 +32,13 @@
 #undef PACKAGE_TARNAME
 #undef PACKAGE_VERSION
 
+#define INCLUDE_MEMORY
 #include "gcc-plugin.h"
 #include "system.h"
 #include "coretypes.h"
 #include "stringpool.h"
 
 #include "gcc-interface.h"
-#include "hash-set.h"
 #include "machmode.h"
 #include "vec.h"
 #include "double-int.h"
@@ -69,172 +69,18 @@
 #include "connection.hh"
 #include "marshall-cp.hh"
 #include "rpc.hh"
+#include "context.hh"
 
-#ifdef __GNUC__
-#pragma GCC visibility push(default)
-#endif
-int plugin_is_GPL_compatible;
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+#include <vector>
+
+using namespace cc1_plugin;
 
 
 
-static int ATTRIBUTE_UNUSED
-check_symbol_mask[GCC_CP_SYMBOL_MASK >= GCC_CP_SYMBOL_END ? 1 : -1];
-
-// This is put into the lang hooks when the plugin starts.
-
-static void
-plugin_print_error_function (diagnostic_context *context, const char *file,
-			     diagnostic_info *diagnostic)
-{
-  if (current_function_decl != NULL_TREE
-      && DECL_NAME (current_function_decl) != NULL_TREE
-      && strcmp (IDENTIFIER_POINTER (DECL_NAME (current_function_decl)),
-		 GCC_FE_WRAPPER_FUNCTION) == 0)
-    return;
-  lhd_print_error_function (context, file, diagnostic);
-}
+static_assert (GCC_CP_SYMBOL_MASK >= GCC_CP_SYMBOL_END,
+	       "GCC_CP_SYMBOL_MASK >= GCC_CP_SYMBOL_END");
 
 
-
-static unsigned long long
-convert_out (tree t)
-{
-  return (unsigned long long) (uintptr_t) t;
-}
-
-static tree
-convert_in (unsigned long long v)
-{
-  return (tree) (uintptr_t) v;
-}
-
-
-
-struct decl_addr_value
-{
-  tree decl;
-  tree address;
-};
-
-struct decl_addr_hasher : free_ptr_hash<decl_addr_value>
-{
-  static inline hashval_t hash (const decl_addr_value *);
-  static inline bool equal (const decl_addr_value *, const decl_addr_value *);
-};
-
-inline hashval_t
-decl_addr_hasher::hash (const decl_addr_value *e)
-{
-  return DECL_UID (e->decl);
-}
-
-inline bool
-decl_addr_hasher::equal (const decl_addr_value *p1, const decl_addr_value *p2)
-{
-  return p1->decl == p2->decl;
-}
-
-
-
-struct string_hasher : nofree_ptr_hash<const char>
-{
-  static inline hashval_t hash (const char *s)
-  {
-    return htab_hash_string (s);
-  }
-
-  static inline bool equal (const char *p1, const char *p2)
-  {
-    return strcmp (p1, p2) == 0;
-  }
-};
-
-
-
-struct plugin_context : public cc1_plugin::connection
-{
-  plugin_context (int fd);
-
-  // Map decls to addresses.
-  hash_table<decl_addr_hasher> address_map;
-
-  // A collection of trees that are preserved for the GC.
-  hash_table< nofree_ptr_hash<tree_node> > preserved;
-
-  // File name cache.
-  hash_table<string_hasher> file_names;
-
-  // Perform GC marking.
-  void mark ();
-
-  // Preserve a tree during the plugin's operation.
-  tree preserve (tree t)
-  {
-    tree_node **slot = preserved.find_slot (t, INSERT);
-    *slot = t;
-    return t;
-  }
-
-  source_location get_source_location (const char *filename,
-				       unsigned int line_number)
-  {
-    if (filename == NULL)
-      return UNKNOWN_LOCATION;
-
-    filename = intern_filename (filename);
-    linemap_add (line_table, LC_ENTER, false, filename, line_number);
-    source_location loc = linemap_line_start (line_table, line_number, 0);
-    linemap_add (line_table, LC_LEAVE, false, NULL, 0);
-    return loc;
-  }
-
-private:
-
-  // Add a file name to FILE_NAMES and return the canonical copy.
-  const char *intern_filename (const char *filename)
-  {
-    const char **slot = file_names.find_slot (filename, INSERT);
-    if (*slot == NULL)
-      {
-	/* The file name must live as long as the line map, which
-	   effectively means as long as this compilation.  So, we copy
-	   the string here but never free it.  */
-	*slot = xstrdup (filename);
-      }
-    return *slot;
-  }
-};
-
-static plugin_context *current_context;
-
-
-
-plugin_context::plugin_context (int fd)
-  : cc1_plugin::connection (fd),
-    address_map (30),
-    preserved (30),
-    file_names (30)
-{
-}
-
-void
-plugin_context::mark ()
-{
-  for (hash_table<decl_addr_hasher>::iterator it = address_map.begin ();
-       it != address_map.end ();
-       ++it)
-    {
-      ggc_mark ((*it)->decl);
-      ggc_mark ((*it)->address);
-    }
-
-  for (hash_table< nofree_ptr_hash<tree_node> >::iterator
-	 it = preserved.begin (); it != preserved.end (); ++it)
-    ggc_mark (&*it);
-}
 
 static void
 plugin_binding_oracle (enum cp_oracle_request kind, tree identifier)
@@ -353,8 +199,7 @@ supplement_binding (cxx_binding *binding, tree decl)
 	   /* If TARGET_BVAL is anticipated but has not yet been
 	      declared, pretend it is not there at all.  */
 	   || (TREE_CODE (target_bval) == FUNCTION_DECL
-	       && DECL_ANTICIPATED (target_bval)
-	       && !DECL_HIDDEN_FRIEND_P (target_bval)))
+	       && DECL_IS_UNDECLARED_BUILTIN (target_bval)))
     binding->value = decl;
   else if (TREE_CODE (target_bval) == TYPE_DECL
 	   && DECL_ARTIFICIAL (target_bval)
@@ -407,7 +252,7 @@ supplement_binding (cxx_binding *binding, tree decl)
 	   && DECL_EXTERNAL (target_decl) && DECL_EXTERNAL (target_bval)
 	   && !DECL_CLASS_SCOPE_P (target_decl))
     {
-      duplicate_decls (decl, binding->value, /*newdecl_is_friend=*/false);
+      duplicate_decls (decl, binding->value);
       ok = false;
     }
   else if (TREE_CODE (decl) == NAMESPACE_DECL
@@ -422,12 +267,6 @@ supplement_binding (cxx_binding *binding, tree decl)
       region to refer only to the namespace to which it already
       refers.  */
     ok = false;
-  else if (maybe_remove_implicit_alias (bval))
-    {
-      /* There was a mangling compatibility alias using this mangled name,
-	 but now we have a real decl that wants to use it instead.  */
-      binding->value = decl;
-    }
   else
     {
       // _1: diagnose_name_conflict (decl, bval);
@@ -636,7 +475,8 @@ plugin_pragma_push_user_expression (cpp_reader *)
 	 usable.  */
       tree this_val = lookup_name (get_identifier ("this"));
       current_class_ref = !this_val ? NULL_TREE
-	: cp_build_indirect_ref (this_val, RO_NULL, tf_warning_or_error);
+	: cp_build_indirect_ref (input_location, this_val, RO_NULL,
+				 tf_warning_or_error);
       current_class_ptr = this_val;
     }
 }
@@ -702,7 +542,7 @@ record_decl_address (plugin_context *ctx, decl_addr_value value)
   **slot = value;
   /* We don't want GCC to warn about e.g. static functions
      without a code definition.  */
-  TREE_NO_WARNING (value.decl) = 1;
+  suppress_warning (value.decl);
   return *slot;
 }
 
@@ -790,14 +630,14 @@ safe_push_template_decl (tree decl)
 }
 
 static inline tree
-safe_pushtag (tree name, tree type, tag_scope scope)
+safe_pushtag (tree name, tree type)
 {
   void (*save_oracle) (enum cp_oracle_request, tree identifier);
 
   save_oracle = cp_binding_oracle;
   cp_binding_oracle = NULL;
 
-  tree ret = pushtag (name, type, scope);
+  tree ret = pushtag (name, type);
 
   cp_binding_oracle = save_oracle;
 
@@ -805,14 +645,14 @@ safe_pushtag (tree name, tree type, tag_scope scope)
 }
 
 static inline tree
-safe_pushdecl_maybe_friend (tree decl, bool is_friend)
+safe_pushdecl (tree decl)
 {
   void (*save_oracle) (enum cp_oracle_request, tree identifier);
 
   save_oracle = cp_binding_oracle;
   cp_binding_oracle = NULL;
 
-  tree ret = pushdecl_maybe_friend (decl, is_friend);
+  tree ret = pushdecl (decl);
 
   cp_binding_oracle = save_oracle;
 
@@ -930,20 +770,11 @@ plugin_make_namespace_inline (cc1_plugin::connection *)
 
   tree parent_ns = CP_DECL_CONTEXT (inline_ns);
 
-  if (purpose_member (DECL_NAMESPACE_ASSOCIATIONS (inline_ns),
-		      parent_ns))
+  if (DECL_NAMESPACE_INLINE_P (inline_ns))
     return 0;
 
-  pop_namespace ();
-
-  gcc_assert (current_namespace == parent_ns);
-
-  DECL_NAMESPACE_ASSOCIATIONS (inline_ns)
-    = tree_cons (parent_ns, 0,
-		 DECL_NAMESPACE_ASSOCIATIONS (inline_ns));
-  do_using_directive (inline_ns);
-
-  push_namespace (DECL_NAME (inline_ns));
+  DECL_NAMESPACE_INLINE_P (inline_ns) = true;
+  vec_safe_push (DECL_NAMESPACE_INLINEES (parent_ns), inline_ns);
 
   return 1;
 }
@@ -956,7 +787,7 @@ plugin_add_using_namespace (cc1_plugin::connection *,
 
   gcc_assert (TREE_CODE (used_ns) == NAMESPACE_DECL);
 
-  do_using_directive (used_ns);
+  finish_using_directive (used_ns, NULL_TREE);
 
   return 1;
 }
@@ -1030,13 +861,12 @@ plugin_add_using_decl (cc1_plugin::connection *,
 
       finish_member_declaration (decl);
     }
-  else if (!at_namespace_scope_p ())
-    {
-      gcc_unreachable ();
-      do_local_using_decl (target, tcontext, identifier);
-    }
   else
-    do_toplevel_using_decl (target, tcontext, identifier);
+    {
+      /* We can't be at local scope.  */
+      gcc_assert (at_namespace_scope_p ());
+      finish_nonmember_using_decl (tcontext, identifier);
+    }
 
   return 1;
 }
@@ -1044,7 +874,7 @@ plugin_add_using_decl (cc1_plugin::connection *,
 static tree
 build_named_class_type (enum tree_code code,
 			tree id,
-			source_location loc)
+			location_t loc)
 {
   /* See at_fake_function_scope_p.  */
   gcc_assert (!at_function_scope_p ());
@@ -1130,7 +960,7 @@ plugin_build_decl (cc1_plugin::connection *self,
       gcc_assert (!substitution_name);
     }
 
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
   bool class_member_p = at_class_scope_p ();
   bool ctor = false, dtor = false, assop = false;
   tree_code opcode = ERROR_MARK;
@@ -1331,7 +1161,7 @@ plugin_build_decl (cc1_plugin::connection *self,
 	      opcode = ARRAY_REF;
 	      break;
 	    case CHARS2 ('c', 'v'): // operator <T> (conversion operator)
-	      identifier = mangle_conv_op_name_for_type (TREE_TYPE (sym_type));
+	      identifier = make_conv_op_name (TREE_TYPE (sym_type));
 	      break;
 	      // C++11-only:
 	    case CHARS2 ('l', 'i'): // operator "" <id>
@@ -1362,12 +1192,7 @@ plugin_build_decl (cc1_plugin::connection *self,
 	    }
 
 	  if (opcode != ERROR_MARK)
-	    {
-	      if (assop)
-		identifier = cp_assignment_operator_id (opcode);
-	      else
-		identifier = cp_operator_id (opcode);
-	    }
+	    identifier = ovl_op_identifier (assop, opcode);
 	}
       decl = build_lang_decl_loc (loc, code, identifier, sym_type);
       /* FIXME: current_lang_name is lang_name_c while compiling an
@@ -1376,7 +1201,7 @@ plugin_build_decl (cc1_plugin::connection *self,
 	 overloading.  */
       SET_DECL_LANGUAGE (decl, lang_cplusplus);
       if (TREE_CODE (sym_type) == METHOD_TYPE)
-	DECL_ARGUMENTS (decl) = build_this_parm (current_class_type,
+	DECL_ARGUMENTS (decl) = build_this_parm (decl, current_class_type,
 						 cp_type_quals (sym_type));
       for (tree arg = TREE_CODE (sym_type) == METHOD_TYPE
 	     ? TREE_CHAIN (TYPE_ARG_TYPES (sym_type))
@@ -1384,7 +1209,7 @@ plugin_build_decl (cc1_plugin::connection *self,
 	   arg && arg != void_list_node;
 	   arg = TREE_CHAIN (arg))
 	{
-	  tree parm = cp_build_parm_decl (NULL_TREE, TREE_VALUE (arg));
+	  tree parm = cp_build_parm_decl (decl, NULL_TREE, TREE_VALUE (arg));
 	  DECL_CHAIN (parm) = DECL_ARGUMENTS (decl);
 	  DECL_ARGUMENTS (decl) = parm;
 	}
@@ -1426,21 +1251,14 @@ plugin_build_decl (cc1_plugin::connection *self,
 	  DECL_DECLARED_INLINE_P (decl) = 1;
 	  DECL_INITIAL (decl) = error_mark_node;
 	}
-      if (ctor || dtor)
-	{
-	  if (ctor)
-	    DECL_CONSTRUCTOR_P (decl) = 1;
-	  if (dtor)
-	    DECL_DESTRUCTOR_P (decl) = 1;
-	}
-      else
-	{
-	  if ((sym_flags & GCC_CP_FLAG_SPECIAL_FUNCTION)
-	      && opcode != ERROR_MARK)
-	    SET_OVERLOADED_OPERATOR_CODE (decl, opcode);
-	  if (assop)
-	    DECL_ASSIGNMENT_OPERATOR_P (decl) = true;
-	}
+
+      if (ctor)
+	DECL_CXX_CONSTRUCTOR_P (decl) = 1;
+      else if (dtor)
+	DECL_CXX_DESTRUCTOR_P (decl) = 1;
+      else if ((sym_flags & GCC_CP_FLAG_SPECIAL_FUNCTION)
+	       && opcode != ERROR_MARK)
+	DECL_OVERLOADED_OPERATOR_CODE_RAW (decl) = ovl_op_mapping[opcode];
     }
   else if (RECORD_OR_UNION_CODE_P (code))
     {
@@ -1541,7 +1359,7 @@ plugin_build_decl (cc1_plugin::connection *self,
   if (template_decl_p)
     {
       if (RECORD_OR_UNION_CODE_P (code))
-	safe_pushtag (identifier, TREE_TYPE (decl), ts_current);
+	safe_pushtag (identifier, TREE_TYPE (decl));
       else
 	decl = safe_push_template_decl (decl);
 
@@ -1560,15 +1378,15 @@ plugin_build_decl (cc1_plugin::connection *self,
 	finish_member_declaration (tdecl);
     }
   else if (RECORD_OR_UNION_CODE_P (code))
-    safe_pushtag (identifier, TREE_TYPE (decl), ts_current);
+    safe_pushtag (identifier, TREE_TYPE (decl));
   else if (class_member_p)
     finish_member_declaration (decl);
   else
-    decl = safe_pushdecl_maybe_friend (decl, false);
+    decl = safe_pushdecl (decl);
 
   if ((ctor || dtor)
       /* Don't crash after a duplicate declaration of a cdtor.  */
-      && TYPE_METHODS (current_class_type) == decl)
+      && TYPE_FIELDS (current_class_type) == decl)
     {
       /* ctors and dtors clones are chained after DECL.
 	 However, we create the clones before TYPE_METHODS is
@@ -1579,10 +1397,10 @@ plugin_build_decl (cc1_plugin::connection *self,
 	 reversal.  */
       tree save = DECL_CHAIN (decl);
       DECL_CHAIN (decl) = NULL_TREE;
-      clone_function_decl (decl, /*update_method_vec_p=*/1);
-      gcc_assert (TYPE_METHODS (current_class_type) == decl);
-      TYPE_METHODS (current_class_type)
-	= nreverse (TYPE_METHODS (current_class_type));
+      clone_cdtor (decl, /*update_methods=*/true);
+      gcc_assert (TYPE_FIELDS (current_class_type) == decl);
+      TYPE_FIELDS (current_class_type)
+	= nreverse (TYPE_FIELDS (current_class_type));
       DECL_CHAIN (decl) = save;
     }
 
@@ -1677,7 +1495,7 @@ plugin_add_friend (cc1_plugin::connection * /* self */,
     make_friend_class (type, TREE_TYPE (decl), true);
   else
     {
-      DECL_FRIEND_P (decl) = true;
+      DECL_UNIQUE_FRIEND_P (decl) = true;
       add_friend (type, decl, true);
     }
 
@@ -1770,7 +1588,7 @@ plugin_start_class_type (cc1_plugin::connection *self,
 			 unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
   tree typedecl = convert_in (typedecl_in);
   tree type = TREE_TYPE (typedecl);
 
@@ -1830,14 +1648,15 @@ plugin_start_closure_class_type (cc1_plugin::connection *self,
 
   tree lambda_expr = build_lambda_expr ();
 
-  LAMBDA_EXPR_LOCATION (lambda_expr) = ctx->get_source_location (filename,
-								 line_number);
+  LAMBDA_EXPR_LOCATION (lambda_expr) = ctx->get_location_t (filename,
+							    line_number);
 
   tree type = begin_lambda_type (lambda_expr);
 
   /* Instead of calling record_lambda_scope, do this:  */
   LAMBDA_EXPR_EXTRA_SCOPE (lambda_expr) = extra_scope;
-  LAMBDA_EXPR_DISCRIMINATOR (lambda_expr) = discriminator;
+  LAMBDA_EXPR_SCOPE_ONLY_DISCRIMINATOR (lambda_expr) = discriminator;
+  LAMBDA_EXPR_SCOPE_SIG_DISCRIMINATOR (lambda_expr) = discriminator;
 
   tree decl = TYPE_NAME (type);
   determine_visibility (decl);
@@ -1899,7 +1718,7 @@ plugin_build_field (cc1_plugin::connection *,
 	= c_build_bitfield_integer_type (bitsize, TYPE_UNSIGNED (field_type));
     }
 
-  DECL_MODE (decl) = TYPE_MODE (TREE_TYPE (decl));
+  SET_DECL_MODE (decl, TYPE_MODE (TREE_TYPE (decl)));
 
   // There's no way to recover this from DWARF.
   SET_DECL_OFFSET_ALIGN (decl, TYPE_PRECISION (pointer_sized_int_node));
@@ -1964,7 +1783,7 @@ plugin_start_enum_type (cc1_plugin::connection *self,
 
   gcc_assert (is_new_type);
 
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
   tree type_decl = TYPE_NAME (type);
   DECL_SOURCE_LOCATION (type_decl) = loc;
   SET_OPAQUE_ENUM_P (type, false);
@@ -2008,24 +1827,21 @@ plugin_build_function_type (cc1_plugin::connection *self,
 			    const struct gcc_type_array *argument_types_in,
 			    int is_varargs)
 {
-  tree *argument_types;
   tree return_type = convert_in (return_type_in);
   tree result;
 
-  argument_types = new tree[argument_types_in->n_elements];
+  std::vector<tree> argument_types (argument_types_in->n_elements);
   for (int i = 0; i < argument_types_in->n_elements; ++i)
     argument_types[i] = convert_in (argument_types_in->elements[i]);
 
   if (is_varargs)
     result = build_varargs_function_type_array (return_type,
 						argument_types_in->n_elements,
-						argument_types);
+						argument_types.data ());
   else
     result = build_function_type_array (return_type,
 					argument_types_in->n_elements,
-					argument_types);
-
-  delete[] argument_types;
+					argument_types.data ());
 
   plugin_context *ctx = static_cast<plugin_context *> (self);
   return convert_out (ctx->preserve (result));
@@ -2272,7 +2088,7 @@ plugin_build_type_template_parameter (cc1_plugin::connection *self,
 				      unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
 
   gcc_assert (template_parm_scope_p ());
 
@@ -2302,7 +2118,7 @@ plugin_build_template_template_parameter (cc1_plugin::connection *self,
 					  unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
 
   gcc_assert (template_parm_scope_p ());
 
@@ -2337,7 +2153,7 @@ plugin_build_value_template_parameter (cc1_plugin::connection *self,
 				       unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
 
   gcc_assert (template_parm_scope_p ());
 
@@ -2634,7 +2450,7 @@ plugin_build_dependent_expr (cc1_plugin::connection *self,
 	  break;
 	case CHARS2 ('c', 'v'): // operator <T> (conversion operator)
 	  convop = true;
-	  identifier = mangle_conv_op_name_for_type (conv_type);
+	  identifier = make_conv_op_name (conv_type);
 	  break;
 	  // C++11-only:
 	case CHARS2 ('l', 'i'): // operator "" <id>
@@ -2667,12 +2483,7 @@ plugin_build_dependent_expr (cc1_plugin::connection *self,
       gcc_assert (convop || !conv_type);
 
       if (opcode != ERROR_MARK)
-	{
-	  if (assop)
-	    identifier = cp_assignment_operator_id (opcode);
-	  else
-	    identifier = cp_operator_id (opcode);
-	}
+	identifier = ovl_op_identifier (assop, opcode);
 
       gcc_assert (identifier);
     }
@@ -2684,10 +2495,10 @@ plugin_build_dependent_expr (cc1_plugin::connection *self,
     }
   tree res = identifier;
   if (!scope)
-    res = lookup_name_real (res, 0, 0, true, 0, 0);
+    res = lookup_name (res, LOOK_where::BLOCK_NAMESPACE);
   else if (!TYPE_P (scope) || !dependent_scope_p (scope))
     {
-      res = lookup_qualified_name (scope, res, false, true);
+      res = lookup_qualified_name (scope, res, LOOK_want::NORMAL, true);
       /* We've already resolved the name in the scope, so skip the
 	 build_qualified_name call below.  */
       scope = NULL;
@@ -2829,7 +2640,7 @@ plugin_build_unary_expr (cc1_plugin::connection *self,
       break;
 
     case THROW_EXPR:
-      result = build_throw (op0);
+      result = build_throw (input_location, op0);
       break;
 
     case TYPEID_EXPR:
@@ -2838,12 +2649,14 @@ plugin_build_unary_expr (cc1_plugin::connection *self,
 
     case SIZEOF_EXPR:
     case ALIGNOF_EXPR:
-      result = cxx_sizeof_or_alignof_expr (op0, opcode, true);
+      result = cxx_sizeof_or_alignof_expr (input_location,
+					   op0, opcode, true, true);
       break;
 
     case DELETE_EXPR:
     case VEC_DELETE_EXPR:
-      result = delete_sanity (op0, NULL_TREE, opcode == VEC_DELETE_EXPR,
+      result = delete_sanity (input_location, op0, NULL_TREE,
+			      opcode == VEC_DELETE_EXPR,
 			      global_scope_p, tf_error);
       break;
 
@@ -2858,7 +2671,7 @@ plugin_build_unary_expr (cc1_plugin::connection *self,
       break;
 
     default:
-      result = build_x_unary_op (/*loc=*/0, opcode, op0, tf_error);
+      result = build_x_unary_op (/*loc=*/0, opcode, op0, NULL_TREE, tf_error);
       break;
     }
 
@@ -2983,7 +2796,7 @@ plugin_build_binary_expr (cc1_plugin::connection *self,
 
     default:
       result = build_x_binary_op (/*loc=*/0, opcode, op0, ERROR_MARK,
-				  op1, ERROR_MARK, NULL, tf_error);
+				  op1, ERROR_MARK, NULL_TREE, NULL, tf_error);
       break;
     }
 
@@ -3079,7 +2892,9 @@ plugin_build_unary_type_expr (cc1_plugin::connection *self,
       break;
 
     default:
-      result = cxx_sizeof_or_alignof_type (type, opcode, true);
+      /* Use the C++11 alignof semantics.  */
+      result = cxx_sizeof_or_alignof_type (input_location, type,
+					   opcode, true, true);
     }
 
   if (template_dependent_p)
@@ -3095,7 +2910,8 @@ plugin_build_cast_expr (cc1_plugin::connection *self,
 			gcc_expr operand2)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  tree (*build_cast)(tree type, tree expr, tsubst_flags_t complain) = NULL;
+  tree (*build_cast)(location_t loc, tree type, tree expr,
+		     tsubst_flags_t complain) = NULL;
   tree type = convert_in (operand1);
   tree expr = convert_in (operand2);
 
@@ -3132,7 +2948,7 @@ plugin_build_cast_expr (cc1_plugin::connection *self,
   if (!template_dependent_p)
     processing_template_decl--;
 
-  tree val = build_cast (type, expr, tf_error);
+  tree val = build_cast (input_location, type, expr, tf_error);
 
   if (template_dependent_p)
     processing_template_decl--;
@@ -3186,7 +3002,7 @@ plugin_build_expression_list_expr (cc1_plugin::connection *self,
     case CHARS2 ('c', 'v'): // conversion with parenthesized expression list
       gcc_assert (TYPE_P (type));
       args = args_to_tree_list (values_in);
-      result = build_functional_cast (type, args, tf_error);
+      result = build_functional_cast (input_location, type, args, tf_error);
       break;
 
     case CHARS2 ('t', 'l'): // conversion with braced expression list
@@ -3285,8 +3101,8 @@ plugin_build_new_expr (cc1_plugin::connection *self,
   if (!template_dependent_p)
     processing_template_decl--;
 
-  tree result = build_new (&placement, type, nelts, &initializer,
-			   global_scope_p, tf_error);
+  tree result = build_new (input_location, &placement, type, nelts,
+			   &initializer, global_scope_p, tf_error);
 
   if (template_dependent_p)
     processing_template_decl--;
@@ -3321,7 +3137,7 @@ plugin_build_call_expr (cc1_plugin::connection *self,
 	  fn = STRIP_TEMPLATE (fn);
 
 	  if (!DECL_FUNCTION_MEMBER_P (fn)
-	      && !DECL_LOCAL_FUNCTION_P (fn))
+	      && !DECL_LOCAL_DECL_P (fn))
 	    koenig_p = true;
 	}
     }
@@ -3370,10 +3186,7 @@ plugin_get_expr_type (cc1_plugin::connection *self,
   if (op0)
     type = TREE_TYPE (op0);
   else
-    {
-      type = make_decltype_auto ();
-      AUTO_IS_DECLTYPE (type) = true;
-    }
+    type = make_decltype_auto ();
   return convert_out (ctx->preserve (type));
 }
 
@@ -3386,7 +3199,7 @@ plugin_build_function_template_specialization (cc1_plugin::connection *self,
 					       unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
   tree name = convert_in (template_decl);
   tree targsl = targlist (targs);
 
@@ -3406,7 +3219,7 @@ plugin_build_class_template_specialization (cc1_plugin::connection *self,
 					    unsigned int line_number)
 {
   plugin_context *ctx = static_cast<plugin_context *> (self);
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
   tree name = convert_in (template_decl);
 
   tree tdecl = finish_template_type (name, targlist (args), false);;
@@ -3633,12 +3446,12 @@ plugin_build_constant (cc1_plugin::connection *self, gcc_type type_in,
   cst = build_int_cst (type, value);
   if (!TYPE_READONLY (type))
     type = build_qualified_type (type, TYPE_QUAL_CONST);
-  decl = build_decl (ctx->get_source_location (filename, line_number),
+  decl = build_decl (ctx->get_location_t (filename, line_number),
 		     VAR_DECL, get_identifier (name), type);
   TREE_STATIC (decl) = 1;
   TREE_READONLY (decl) = 1;
   cp_finish_decl (decl, cst, true, NULL, LOOKUP_ONLYCONVERTING);
-  safe_pushdecl_maybe_friend (decl, false);
+  safe_pushdecl (decl);
 
   return 1;
 }
@@ -3669,25 +3482,16 @@ plugin_add_static_assert (cc1_plugin::connection *self,
   TREE_TYPE (message) = char_array_type_node;
   fix_string_type (message);
 
-  source_location loc = ctx->get_source_location (filename, line_number);
+  location_t loc = ctx->get_location_t (filename, line_number);
 
   bool member_p = at_class_scope_p ();
 
-  finish_static_assert (condition, message, loc, member_p);
+  finish_static_assert (condition, message, loc, member_p, false);
 
   return 1;
 }
 
 
-
-// Perform GC marking.
-
-static void
-gc_mark (void *, void *)
-{
-  if (current_context != NULL)
-    current_context->mark ();
-}
 
 #ifdef __GNUC__
 #pragma GCC visibility push(default)
@@ -3697,90 +3501,56 @@ int
 plugin_init (struct plugin_name_args *plugin_info,
 	     struct plugin_gcc_version *)
 {
-  long fd = -1;
-  for (int i = 0; i < plugin_info->argc; ++i)
-    {
-      if (strcmp (plugin_info->argv[i].key, "fd") == 0)
-	{
-	  char *tail;
-	  errno = 0;
-	  fd = strtol (plugin_info->argv[i].value, &tail, 0);
-	  if (*tail != '\0' || errno != 0)
-	    fatal_error (input_location,
-			 "%s: invalid file descriptor argument to plugin",
-			 plugin_info->base_name);
-	  break;
-	}
-    }
-  if (fd == -1)
-    fatal_error (input_location,
-		 "%s: required plugin argument %<fd%> is missing",
-		 plugin_info->base_name);
-
-  current_context = new plugin_context (fd);
-
-  // Handshake.
-  cc1_plugin::protocol_int version;
-  if (!current_context->require ('H')
-      || ! ::cc1_plugin::unmarshall (current_context, &version))
-    fatal_error (input_location,
-		 "%s: handshake failed", plugin_info->base_name);
-  if (version != GCC_CP_FE_VERSION_0)
-    fatal_error (input_location,
-		 "%s: unknown version in handshake", plugin_info->base_name);
+  generic_plugin_init (plugin_info, GCC_CP_FE_VERSION_0);
 
   register_callback (plugin_info->base_name, PLUGIN_PRAGMAS,
 		     plugin_init_extra_pragmas, NULL);
   register_callback (plugin_info->base_name, PLUGIN_PRE_GENERICIZE,
 		     rewrite_decls_to_addresses, NULL);
-  register_callback (plugin_info->base_name, PLUGIN_GGC_MARKING,
-		     gc_mark, NULL);
-
-  lang_hooks.print_error_function = plugin_print_error_function;
 
 #define GCC_METHOD0(R, N)			\
   {						\
     cc1_plugin::callback_ftype *fun		\
-      = cc1_plugin::callback<R, plugin_ ## N>;	\
+      = cc1_plugin::invoker<R>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);	\
   }
 #define GCC_METHOD1(R, N, A)				\
   {							\
     cc1_plugin::callback_ftype *fun			\
-      = cc1_plugin::callback<R, A, plugin_ ## N>;	\
+      = cc1_plugin::invoker<R, A>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);		\
   }
 #define GCC_METHOD2(R, N, A, B)				\
   {							\
     cc1_plugin::callback_ftype *fun			\
-      = cc1_plugin::callback<R, A, B, plugin_ ## N>;	\
+      = cc1_plugin::invoker<R, A, B>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);		\
   }
 #define GCC_METHOD3(R, N, A, B, C)			\
   {							\
     cc1_plugin::callback_ftype *fun			\
-      = cc1_plugin::callback<R, A, B, C, plugin_ ## N>;	\
+      = cc1_plugin::invoker<R, A, B, C>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);		\
   }
 #define GCC_METHOD4(R, N, A, B, C, D)		\
   {						\
     cc1_plugin::callback_ftype *fun		\
-      = cc1_plugin::callback<R, A, B, C, D,	\
-			     plugin_ ## N>;	\
+      = cc1_plugin::invoker<R, A, B, C,		\
+			    D>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);	\
   }
 #define GCC_METHOD5(R, N, A, B, C, D, E)	\
   {						\
     cc1_plugin::callback_ftype *fun		\
-      = cc1_plugin::callback<R, A, B, C, D, E,	\
-			     plugin_ ## N>;	\
+      = cc1_plugin::invoker<R, A, B, C,		\
+			    D, E>::invoke<plugin_ ## N>;	\
     current_context->add_callback (# N, fun);	\
   }
 #define GCC_METHOD7(R, N, A, B, C, D, E, F, G)		\
   {							\
     cc1_plugin::callback_ftype *fun			\
-      = cc1_plugin::callback<R, A, B, C, D, E, F, G,	\
-			     plugin_ ## N>;		\
+      = cc1_plugin::invoker<R, A, B, C,			\
+			    D, E, F, G>::invoke<plugin_ ## N>;		\
     current_context->add_callback (# N, fun);		\
   }
 

@@ -1,4 +1,4 @@
-.. Copyright (C) 2014-2017 Free Software Foundation, Inc.
+.. Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Originally contributed by David Malcolm <dmalcolm@redhat.com>
 
    This is free software: you can redistribute it and/or modify it
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see
-   <http://www.gnu.org/licenses/>.
+   <https://www.gnu.org/licenses/>.
 
 .. default-domain:: cpp
 
@@ -26,7 +26,7 @@ Rvalues
 
 A :class:`gccjit::rvalue` is an expression that can be computed.  It is a
 subclass of :class:`gccjit::object`, and is a thin wrapper around
-:c:type:`gcc_jit_rvalue *` from the C API.
+:c:expr:`gcc_jit_rvalue *` from the C API.
 
 It can be simple, e.g.:
 
@@ -57,14 +57,14 @@ Simple expressions
                                            int value) const
 
    Given a numeric type (integer or floating point), build an rvalue for
-   the given constant :c:type:`int` value.
+   the given constant :expr:`int` value.
 
 .. function:: gccjit::rvalue \
               gccjit::context::new_rvalue (gccjit::type numeric_type, \
                                            long value) const
 
    Given a numeric type (integer or floating point), build an rvalue for
-   the given constant :c:type:`long` value.
+   the given constant :expr:`long` value.
 
 .. function::  gccjit::rvalue \
                gccjit::context::zero (gccjit::type numeric_type) const
@@ -91,7 +91,7 @@ Simple expressions
                                             double value) const
 
    Given a numeric type (integer or floating point), build an rvalue for
-   the given constant :c:type:`double` value.
+   the given constant :expr:`double` value.
 
 .. function:: gccjit::rvalue \
               gccjit::context::new_rvalue (gccjit::type pointer_type, \
@@ -105,6 +105,17 @@ Simple expressions
    Generate an rvalue of type :c:data:`GCC_JIT_TYPE_CONST_CHAR_PTR` for
    the given string.  This is akin to a string literal.
 
+Vector expressions
+******************
+
+.. function:: gccjit::rvalue \
+	      gccjit::context::new_rvalue (gccjit::type vector_type, \
+	                                   std::vector<gccjit::rvalue> elements) const
+
+   Given a vector type, and a vector of scalar rvalue elements, generate a
+   vector rvalue.
+
+   The number of elements needs to match that of the vector type.
 
 Unary Operations
 ****************
@@ -225,48 +236,39 @@ operation:
               gccjit::context::new_plus (gccjit::type result_type, \
                                          gccjit::rvalue a, gccjit::rvalue b, \
                                          gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_minus (gccjit::type result_type, \
                                           gccjit::rvalue a, gccjit::rvalue b, \
                                           gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_mult (gccjit::type result_type, \
                                          gccjit::rvalue a, gccjit::rvalue b, \
                                          gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_divide (gccjit::type result_type, \
                                            gccjit::rvalue a, gccjit::rvalue b, \
                                            gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_modulo (gccjit::type result_type, \
                                            gccjit::rvalue a, gccjit::rvalue b, \
                                            gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_bitwise_and (gccjit::type result_type, \
                                                 gccjit::rvalue a, gccjit::rvalue b, \
                                                 gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_bitwise_xor (gccjit::type result_type, \
                                                 gccjit::rvalue a, gccjit::rvalue b, \
                                                 gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_bitwise_or (gccjit::type result_type, \
                                                gccjit::rvalue a, gccjit::rvalue b, \
                                                gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_logical_and (gccjit::type result_type, \
                                                 gccjit::rvalue a, gccjit::rvalue b, \
                                                 gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_logical_or (gccjit::type result_type, \
                                                gccjit::rvalue a, gccjit::rvalue b, \
                                                gccjit::location loc)
@@ -364,24 +366,19 @@ operation:
 .. function:: gccjit::rvalue \
               gccjit::context::new_eq (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_ne (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_lt (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_le (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_gt (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
-
-.. function:: gccjit::rvalue \
+              gccjit::rvalue \
               gccjit::context::new_ge (gccjit::rvalue a, gccjit::rvalue b, \
                                        gccjit::location loc)
 
@@ -459,6 +456,15 @@ Function calls
          /* Add "(void)printf (arg0, arg1);".  */
          block.add_eval (ctxt.new_call (printf_func, arg0, arg1));
 
+Function pointers
+*****************
+
+.. function:: gccjit::rvalue \
+	      gccjit::function::get_address (gccjit::location loc)
+
+   Get the address of a function as an rvalue, of function pointer
+   type.
+
 Type-coercion
 *************
 
@@ -485,7 +491,7 @@ a storage area (such as a variable).  It is a subclass of
 :class:`gccjit::rvalue`, where the rvalue is computed by reading from the
 storage area.
 
-It iss a thin wrapper around :c:type:`gcc_jit_lvalue *` from the C API.
+It iss a thin wrapper around :c:expr:`gcc_jit_lvalue *` from the C API.
 
 .. function:: gccjit::rvalue \
               gccjit::lvalue::get_address (gccjit::location loc)

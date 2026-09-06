@@ -1,4 +1,4 @@
-/* Copyright (C) 2017 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2023 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
 This file is part of GCC.
@@ -27,61 +27,54 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 
 #define DWARF_REGNUM_AARCH64_RA_STATE 34
 
-#define MD_POST_EXTRACT_ROOT_ADDR(addr)  __builtin_aarch64_xpaclri (addr)
-#define MD_POST_EXTRACT_FRAME_ADDR(context, fs, addr) \
-  aarch64_post_extract_frame_addr (context, fs, addr)
-#define MD_POST_FROB_EH_HANDLER_ADDR(current, target, addr) \
-  aarch64_post_frob_eh_handler_addr (current, target, addr)
-#define MD_FROB_UPDATE_CONTEXT(context, fs) \
-  aarch64_frob_update_context (context, fs)
+#define MD_DEMANGLE_RETURN_ADDR(context, fs, addr) \
+  aarch64_demangle_return_addr (context, fs, addr)
 
-/* Do AArch64 private extraction on ADDR based on context info CONTEXT and
-   unwind frame info FS.  If ADDR is signed, we do address authentication on it
-   using CFA of current frame.  */
+static inline int
+aarch64_cie_signed_with_b_key (struct _Unwind_Context *context)
+{
+  const struct dwarf_fde *fde = _Unwind_Find_FDE (context->bases.func,
+						  &context->bases);
+  if (fde != NULL)
+    {
+      const struct dwarf_cie *cie = get_cie (fde);
+      if (cie != NULL)
+	{
+	  char *aug_str = cie->augmentation;
+	  return strchr (aug_str, 'B') == NULL ? 0 : 1;
+	}
+    }
+  return 0;
+}
+
+/* Do AArch64 private extraction on ADDR_WORD based on context info CONTEXT and
+   unwind frame info FS.  If ADDR_WORD is signed, we do address authentication
+   on it using CFA of current frame.  */
 
 static inline void *
-aarch64_post_extract_frame_addr (struct _Unwind_Context *context,
-				 _Unwind_FrameState *fs, void *addr)
+aarch64_demangle_return_addr (struct _Unwind_Context *context,
+			      _Unwind_FrameState *fs,
+			      _Unwind_Word addr_word)
 {
-  if (fs->regs.reg[DWARF_REGNUM_AARCH64_RA_STATE].loc.offset & 0x1)
+  void *addr = (void *)addr_word;
+  const int reg = DWARF_REGNUM_AARCH64_RA_STATE;
+
+  if (fs->regs.how[reg] == REG_UNSAVED)
+    return addr;
+
+  /* Return-address signing state is toggled by DW_CFA_GNU_window_save (where
+     REG_UNSAVED/REG_UNSAVED_ARCHEXT means RA signing is disabled/enabled),
+     or set by a DW_CFA_expression.  */
+  if (fs->regs.how[reg] == REG_UNSAVED_ARCHEXT
+      || (_Unwind_GetGR (context, reg) & 0x1) != 0)
     {
       _Unwind_Word salt = (_Unwind_Word) context->cfa;
+      if (aarch64_cie_signed_with_b_key (context) != 0)
+	return __builtin_aarch64_autib1716 (addr, salt);
       return __builtin_aarch64_autia1716 (addr, salt);
     }
-  else
-    return addr;
-}
 
-/* Do AArch64 private frob on exception handler's address HANDLER_ADDR before
-   installing it into current context CURRENT.  TARGET is currently not used.
-   We need to sign exception handler's address if CURRENT itself is signed.  */
-
-static inline void *
-aarch64_post_frob_eh_handler_addr (struct _Unwind_Context *current,
-				   struct _Unwind_Context *target
-				   ATTRIBUTE_UNUSED,
-				   void *handler_addr)
-{
-  if (current->flags & RA_A_SIGNED_BIT)
-    return __builtin_aarch64_pacia1716 (handler_addr,
-					(_Unwind_Word) current->cfa);
-  else
-    return handler_addr;
-}
-
-/* Do AArch64 private initialization on CONTEXT based on frame info FS.  Mark
-   CONTEXT as return address signed if bit 0 of DWARF_REGNUM_AARCH64_RA_STATE is
-   set.  */
-
-static inline void
-aarch64_frob_update_context (struct _Unwind_Context *context,
-			     _Unwind_FrameState *fs)
-{
-  if (fs->regs.reg[DWARF_REGNUM_AARCH64_RA_STATE].loc.offset & 0x1)
-    /* The flag is used for re-authenticating EH handler's address.  */
-    context->flags |= RA_A_SIGNED_BIT;
-
-  return;
+  return addr;
 }
 
 #endif /* defined AARCH64_UNWIND_H && defined __ILP32__ */

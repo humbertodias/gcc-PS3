@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -25,12 +25,11 @@
 
 with Atree;    use Atree;
 with Csets;    use Csets;
+with Errout;   use Errout;
 with Hostparm; use Hostparm;
+with Lib;      use Lib;
 with Namet;    use Namet;
 with Opt;      use Opt;
-with Restrict; use Restrict;
-with Rident;   use Rident;
-with Scans;    use Scans;
 with Sinput;   use Sinput;
 with Snames;   use Snames;
 with Stringt;  use Stringt;
@@ -54,9 +53,6 @@ package body Scng is
    Special_Characters : array (Character) of Boolean := (others => False);
    --  For characters that are Special token, the value is True
 
-   Comment_Is_Token : Boolean := False;
-   --  True if comments are tokens
-
    End_Of_Line_Is_Token : Boolean := False;
    --  True if End_Of_Line is a token
 
@@ -69,19 +65,6 @@ package body Scng is
    --  Called after each numeric literal and identifier/keyword. For keywords,
    --  the token used is Tok_Identifier. This allows detection of additional
    --  spaces added in sources when using the builder switch -m.
-
-   procedure Accumulate_Token_Checksum_GNAT_6_3;
-   --  Used in place of Accumulate_Token_Checksum for GNAT versions 5.04 to
-   --  6.3, when Tok_Some was not included in Token_Type and the actual
-   --  Token_Type was used for keywords. This procedure is never used in the
-   --  compiler or gnatmake, only in gprbuild.
-
-   procedure Accumulate_Token_Checksum_GNAT_5_03;
-   --  Used in place of Accumulate_Token_Checksum for GNAT version 5.03, when
-   --  Tok_Interface, Tok_Some, Tok_Synchronized and Tok_Overriding were not
-   --  included in Token_Type and the actual Token_Type was used for keywords.
-   --  This procedure is never used in the compiler or gnatmake, only in
-   --  gprbuild.
 
    procedure Accumulate_Checksum (C : Character);
    pragma Inline (Accumulate_Checksum);
@@ -138,314 +121,13 @@ package body Scng is
          Character'Val (Token_Type'Pos (Token)));
    end Accumulate_Token_Checksum;
 
-   ----------------------------------------
-   -- Accumulate_Token_Checksum_GNAT_6_3 --
-   ----------------------------------------
-
-   procedure Accumulate_Token_Checksum_GNAT_6_3 is
-   begin
-      --  Individual values of Token_Type are used, instead of subranges, so
-      --  that additions or suppressions of enumerated values in type
-      --  Token_Type are detected by the compiler.
-
-      case Token is
-         when Tok_Abs
-            | Tok_Abstract
-            | Tok_Access
-            | Tok_Aliased
-            | Tok_All
-            | Tok_Ampersand
-            | Tok_And
-            | Tok_Apostrophe
-            | Tok_Array
-            | Tok_Asterisk
-            | Tok_At
-            | Tok_At_Sign
-            | Tok_Body
-            | Tok_Box
-            | Tok_Char_Literal
-            | Tok_Colon
-            | Tok_Colon_Equal
-            | Tok_Comma
-            | Tok_Constant
-            | Tok_Delta
-            | Tok_Digits
-            | Tok_Do
-            | Tok_Dot
-            | Tok_Double_Asterisk
-            | Tok_Equal
-            | Tok_Greater
-            | Tok_Greater_Equal
-            | Tok_Greater_Greater
-            | Tok_Identifier
-            | Tok_In
-            | Tok_Integer_Literal
-            | Tok_Interface
-            | Tok_Is
-            | Tok_Left_Paren
-            | Tok_Less
-            | Tok_Less_Equal
-            | Tok_Limited
-            | Tok_Minus
-            | Tok_Mod
-            | Tok_New
-            | Tok_Not
-            | Tok_Not_Equal
-            | Tok_Null
-            | Tok_Of
-            | Tok_Operator_Symbol
-            | Tok_Or
-            | Tok_Others
-            | Tok_Out
-            | Tok_Plus
-            | Tok_Range
-            | Tok_Real_Literal
-            | Tok_Record
-            | Tok_Rem
-            | Tok_Renames
-            | Tok_Reverse
-            | Tok_Right_Paren
-            | Tok_Slash
-            | Tok_String_Literal
-            | Tok_Xor
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token)));
-
-         when Tok_Some =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Tok_Identifier)));
-
-         when No_Token
-            | Tok_Abort
-            | Tok_Accept
-            | Tok_Arrow
-            | Tok_Begin
-            | Tok_Case
-            | Tok_Comment
-            | Tok_Declare
-            | Tok_Delay
-            | Tok_Dot_Dot
-            | Tok_Else
-            | Tok_Elsif
-            | Tok_End
-            | Tok_End_Of_Line
-            | Tok_Entry
-            | Tok_EOF
-            | Tok_Exception
-            | Tok_Exit
-            | Tok_Extends
-            | Tok_External
-            | Tok_External_As_List
-            | Tok_For
-            | Tok_Function
-            | Tok_Generic
-            | Tok_Goto
-            | Tok_If
-            | Tok_Less_Less
-            | Tok_Loop
-            | Tok_Overriding
-            | Tok_Package
-            | Tok_Pragma
-            | Tok_Private
-            | Tok_Procedure
-            | Tok_Project
-            | Tok_Protected
-            | Tok_Raise
-            | Tok_Requeue
-            | Tok_Return
-            | Tok_Select
-            | Tok_Semicolon
-            | Tok_Separate
-            | Tok_SPARK_Hide
-            | Tok_Special
-            | Tok_Subtype
-            | Tok_Synchronized
-            | Tok_Tagged
-            | Tok_Task
-            | Tok_Terminate
-            | Tok_Then
-            | Tok_Type
-            | Tok_Until
-            | Tok_Use
-            | Tok_Vertical_Bar
-            | Tok_When
-            | Tok_While
-            | Tok_With
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token_Type'Pred (Token))));
-      end case;
-   end Accumulate_Token_Checksum_GNAT_6_3;
-
-   -----------------------------------------
-   -- Accumulate_Token_Checksum_GNAT_5_03 --
-   -----------------------------------------
-
-   procedure Accumulate_Token_Checksum_GNAT_5_03 is
-   begin
-      --  Individual values of Token_Type are used, instead of subranges, so
-      --  that additions or suppressions of enumerated values in type
-      --  Token_Type are detected by the compiler.
-
-      case Token is
-         when Tok_Abs
-            | Tok_Abstract
-            | Tok_Access
-            | Tok_Aliased
-            | Tok_All
-            | Tok_Ampersand
-            | Tok_And
-            | Tok_Apostrophe
-            | Tok_Array
-            | Tok_Asterisk
-            | Tok_At
-            | Tok_At_Sign
-            | Tok_Body
-            | Tok_Box
-            | Tok_Char_Literal
-            | Tok_Colon
-            | Tok_Colon_Equal
-            | Tok_Comma
-            | Tok_Constant
-            | Tok_Delta
-            | Tok_Digits
-            | Tok_Do
-            | Tok_Dot
-            | Tok_Double_Asterisk
-            | Tok_Equal
-            | Tok_Greater
-            | Tok_Greater_Equal
-            | Tok_Greater_Greater
-            | Tok_Identifier
-            | Tok_In
-            | Tok_Integer_Literal
-            | Tok_Is
-            | Tok_Left_Paren
-            | Tok_Less
-            | Tok_Less_Equal
-            | Tok_Minus
-            | Tok_Mod
-            | Tok_New
-            | Tok_Not
-            | Tok_Not_Equal
-            | Tok_Null
-            | Tok_Operator_Symbol
-            | Tok_Or
-            | Tok_Others
-            | Tok_Plus
-            | Tok_Range
-            | Tok_Real_Literal
-            | Tok_Rem
-            | Tok_Right_Paren
-            | Tok_Slash
-            | Tok_String_Literal
-            | Tok_Xor
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token)));
-
-         when Tok_Interface
-            | Tok_Overriding
-            | Tok_Some
-            | Tok_Synchronized
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Tok_Identifier)));
-
-         when Tok_Limited
-            | Tok_Of
-            | Tok_Out
-            | Tok_Record
-            | Tok_Renames
-            | Tok_Reverse
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token) - 1));
-
-         when Tok_Abort
-            | Tok_Accept
-            | Tok_Begin
-            | Tok_Case
-            | Tok_Declare
-            | Tok_Delay
-            | Tok_Else
-            | Tok_Elsif
-            | Tok_End
-            | Tok_Entry
-            | Tok_Exception
-            | Tok_Exit
-            | Tok_For
-            | Tok_Goto
-            | Tok_If
-            | Tok_Less_Less
-            | Tok_Loop
-            | Tok_Pragma
-            | Tok_Protected
-            | Tok_Raise
-            | Tok_Requeue
-            | Tok_Return
-            | Tok_Select
-            | Tok_Subtype
-            | Tok_Tagged
-            | Tok_Task
-            | Tok_Terminate
-            | Tok_Then
-            | Tok_Type
-            | Tok_Until
-            | Tok_When
-            | Tok_While
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token) - 2));
-
-         when No_Token
-            | Tok_Arrow
-            | Tok_Comment
-            | Tok_Dot_Dot
-            | Tok_End_Of_Line
-            | Tok_EOF
-            | Tok_Extends
-            | Tok_External
-            | Tok_External_As_List
-            | Tok_Function
-            | Tok_Generic
-            | Tok_Package
-            | Tok_Private
-            | Tok_Procedure
-            | Tok_Project
-            | Tok_Semicolon
-            | Tok_Separate
-            | Tok_SPARK_Hide
-            | Tok_Special
-            | Tok_Use
-            | Tok_Vertical_Bar
-            | Tok_With
-         =>
-            System.CRC32.Update
-              (System.CRC32.CRC32 (Checksum),
-               Character'Val (Token_Type'Pos (Token) - 4));
-      end case;
-   end Accumulate_Token_Checksum_GNAT_5_03;
-
    -----------------------
    -- Check_End_Of_Line --
    -----------------------
 
    procedure Check_End_Of_Line is
       Len : constant Int :=
-              Int (Scan_Ptr) -
-                Int (Current_Line_Start) -
-                  Wide_Char_Byte_Count;
-
-   --  Start of processing for Check_End_Of_Line
+              Int (Scan_Ptr - Current_Line_Start) - Wide_Char_Byte_Count;
 
    begin
       if Style_Check then
@@ -541,16 +223,16 @@ package body Scng is
 
       --  Initialize scan control variables
 
-      Current_Source_File       := Index;
-      Source                    := Source_Text (Current_Source_File);
-      Scan_Ptr                  := Source_First (Current_Source_File);
-      Token                     := No_Token;
-      Token_Ptr                 := Scan_Ptr;
-      Current_Line_Start        := Scan_Ptr;
-      Token_Node                := Empty;
-      Token_Name                := No_Name;
-      Start_Column              := Set_Start_Column;
-      First_Non_Blank_Location  := Scan_Ptr;
+      Current_Source_File      := Index;
+      Source                   := Source_Text (Current_Source_File);
+      Scan_Ptr                 := Source_First (Current_Source_File);
+      Token                    := No_Token;
+      Token_Ptr                := Scan_Ptr;
+      Current_Line_Start       := Scan_Ptr;
+      Token_Node               := Empty;
+      Token_Name               := No_Name;
+      Start_Column             := Set_Start_Column;
+      First_Non_Blank_Location := Scan_Ptr;
 
       Initialize_Checksum;
       Wide_Char_Byte_Count := 0;
@@ -573,9 +255,6 @@ package body Scng is
    ----------
 
    procedure Scan is
-
-      Start_Of_Comment : Source_Ptr;
-      --  Record start of comment position
 
       Underline_Found : Boolean;
       --  During scanning of an identifier, set to True if last character
@@ -632,6 +311,49 @@ package body Scng is
       function Start_Of_Wide_Character return Boolean;
       --  Returns True if the scan pointer is pointing to the start of a wide
       --  character sequence, does not modify the scan pointer in any case.
+
+      procedure Check_Bidi (Code : Char_Code);
+      --  Give a warning if Code is a bidirectional character, which can cause
+      --  security vulnerabilities. See the following article:
+      --
+      --  @article{boucher_trojansource_2021,
+      --      title = {Trojan {Source}: {Invisible} {Vulnerabilities}},
+      --      author = {Nicholas Boucher and Ross Anderson},
+      --      year = {2021},
+      --      journal = {Preprint},
+      --      eprint = {2111.00169},
+      --      archivePrefix = {arXiv},
+      --      primaryClass = {cs.CR},
+      --      url = {https://arxiv.org/abs/2111.00169}
+      --  }
+
+      ----------------
+      -- Check_Bidi --
+      ----------------
+
+      type Bidi_Characters is
+        (LRE, RLE, LRO, RLO, LRI, RLI, FSI, PDF, PDI);
+      Bidi_Character_Codes : constant array (Bidi_Characters) of Char_Code :=
+        (LRE => 16#202A#,
+         RLE => 16#202B#,
+         LRO => 16#202D#,
+         RLO => 16#202E#,
+         LRI => 16#2066#,
+         RLI => 16#2067#,
+         FSI => 16#2068#,
+         PDF => 16#202C#,
+         PDI => 16#2069#);
+      --  Above are the bidirectional characters, along with their Unicode code
+      --  points.
+
+      procedure Check_Bidi (Code : Char_Code) is
+      begin
+         for Bidi_Code of Bidi_Character_Codes loop
+            if Code = Bidi_Code then
+               Error_Msg ("??bidirectional wide character", Wptr);
+            end if;
+         end loop;
+      end Check_Bidi;
 
       -----------------------
       -- Double_Char_Token --
@@ -1040,6 +762,15 @@ package body Scng is
             if UI_Scale = 0 then
                Int_Literal_Value := UI_Num_Value;
 
+            --  When the exponent is large, computing is expected to take a
+            --  rather unreasonable time. We generate an error so that it
+            --  does not appear that the compiler has gotten stuck. Such a
+            --  large exponent is most likely a typo anyway.
+
+            elsif UI_Scale >= 800_000 then
+               Error_Msg_SC ("exponent too large");
+               Int_Literal_Value := No_Uint;
+
             --  Avoid doing possibly expensive calculations in cases like
             --  parsing 163E800_000# when semantics will not be done anyway.
             --  This is especially useful when parsing garbled input.
@@ -1054,11 +785,7 @@ package body Scng is
             end if;
          end if;
 
-         if Checksum_Accumulate_Token_Checksum then
-            Accumulate_Token_Checksum;
-         end if;
-
-         return;
+         Accumulate_Token_Checksum;
       end Nlit;
 
       ----------
@@ -1350,8 +1077,20 @@ package body Scng is
 
          String_Start := Scan_Ptr;
 
-         Delimiter := Source (Scan_Ptr);
-         Accumulate_Checksum (Delimiter);
+         --  Continuation of interpolated string literal
+
+         if Inside_Interpolated_String_Literal
+           and then Prev_Token = Tok_Right_Curly_Bracket
+         then
+            Scan_Ptr := Scan_Ptr - 1;
+            Delimiter := '"';
+
+         --  Common case
+
+         else
+            Delimiter := Source (Scan_Ptr);
+            Accumulate_Checksum (Delimiter);
+         end if;
 
          Start_String;
          Wide_Character_Found      := False;
@@ -1367,6 +1106,15 @@ package body Scng is
                Accumulate_Checksum (C);
                Scan_Ptr := Scan_Ptr + 1;
                exit when Source (Scan_Ptr) /= Delimiter;
+
+               --  Unlike normal string literals, doubled delimiter has no
+               --  special significance in interpolated string literals.
+
+               if Inside_Interpolated_String_Literal then
+                  Error_Msg_S
+                    ("double quotations not allowed in interpolated string");
+               end if;
+
                Code := Get_Char_Code (C);
                Accumulate_Checksum (C);
                Scan_Ptr := Scan_Ptr + 1;
@@ -1378,6 +1126,40 @@ package body Scng is
                   Code := Get_Char_Code (C);
                   Scan_Ptr := Scan_Ptr + 1;
 
+               --  Found interpolated expression
+
+               elsif Inside_Interpolated_String_Literal
+                 and then C = '{'
+               then
+                  Accumulate_Checksum (C);
+                  exit;
+
+               --  Escaped character in interpolated string literal
+
+               elsif Inside_Interpolated_String_Literal
+                 and then C = '\'
+               then
+                  Accumulate_Checksum (C);
+                  Scan_Ptr := Scan_Ptr + 1;
+                  C := Source (Scan_Ptr);
+                  Accumulate_Checksum (C);
+                  Scan_Ptr := Scan_Ptr + 1;
+
+                  case C is
+                     when 'a' => Code := Get_Char_Code (ASCII.BEL);
+                     when 'b' => Code := Get_Char_Code (ASCII.BS);
+                     when 'f' => Code := Get_Char_Code (ASCII.FF);
+                     when 'n' => Code := Get_Char_Code (ASCII.LF);
+                     when 'r' => Code := Get_Char_Code (ASCII.CR);
+                     when 't' => Code := Get_Char_Code (ASCII.HT);
+                     when 'v' => Code := Get_Char_Code (ASCII.VT);
+                     when '0' => Code := Get_Char_Code (ASCII.NUL);
+                     when '\' | '"' | '{' | '}'
+                              => Code := Get_Char_Code (C);
+                     when others =>
+                        Error_Msg_S ("illegal escaped character");
+                  end case;
+
                elsif Start_Of_Wide_Character then
                   Wptr := Scan_Ptr;
                   Scan_Wide (Source, Scan_Ptr, Code, Err);
@@ -1385,6 +1167,8 @@ package body Scng is
                   if Err then
                      Error_Illegal_Wide_Character;
                      Code := Get_Char_Code (' ');
+                  else
+                     Check_Bidi (Code);
                   end if;
 
                   Accumulate_Checksum (Code);
@@ -1496,12 +1280,37 @@ package body Scng is
          end if;
       end Start_Of_Wide_Character;
 
+      Token_Contains_Uppercase : Boolean;
+
    --  Start of processing for Scan
 
    begin
       Prev_Token := Token;
       Prev_Token_Ptr := Token_Ptr;
       Token_Name := Error_Name;
+
+      if Inside_Interpolated_String_Literal
+        and then Prev_Token = Tok_Right_Curly_Bracket
+      then
+         --  Consecutive interpolated expressions
+
+         if Source (Scan_Ptr) = '{' then
+            null;
+
+         --  Ending delimiter placed immediately after interpolated expression
+
+         elsif Source (Scan_Ptr) = '"' then
+            Scan_Ptr := Scan_Ptr + 1;
+            Prev_Token := Tok_String_Literal;
+
+         --  String literal placed after interpolated expression
+
+         else
+            Slit;
+            Post_Scan;
+            return;
+         end if;
+      end if;
 
       --  The following loop runs more than once only if a format effector
       --  (tab, vertical tab, form  feed, line feed, carriage return) is
@@ -1557,6 +1366,8 @@ package body Scng is
 
          Token_Ptr := Scan_Ptr;
 
+         Token_Contains_Uppercase := False;
+
          --  Here begins the main case statement which transfers control on the
          --  basis of the non-blank character we have encountered.
 
@@ -1611,19 +1422,15 @@ package body Scng is
                return;
             end if;
 
+         --  AI12-0125-03 : @ is target_name
+
          when '@' =>
-            if Ada_Version < Ada_2020 then
-               Error_Msg ("target_name is an Ada 2020 feature", Scan_Ptr);
-               Scan_Ptr := Scan_Ptr + 1;
+            Error_Msg_Ada_2022_Feature ("target name", Token_Ptr);
 
-            else
-               --  AI12-0125-03 : @ is target_name
-
-               Accumulate_Checksum ('@');
-               Scan_Ptr := Scan_Ptr + 1;
-               Token := Tok_At_Sign;
-               return;
-            end if;
+            Accumulate_Checksum ('@');
+            Scan_Ptr := Scan_Ptr + 1;
+            Token := Tok_At_Sign;
+            return;
 
          --  Asterisk (can be multiplication operator or double asterisk which
          --  is the exponentiation compound delimiter).
@@ -1686,7 +1493,7 @@ package body Scng is
             Token := Tok_Left_Paren;
 
             if Style_Check then
-               Style.Check_Left_Paren;
+               Style.Check_Left_Paren_Square_Bracket;
             end if;
 
             return;
@@ -1694,7 +1501,22 @@ package body Scng is
          --  Left bracket
 
          when '[' =>
-            if Source (Scan_Ptr + 1) = '"' then
+
+            --  [] under -gnat2022 is an aggregate notation and the special
+            --  wide character notation becomes unsupported since the two
+            --  are ambiguous.
+
+            if Ada_Version >= Ada_2022 then
+               Scan_Ptr := Scan_Ptr + 1;
+               Token := Tok_Left_Bracket;
+
+               if Style_Check then
+                  Style.Check_Left_Paren_Square_Bracket;
+               end if;
+
+               return;
+
+            elsif Source (Scan_Ptr + 1) = '"' then
                goto Scan_Wide_Character;
 
             else
@@ -1704,12 +1526,20 @@ package body Scng is
                return;
             end if;
 
-         --  Left brace
+         --  Left curly bracket, treated as right paren but proper delimiter
+         --  of interpolated string literals when all extensions are allowed.
 
          when '{' =>
-            Error_Msg_S ("illegal character, replaced by ""(""");
-            Scan_Ptr := Scan_Ptr + 1;
-            Token := Tok_Left_Paren;
+            if All_Extensions_Allowed then
+               Scan_Ptr := Scan_Ptr + 1;
+               Token := Tok_Left_Curly_Bracket;
+
+            else
+               Error_Msg_S ("illegal character, replaced by ""(""");
+               Scan_Ptr := Scan_Ptr + 1;
+               Token := Tok_Left_Paren;
+            end if;
+
             return;
 
          --  Comma
@@ -1859,10 +1689,6 @@ package body Scng is
                   return;
                end if;
 
-               --  Otherwise scan out the comment
-
-               Start_Of_Comment := Scan_Ptr;
-
                --  Loop to scan comment (this loop runs more than once only if
                --  a horizontal tab or other non-graphic character is scanned)
 
@@ -1916,11 +1742,11 @@ package body Scng is
 
                   elsif Start_Of_Wide_Character then
                      declare
-                        Wptr : constant Source_Ptr := Scan_Ptr;
                         Code : Char_Code;
                         Err  : Boolean;
 
                      begin
+                        Wptr := Scan_Ptr;
                         Scan_Wide (Source, Scan_Ptr, Code, Err);
 
                         --  If not well formed wide character, then just skip
@@ -1934,6 +1760,8 @@ package body Scng is
                         elsif Is_UTF_32_Line_Terminator (UTF_32 (Code)) then
                            Scan_Ptr := Wptr;
                            exit;
+                        else
+                           Check_Bidi (Code);
                         end if;
                      end;
 
@@ -1959,59 +1787,8 @@ package body Scng is
                   end if;
                end loop;
 
-               --  Note that, except when comments are tokens, we do NOT
-               --  execute a return here, instead we fall through to reexecute
-               --  the scan loop to look for a token.
-
-               if Comment_Is_Token then
-                  Name_Len := Integer (Scan_Ptr - Start_Of_Comment);
-                  Name_Buffer (1 .. Name_Len) :=
-                    String (Source (Start_Of_Comment .. Scan_Ptr - 1));
-                  Comment_Id := Name_Find;
-                  Token := Tok_Comment;
-                  return;
-               end if;
-
-               --  If the SPARK restriction is set for this unit, then generate
-               --  a token Tok_SPARK_Hide for a SPARK HIDE directive.
-
-               if Restriction_Check_Required (SPARK_05)
-                 and then Source (Start_Of_Comment) = '#'
-               then
-                  declare
-                     Scan_SPARK_Ptr : Source_Ptr;
-
-                  begin
-                     Scan_SPARK_Ptr := Start_Of_Comment + 1;
-
-                     --  Scan out blanks
-
-                     while Source (Scan_SPARK_Ptr) = ' '
-                       or else Source (Scan_SPARK_Ptr) = HT
-                     loop
-                        Scan_SPARK_Ptr := Scan_SPARK_Ptr + 1;
-                     end loop;
-
-                     --  Recognize HIDE directive. SPARK input cannot be
-                     --  encoded as wide characters, so only deal with
-                     --  lower/upper case.
-
-                     if (Source (Scan_SPARK_Ptr) = 'h'
-                          or else Source (Scan_SPARK_Ptr) = 'H')
-                       and then (Source (Scan_SPARK_Ptr + 1) = 'i'
-                                  or else Source (Scan_SPARK_Ptr + 1) = 'I')
-                       and then (Source (Scan_SPARK_Ptr + 2) = 'd'
-                                  or else Source (Scan_SPARK_Ptr + 2) = 'D')
-                       and then (Source (Scan_SPARK_Ptr + 3) = 'e'
-                                  or else Source (Scan_SPARK_Ptr + 3) = 'E')
-                       and then (Source (Scan_SPARK_Ptr + 4) = ' '
-                                  or else Source (Scan_SPARK_Ptr + 4) = HT)
-                     then
-                        Token := Tok_SPARK_Hide;
-                        return;
-                     end if;
-                  end;
-               end if;
+               --  Note that we do not return here; instead we fall through to
+               --  reexecute the scan loop to look for a token.
             end if;
          end Minus_Case;
 
@@ -2052,14 +1829,13 @@ package body Scng is
             --  T'Digits'Img. Strings literals are included for things like
             --  "abs"'Address. Other literals are included to give better error
             --  behavior for illegal cases like 123'Img.
+            --
+            --  In Ada 2022, a target name (i.e. @) is a valid prefix of an
+            --  attribute, and functions like a name.
 
-            if Prev_Token = Tok_Identifier
-               or else Prev_Token = Tok_Right_Paren
-               or else Prev_Token = Tok_All
-               or else Prev_Token = Tok_Delta
-               or else Prev_Token = Tok_Digits
-               or else Prev_Token = Tok_Project
-               or else Prev_Token in Token_Class_Literal
+            if Prev_Token in Tok_All | Tok_At_Sign | Tok_Delta | Tok_Digits |
+              Tok_Identifier | Tok_Project | Tok_Right_Paren |
+              Tok_Right_Bracket | Token_Class_Literal
             then
                Token := Tok_Apostrophe;
 
@@ -2077,23 +1853,26 @@ package body Scng is
                if Start_Of_Wide_Character then
                   Wptr := Scan_Ptr;
                   Scan_Wide (Source, Scan_Ptr, Code, Err);
-                  Accumulate_Checksum (Code);
 
                   if Err then
                      Error_Illegal_Wide_Character;
                      Code := Character'Pos (' ');
 
                   --  In Ada 95 mode we allow any wide character in a character
-                  --  literal, but in Ada 2005, the set of characters allowed
-                  --  is restricted to graphic characters.
+                  --  literal, but in later versions, the set of characters
+                  --  allowed is restricted to graphic characters.
 
                   elsif Ada_Version >= Ada_2005
                     and then Is_UTF_32_Non_Graphic (UTF_32 (Code))
                   then
-                     Error_Msg -- CODEFIX????
+                     Error_Msg -- CODEFIX
                        ("(Ada 2005) non-graphic character not permitted " &
                         "in character literal", Wptr);
+                  else
+                     Check_Bidi (Code);
                   end if;
+
+                  Accumulate_Checksum (Code);
 
                   if Source (Scan_Ptr) /= ''' then
                         Error_Msg_S ("missing apostrophe");
@@ -2167,12 +1946,34 @@ package body Scng is
 
             return;
 
-         --  Right bracket or right brace, treated as right paren
+         --  Right bracket or right brace, treated as right paren but proper
+         --  aggregate delimiter in Ada 2022.
 
-         when ']' | '}' =>
-            Error_Msg_S ("illegal character, replaced by "")""");
+         when ']' =>
+            if Ada_Version >= Ada_2022 then
+               Token := Tok_Right_Bracket;
+
+            else
+               Error_Msg_S ("illegal character, replaced by "")""");
+               Token := Tok_Right_Paren;
+            end if;
+
             Scan_Ptr := Scan_Ptr + 1;
-            Token := Tok_Right_Paren;
+            return;
+
+         --  Right curly bracket, treated as right paren but proper delimiter
+         --  of interpolated string literals when all extensions are allowed.
+
+         when '}' =>
+            if All_Extensions_Allowed then
+               Token := Tok_Right_Curly_Bracket;
+
+            else
+               Error_Msg_S ("illegal character, replaced by "")""");
+               Token := Tok_Right_Paren;
+            end if;
+
+            Scan_Ptr := Scan_Ptr + 1;
             return;
 
          --  Slash (can be division operator or first character of not equal)
@@ -2324,6 +2125,16 @@ package body Scng is
          --  Lower case letters
 
          when 'a' .. 'z' =>
+            if All_Extensions_Allowed
+              and then Source (Scan_Ptr) = 'f'
+              and then Source (Scan_Ptr + 1) = '"'
+            then
+               Scan_Ptr := Scan_Ptr + 1;
+               Accumulate_Checksum (Source (Scan_Ptr));
+               Token := Tok_Left_Interpolated_String;
+               return;
+            end if;
+
             Name_Len := 1;
             Underline_Found := False;
             Name_Buffer (1) := Source (Scan_Ptr);
@@ -2334,6 +2145,18 @@ package body Scng is
          --  Upper case letters
 
          when 'A' .. 'Z' =>
+            if All_Extensions_Allowed
+              and then Source (Scan_Ptr) = 'F'
+              and then Source (Scan_Ptr + 1) = '"'
+            then
+               Error_Msg_S
+                 ("delimiter of interpolated string must be in lowercase");
+               Scan_Ptr := Scan_Ptr + 1;
+               Token := Tok_Left_Interpolated_String;
+               return;
+            end if;
+
+            Token_Contains_Uppercase := True;
             Name_Len := 1;
             Underline_Found := False;
             Name_Buffer (1) :=
@@ -2345,15 +2168,15 @@ package body Scng is
          --  Underline character
 
          when '_' =>
-            if Special_Characters ('_') then
-               Token_Ptr := Scan_Ptr;
-               Scan_Ptr := Scan_Ptr + 1;
-               Token := Tok_Special;
-               Special_Character := '_';
-               return;
+            --  Identifiers with leading underscores are not allowed in Ada.
+            --  However, we allow them in the run-time library, so we can
+            --  create names that are hidden from normal Ada code. For an
+            --  example, search for "Name_uNext", which is "_Next".
+
+            if not In_Internal_Unit (Scan_Ptr) then
+               Error_Msg_S ("identifier cannot start with underline");
             end if;
 
-            Error_Msg_S ("identifier cannot start with underline");
             Name_Len := 1;
             Name_Buffer (1) := '_';
             Scan_Ptr := Scan_Ptr + 1;
@@ -2405,42 +2228,19 @@ package body Scng is
                Error_Illegal_Character;
             end if;
 
-         --  Invalid control characters
+         --  Illegal characters
 
-         when ACK
-            | ASCII.SO
-            | BEL
-            | BS
-            | CAN
-            | DC1
-            | DC2
-            | DC3
-            | DC4
-            | DEL
-            | DLE
-            | EM
-            | ENQ
-            | EOT
-            | ETB
-            | ETX
-            | FS
-            | GS
-            | NAK
-            | NUL
-            | RS
-            | SI
-            | SOH
-            | STX
-            | SYN
-            | US
+         when ACK | ASCII.SO | BEL | BS | CAN | DC1 | DC2 | DC3 | DC4 | DEL
+           | DLE | EM | ENQ | EOT | ETB | ETX | FS | GS | NAK | NUL | RS | SI
+           | SOH | STX | SYN | US
+           | '?' | '`' | '\' | '^' | '~'
          =>
             Error_Illegal_Character;
 
-         --  Invalid graphic characters
-         --  Note that '@' is handled elsewhere, because following AI12-125
-         --  it denotes the target_name of an assignment.
+         --  Special preprocessor characters. If Set_Special_Character has been
+         --  called, return a Special token. Otherwise give an error.
 
-         when '#' | '$' | '?' | '`' | '\' | '^' | '~' =>
+         when Special_Preprocessor_Character =>
 
             --  If Set_Special_Character has been called for this character,
             --  set Scans.Special_Character and return a Special token.
@@ -2529,9 +2329,11 @@ package body Scng is
 
       --  End loop past format effectors. The exit from this loop is by
       --  executing a return statement following completion of token scan
-      --  (control never falls out of this loop to the code which follows)
+      --  (control never falls out of this loop to the code that follows).
 
       end loop;
+
+      pragma Assert (False);
 
       --  Wide_Character scanning routine. On entry we have encountered the
       --  initial character of a wide character sequence.
@@ -2680,6 +2482,8 @@ package body Scng is
                Accumulate_Checksum (Source (Scan_Ptr));
 
             elsif Source (Scan_Ptr) in 'A' .. 'Z' then
+               Token_Contains_Uppercase := True;
+
                Name_Buffer (Name_Len + 1) :=
                  Character'Val (Character'Pos (Source (Scan_Ptr)) + 32);
                Accumulate_Checksum (Name_Buffer (Name_Len + 1));
@@ -2823,10 +2627,17 @@ package body Scng is
                           ("wide character not allowed in identifier", Wptr);
                      end if;
 
+                     --  AI12-0004: An identifier shall only contain characters
+                     --  that may be present in Normalization Form KC.
+
+                     if not Is_UTF_32_NFKC (UTF_32 (Code)) then
+                        Error_Msg
+                          ("invalid wide character in identifier", Wptr);
+
                      --  If OK letter, store it folding to upper case. Note
                      --  that we include the folded letter in the checksum.
 
-                     if Is_UTF_32_Letter (Cat) then
+                     elsif Is_UTF_32_Letter (Cat) then
                         Code :=
                           Char_Code (UTF_32_To_Upper_Case (UTF_32 (Code)));
                         Accumulate_Checksum (Code);
@@ -2900,23 +2711,16 @@ package body Scng is
 
          Token := Tok_Identifier;
 
-         --  Here is where we check if it was a keyword
+         --  Check if it is a keyword
 
          if Is_Keyword_Name (Token_Name) then
-            if Opt.Checksum_GNAT_6_3 then
-               Token := Token_Type'Val (Get_Name_Table_Byte (Token_Name));
+            Accumulate_Token_Checksum;
+            Token := Token_Type'Val (Get_Name_Table_Byte (Token_Name));
 
-               if Checksum_Accumulate_Token_Checksum then
-                  if Checksum_GNAT_5_03 then
-                     Accumulate_Token_Checksum_GNAT_5_03;
-                  else
-                     Accumulate_Token_Checksum_GNAT_6_3;
-                  end if;
-               end if;
+            --  See Exp_Put_Image for documentation of Tagged_Seen
 
-            else
-               Accumulate_Token_Checksum;
-               Token := Token_Type'Val (Get_Name_Table_Byte (Token_Name));
+            if Token = Tok_Tagged then
+               Tagged_Seen := True;
             end if;
 
             --  Keyword style checks
@@ -2934,7 +2738,7 @@ package body Scng is
                --  Ada 2005 (AI-340): Do not apply the style check in case of
                --  MOD attribute.
 
-               if Source (Token_Ptr) <= 'Z'
+               if Token_Contains_Uppercase
                  and then (Prev_Token /= Tok_Apostrophe
                            or else
                              (Token /= Tok_Access and then
@@ -2974,23 +2778,10 @@ package body Scng is
          --  It is an identifier after all
 
          else
-            if Checksum_Accumulate_Token_Checksum then
-               Accumulate_Token_Checksum;
-            end if;
-
+            Accumulate_Token_Checksum;
             Post_Scan;
-            return;
          end if;
    end Scan;
-
-   --------------------------
-   -- Set_Comment_As_Token --
-   --------------------------
-
-   procedure Set_Comment_As_Token (Value : Boolean) is
-   begin
-      Comment_Is_Token := Value;
-   end Set_Comment_As_Token;
 
    ------------------------------
    -- Set_End_Of_Line_As_Token --
@@ -3005,15 +2796,9 @@ package body Scng is
    -- Set_Special_Character --
    ---------------------------
 
-   procedure Set_Special_Character (C : Character) is
+   procedure Set_Special_Character (C : Special_Preprocessor_Character) is
    begin
-      case C is
-         when '#' | '$' | '_' | '?' | '@' | '`' | '\' | '^' | '~' =>
-            Special_Characters (C) := True;
-
-         when others =>
-            null;
-      end case;
+      Special_Characters (C) := True;
    end Set_Special_Character;
 
    ----------------------
@@ -3034,52 +2819,13 @@ package body Scng is
 
       Tabs_Loop : loop
 
-         --  Inner loop scans past blanks as fast as possible, bumping Scan_Ptr
-         --  past the blanks and adjusting Start_Column to account for them.
+         --  Inner loop scans past blanks, bumping Scan_Ptr past the blanks and
+         --  adjusting Start_Column to account for them.
 
-         Blanks_Loop : loop
-            if Source (Scan_Ptr) = ' ' then
-               if Source (Scan_Ptr + 1) = ' ' then
-                  if Source (Scan_Ptr + 2) = ' ' then
-                     if Source (Scan_Ptr + 3) = ' ' then
-                        if Source (Scan_Ptr + 4) = ' ' then
-                           if Source (Scan_Ptr + 5) = ' ' then
-                              if Source (Scan_Ptr + 6) = ' ' then
-                                 Scan_Ptr := Scan_Ptr + 7;
-                                 Start_Column := Start_Column + 7;
-                              else
-                                 Scan_Ptr := Scan_Ptr + 6;
-                                 Start_Column := Start_Column + 6;
-                                 exit Blanks_Loop;
-                              end if;
-                           else
-                              Scan_Ptr := Scan_Ptr + 5;
-                              Start_Column := Start_Column + 5;
-                              exit Blanks_Loop;
-                           end if;
-                        else
-                           Scan_Ptr := Scan_Ptr + 4;
-                           Start_Column := Start_Column + 4;
-                           exit Blanks_Loop;
-                        end if;
-                     else
-                        Scan_Ptr := Scan_Ptr + 3;
-                        Start_Column := Start_Column + 3;
-                        exit Blanks_Loop;
-                     end if;
-                  else
-                     Scan_Ptr := Scan_Ptr + 2;
-                     Start_Column := Start_Column + 2;
-                     exit Blanks_Loop;
-                  end if;
-               else
-                  Scan_Ptr := Scan_Ptr + 1;
-                  Start_Column := Start_Column + 1;
-                  exit Blanks_Loop;
-               end if;
-            else
-               exit Blanks_Loop;
-            end if;
+         Blanks_Loop :
+         while Source (Scan_Ptr) = ' ' loop
+            Scan_Ptr := Scan_Ptr + 1;
+            Start_Column := Start_Column + 1;
          end loop Blanks_Loop;
 
          --  Outer loop keeps going only if a horizontal tab follows
@@ -3104,7 +2850,7 @@ package body Scng is
 
    exception
       when Constraint_Error =>
-         return Start_Column;
+         return Column_Number'Last;
    end Set_Start_Column;
 
 end Scng;

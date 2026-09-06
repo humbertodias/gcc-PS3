@@ -3,4 +3,4 @@
 
 #include <initializer_list>
 
-auto x[2] = {};			// { dg-error "" }
+auto x[2] = {};			// { dg-error "14:unable to deduce" }

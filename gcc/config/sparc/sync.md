@@ -1,5 +1,5 @@
 ;; GCC machine description for SPARC synchronization instructions.
-;; Copyright (C) 2005-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -202,7 +202,7 @@
 
 (define_insn "*atomic_compare_and_swap<mode>_1"
   [(set (match_operand:I48MODE 0 "register_operand" "=r")
-	(match_operand:I48MODE 1 "mem_noofs_operand" "+w"))
+	(match_operand:I48MODE 1 "mem_noofs_operand" "+W"))
    (set (match_dup 1)
 	(unspec_volatile:I48MODE
 	  [(match_operand:I48MODE 2 "register_operand" "r")
@@ -212,9 +212,9 @@
   "cas<modesuffix>\t%1, %2, %0"
   [(set_attr "type" "multi")])
 
-(define_insn "*atomic_compare_and_swap_leon3_1"
+(define_insn "atomic_compare_and_swap_leon3_1"
   [(set (match_operand:SI 0 "register_operand" "=r")
-	(match_operand:SI 1 "mem_noofs_operand" "+w"))
+	(match_operand:SI 1 "mem_noofs_operand" "+W"))
    (set (match_dup 1)
 	(unspec_volatile:SI
 	  [(match_operand:SI 2 "register_operand" "r")
@@ -222,16 +222,20 @@
 	  UNSPECV_CAS))]
   "TARGET_LEON3"
 {
+  if (sparc_fix_gr712rc)
+    output_asm_insn (".align\t16", operands);
   if (TARGET_SV_MODE)
     return "casa\t%1 0xb, %2, %0"; /* ASI for supervisor data space.  */
   else
     return "casa\t%1 0xa, %2, %0"; /* ASI for user data space.  */
 }
-  [(set_attr "type" "multi")])
+  [(set_attr "type" "multi")
+   (set (attr "length") (if_then_else (eq_attr "fix_gr712rc" "true")
+		      (const_int 4) (const_int 1)))])
 
 (define_insn "*atomic_compare_and_swapdi_v8plus"
   [(set (match_operand:DI 0 "register_operand" "=h")
-	(match_operand:DI 1 "mem_noofs_operand" "+w"))
+	(match_operand:DI 1 "mem_noofs_operand" "+W"))
    (set (match_dup 1)
 	(unspec_volatile:DI
 	  [(match_operand:DI 2 "register_operand" "h")
@@ -275,8 +279,15 @@
    (set (match_dup 1)
 	(match_operand:SI 2 "register_operand" "0"))]
   "(TARGET_V8 || TARGET_V9) && !sparc_fix_ut699"
-  "swap\t%1, %0"
-  [(set_attr "type" "multi")])
+{
+  if (sparc_fix_gr712rc)
+    return ".align\t16\n\tswap\t%1, %0";
+  else
+    return "swap\t%1, %0";
+}
+  [(set_attr "type" "multi")
+   (set (attr "length") (if_then_else (eq_attr "fix_gr712rc" "true")
+		      (const_int 4) (const_int 1)))])
 
 (define_expand "atomic_test_and_set"
   [(match_operand:QI 0 "register_operand" "")
@@ -307,5 +318,12 @@
 			    UNSPECV_LDSTUB))
    (set (match_dup 1) (const_int -1))]
   "!sparc_fix_ut699"
-  "ldstub\t%1, %0"
-  [(set_attr "type" "multi")])
+{
+  if (sparc_fix_gr712rc)
+    return ".align\t16\n\tldstub\t%1, %0";
+  else
+    return "ldstub\t%1, %0";
+}
+  [(set_attr "type" "multi")
+   (set (attr "length") (if_then_else (eq_attr "fix_gr712rc" "true")
+		      (const_int 4) (const_int 1)))])

@@ -1,6 +1,6 @@
 // Custom pointer adapter and sample storage policies
 
-// Copyright (C) 2008-2017 Free Software Foundation, Inc.
+// Copyright (C) 2008-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -38,13 +38,19 @@
 
 #pragma GCC system_header
 
-#include <iosfwd>
+#if _GLIBCXX_HOSTED
+#  include <iosfwd>
+#endif
+
 #include <bits/stl_iterator_base_types.h>
 #include <ext/cast.h>
 #include <ext/type_traits.h>
 #if __cplusplus >= 201103L
 # include <bits/move.h>
 # include <bits/ptr_traits.h>
+#endif
+#if __cplusplus > 201703L
+# include <iterator> // for indirectly_readable_traits
 #endif
 
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
@@ -117,7 +123,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         if (_M_diff == 1)
           return 0;
         else
-          return reinterpret_cast<_Tp*>(reinterpret_cast<_UIntPtrType>(this)
+          return reinterpret_cast<_Tp*>(reinterpret_cast<uintptr_t>(this)
 					+ _M_diff);
       }
   
@@ -127,30 +133,24 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         if (!__arg)
           _M_diff = 1;
         else
-          _M_diff = reinterpret_cast<_UIntPtrType>(__arg) 
-                    - reinterpret_cast<_UIntPtrType>(this);
+          _M_diff = reinterpret_cast<uintptr_t>(__arg) 
+                    - reinterpret_cast<uintptr_t>(this);
       }
   
       // Comparison of pointers
       inline bool
       operator<(const _Relative_pointer_impl& __rarg) const
-      { return (reinterpret_cast<_UIntPtrType>(this->get())
-		< reinterpret_cast<_UIntPtrType>(__rarg.get())); }
+      { return (reinterpret_cast<uintptr_t>(this->get())
+		< reinterpret_cast<uintptr_t>(__rarg.get())); }
 
       inline bool
       operator==(const _Relative_pointer_impl& __rarg) const
-      { return (reinterpret_cast<_UIntPtrType>(this->get())
-		== reinterpret_cast<_UIntPtrType>(__rarg.get())); }
+      { return (reinterpret_cast<uintptr_t>(this->get())
+		== reinterpret_cast<uintptr_t>(__rarg.get())); }
 
     private:
-#ifdef _GLIBCXX_USE_LONG_LONG
-      typedef __gnu_cxx::__conditional_type<
-	 (sizeof(unsigned long) >= sizeof(void*)),
-	 unsigned long, unsigned long long>::__type _UIntPtrType;
-#else
-      typedef unsigned long _UIntPtrType;
-#endif
-      _UIntPtrType _M_diff;
+      typedef __UINTPTR_TYPE__ uintptr_t;
+      uintptr_t _M_diff;
     };
   
   /**
@@ -170,7 +170,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
           return 0;
         else
           return reinterpret_cast<const _Tp*>
-	      (reinterpret_cast<_UIntPtrType>(this) + _M_diff);
+	      (reinterpret_cast<uintptr_t>(this) + _M_diff);
       }
   
       void 
@@ -179,30 +179,24 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         if (!__arg)
           _M_diff = 1;
         else
-          _M_diff = reinterpret_cast<_UIntPtrType>(__arg) 
-                    - reinterpret_cast<_UIntPtrType>(this);
+          _M_diff = reinterpret_cast<uintptr_t>(__arg) 
+                    - reinterpret_cast<uintptr_t>(this);
       }
   
       // Comparison of pointers
       inline bool
       operator<(const _Relative_pointer_impl& __rarg) const
-      { return (reinterpret_cast<_UIntPtrType>(this->get())
-		< reinterpret_cast<_UIntPtrType>(__rarg.get())); }
+      { return (reinterpret_cast<uintptr_t>(this->get())
+		< reinterpret_cast<uintptr_t>(__rarg.get())); }
 
       inline bool
       operator==(const _Relative_pointer_impl& __rarg) const
-      { return (reinterpret_cast<_UIntPtrType>(this->get())
-		== reinterpret_cast<_UIntPtrType>(__rarg.get())); }
+      { return (reinterpret_cast<uintptr_t>(this->get())
+		== reinterpret_cast<uintptr_t>(__rarg.get())); }
   
     private:
-#ifdef _GLIBCXX_USE_LONG_LONG
-      typedef __gnu_cxx::__conditional_type<
-	 (sizeof(unsigned long) >= sizeof(void*)),
-	 unsigned long, unsigned long long>::__type _UIntPtrType;
-#else
-      typedef unsigned long _UIntPtrType;
-#endif
-       _UIntPtrType _M_diff;
+      typedef __UINTPTR_TYPE__ uintptr_t;
+      uintptr_t _M_diff;
     };
 
   /**
@@ -356,6 +350,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return _Storage_policy::get()[__index]; }
 
       // To allow implicit conversion to "bool", for "if (ptr)..."
+#if __cplusplus >= 201103L
+      explicit operator bool() const { return _Storage_policy::get() != 0; }
+#else
     private:
       typedef element_type*(_Pointer_adapter::*__unspecified_bool_type)() const;
 
@@ -370,6 +367,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       inline bool
       operator!() const 
       { return (_Storage_policy::get() == 0); }
+#endif
   
       // Pointer differences
       inline friend std::ptrdiff_t 
@@ -437,6 +435,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _CXX_POINTER_ARITH_OPERATOR_SET(unsigned int);
       _CXX_POINTER_ARITH_OPERATOR_SET(long);
       _CXX_POINTER_ARITH_OPERATOR_SET(unsigned long);
+#ifdef _GLIBCXX_USE_LONG_LONG
+      _CXX_POINTER_ARITH_OPERATOR_SET(long long);
+      _CXX_POINTER_ARITH_OPERATOR_SET(unsigned long long);
+#endif
 
       // Mathematical Manipulators
       inline _Pointer_adapter& 
@@ -468,7 +470,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         _Storage_policy::set(_Storage_policy::get() - 1);
         return __tmp;
       }
-  
+
+#if __cpp_lib_three_way_comparison
+      friend std::strong_ordering
+      operator<=>(const _Pointer_adapter& __lhs, const _Pointer_adapter& __rhs)
+      noexcept
+      { return __lhs.get() <=> __rhs.get(); }
+#endif
     }; // class _Pointer_adapter
 
 
@@ -554,11 +562,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                const _Pointer_adapter<_Tp>& __rhs)
     { return !(__lhs._Tp::operator<(__rhs)); }
 
+#if _GLIBCXX_HOSTED
   template<typename _CharT, typename _Traits, typename _StoreT>
     inline std::basic_ostream<_CharT, _Traits>&
     operator<<(std::basic_ostream<_CharT, _Traits>& __os, 
                const _Pointer_adapter<_StoreT>& __p)
     { return (__os << __p.get()); }
+#endif // HOSTED
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
@@ -580,12 +590,20 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Up>
         using rebind = typename __gnu_cxx::_Pointer_adapter<
-	typename pointer_traits<_Storage_policy>::template rebind<_Up>>;
+	  typename pointer_traits<_Storage_policy>::template rebind<_Up>>;
 
       static pointer pointer_to(typename pointer::reference __r) noexcept
       { return pointer(std::addressof(__r)); }
     };
 
+#if __cpp_lib_concepts
+  template<typename _Policy>
+    struct indirectly_readable_traits<__gnu_cxx::_Pointer_adapter<_Policy>>
+    {
+      using value_type
+	= typename __gnu_cxx::_Pointer_adapter<_Policy>::value_type;
+    };
+#endif
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 #endif

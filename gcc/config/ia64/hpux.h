@@ -1,5 +1,5 @@
 /* Definitions of target machine GNU compiler.  IA-64 version.
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
    Contributed by Steve Ellcey <sje@cup.hp.com> and
                   Reva Cuthbertson <reva@cup.hp.com>
 
@@ -125,17 +125,13 @@ do {								\
   ASM_OUTPUT_TYPE_DIRECTIVE (FILE, XSTR (FUN, 0), "function");	\
 } while (0)
 
-#undef FUNCTION_ARG_PADDING
-#define FUNCTION_ARG_PADDING(MODE, TYPE) \
-	ia64_hpux_function_arg_padding ((MODE), (TYPE))
-
 #undef PAD_VARARGS_DOWN
 #define PAD_VARARGS_DOWN (!AGGREGATE_TYPE_P (type))
 
 #define REGISTER_TARGET_PRAGMAS() \
   c_register_pragma (0, "builtin", ia64_hpux_handle_builtin_pragma)
 
-/* Tell ia64.c that we are using the HP linker and we should delay output of
+/* Tell ia64.cc that we are using the HP linker and we should delay output of
    function extern declarations so that we don't output them for functions
    which are never used (and may not be defined).  */
 
@@ -188,9 +184,6 @@ do {								\
 #define TARGET_INIT_LIBFUNCS ia64_hpux_init_libfuncs
 
 #define FLOAT_LIB_COMPARE_RETURNS_BOOL(MODE, COMPARISON) ((MODE) == TFmode)
-
-/* HP-UX headers are C++-compatible.  */
-#define NO_IMPLICIT_EXTERN_C
 
 /* HP-UX uses PROFILE_HOOK instead of FUNCTION_PROFILER but we need a
    FUNCTION_PROFILER defined because its use is not ifdefed.  When using

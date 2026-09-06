@@ -1,11 +1,12 @@
 // { dg-do compile }
 // { dg-options "-D_GLIBCXX_NO_ASSERT" }
+// { dg-require-effective-target hosted }
 // NB: This is done to force any generated and possibly included PCH
 // to be invalid, and also to remove cassert from the include set.
 
 // 2005-05-24 bkoz
 
-// Copyright (C) 2005-2017 Free Software Foundation, Inc.
+// Copyright (C) 2005-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,5 +32,5 @@
 
 void foo()
 {
- assert(true);  // { dg-error "not declared" "" { target *-*-* } } 
+  assert(true);  // { dg-error "not declared" }
 }

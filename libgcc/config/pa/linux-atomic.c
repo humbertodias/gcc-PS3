@@ -1,5 +1,5 @@
 /* Linux-specific atomic operations for PA Linux.
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2023 Free Software Foundation, Inc.
    Based on code contributed by CodeSourcery for ARM EABI Linux.
    Modifications for PA Linux by Helge Deller <deller@gmx.de>
 
@@ -28,14 +28,20 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #define EBUSY   16
 #define ENOSYS 251 
 
-/* All PA-RISC implementations supported by linux have strongly
-   ordered loads and stores.  Only cache flushes and purges can be
-   delayed.  The data cache implementations are all globally
-   coherent.  Thus, there is no need to synchonize memory accesses.
+#define _ASM_EFAULT "-14"
 
-   GCC automatically issues a asm memory barrier when it encounters
-   a __sync_synchronize builtin.  Thus, we do not need to define this
-   builtin.
+typedef unsigned char u8;
+typedef short unsigned int u16;
+typedef unsigned int u32;
+#ifdef __LP64__
+typedef long unsigned int u64;
+#else
+typedef long long unsigned int u64;
+#endif
+
+/* PA-RISC 2.0 supports out-of-order execution for loads and stores.
+   Thus, we need to synchonize memory accesses.  For more info, see:
+   "Advanced Performance Features of the 64-bit PA-8000" by Doug Hunt.
 
    We implement byte, short and int versions of each atomic operation
    using the kernel helper defined below.  There is no support for
@@ -46,7 +52,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 
 /* Kernel helper for compare-and-exchange a 32-bit value.  */
 static inline long
-__kernel_cmpxchg (int *mem, int oldval, int newval)
+__kernel_cmpxchg (volatile void *mem, int oldval, int newval)
 {
   register unsigned long lws_mem asm("r26") = (unsigned long) (mem);
   register int lws_old asm("r25") = oldval;
@@ -55,24 +61,24 @@ __kernel_cmpxchg (int *mem, int oldval, int newval)
   register long lws_errno asm("r21");
   asm volatile (	"ble	0xb0(%%sr2, %%r0)	\n\t"
 			"ldi	%2, %%r20		\n\t"
+			"cmpiclr,<> " _ASM_EFAULT ", %%r21, %%r0\n\t"
+			"iitlbp %%r0,(%%sr0, %%r0)	\n\t"
 	: "=r" (lws_ret), "=r" (lws_errno)
 	: "i" (LWS_CAS), "r" (lws_mem), "r" (lws_old), "r" (lws_new)
 	: "r1", "r20", "r22", "r23", "r29", "r31", "memory"
   );
-  if (__builtin_expect (lws_errno == -EFAULT || lws_errno == -ENOSYS, 0))
-    __builtin_trap ();
 
   /* If the kernel LWS call succeeded (lws_errno == 0), lws_ret contains
      the old value from memory.  If this value is equal to OLDVAL, the
      new value was written to memory.  If not, return -EBUSY.  */
   if (!lws_errno && lws_ret != oldval)
-    lws_errno = -EBUSY;
+    return -EBUSY;
 
   return lws_errno;
 }
 
 static inline long
-__kernel_cmpxchg2 (void *mem, const void *oldval, const void *newval,
+__kernel_cmpxchg2 (volatile void *mem, const void *oldval, const void *newval,
 		   int val_size)
 {
   register unsigned long lws_mem asm("r26") = (unsigned long) (mem);
@@ -83,6 +89,8 @@ __kernel_cmpxchg2 (void *mem, const void *oldval, const void *newval,
   register long lws_errno asm("r21");
   asm volatile (	"ble	0xb0(%%sr2, %%r0)	\n\t"
 			"ldi	%6, %%r20		\n\t"
+			"cmpiclr,<> " _ASM_EFAULT ", %%r21, %%r0\n\t"
+			"iitlbp %%r0,(%%sr0, %%r0)	\n\t"
 	: "=r" (lws_ret), "=r" (lws_errno), "+r" (lws_mem),
 	  "+r" (lws_old), "+r" (lws_new), "+r" (lws_size)
 	: "i" (2)
@@ -92,9 +100,6 @@ __kernel_cmpxchg2 (void *mem, const void *oldval, const void *newval,
   /* If the kernel LWS call is successful, lws_ret contains 0.  */
   if (__builtin_expect (lws_ret == 0, 1))
     return 0;
-
-  if (__builtin_expect (lws_errno == -EFAULT || lws_errno == -ENOSYS, 0))
-    __builtin_trap ();
 
   /* If the kernel LWS call fails with no error, return -EBUSY */
   if (__builtin_expect (!lws_errno, 0))
@@ -111,15 +116,45 @@ __kernel_cmpxchg2 (void *mem, const void *oldval, const void *newval,
 #define MASK_1 0xffu
 #define MASK_2 0xffffu
 
+/* Load value with an atomic processor load if possible.  */
+#define ATOMIC_LOAD(TYPE, WIDTH)					\
+  static inline TYPE							\
+  atomic_load_##WIDTH (volatile void *ptr)				\
+  {									\
+    return *(volatile TYPE *)ptr;					\
+  }
+
+#if defined(__LP64__) || defined(__SOFTFP__)
+ATOMIC_LOAD (u64, 8)
+#else
+static inline u64
+atomic_load_8 (volatile void *ptr)
+{
+  u64 result;
+  double tmp;
+
+  asm volatile ("{fldds|fldd} 0(%2),%1\n\t"
+		"{fstds|fstd} %1,-16(%%sp)\n\t"
+		"{ldws|ldw} -16(%%sp),%0\n\t"
+		"{ldws|ldw} -12(%%sp),%R0"
+		: "=r" (result), "=f" (tmp) : "r" (ptr): "memory");
+  return result;
+}
+#endif
+
+ATOMIC_LOAD (u32, 4)
+ATOMIC_LOAD (u16, 2)
+ATOMIC_LOAD (u8, 1)
+
 #define FETCH_AND_OP_2(OP, PFX_OP, INF_OP, TYPE, WIDTH, INDEX)		\
   TYPE HIDDEN								\
-  __sync_fetch_and_##OP##_##WIDTH (TYPE *ptr, TYPE val)			\
+  __sync_fetch_and_##OP##_##WIDTH (volatile void *ptr, TYPE val)	\
   {									\
     TYPE tmp, newval;							\
     long failure;							\
 									\
     do {								\
-      tmp = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);			\
+      tmp = atomic_load_##WIDTH ((volatile TYPE *)ptr);			\
       newval = PFX_OP (tmp INF_OP val);					\
       failure = __kernel_cmpxchg2 (ptr, &tmp, &newval, INDEX);		\
     } while (failure != 0);						\
@@ -127,36 +162,36 @@ __kernel_cmpxchg2 (void *mem, const void *oldval, const void *newval,
     return tmp;								\
   }
 
-FETCH_AND_OP_2 (add,   , +, long long, 8, 3)
-FETCH_AND_OP_2 (sub,   , -, long long, 8, 3)
-FETCH_AND_OP_2 (or,    , |, long long, 8, 3)
-FETCH_AND_OP_2 (and,   , &, long long, 8, 3)
-FETCH_AND_OP_2 (xor,   , ^, long long, 8, 3)
-FETCH_AND_OP_2 (nand, ~, &, long long, 8, 3)
+FETCH_AND_OP_2 (add,   , +, u64, 8, 3)
+FETCH_AND_OP_2 (sub,   , -, u64, 8, 3)
+FETCH_AND_OP_2 (or,    , |, u64, 8, 3)
+FETCH_AND_OP_2 (and,   , &, u64, 8, 3)
+FETCH_AND_OP_2 (xor,   , ^, u64, 8, 3)
+FETCH_AND_OP_2 (nand, ~, &, u64, 8, 3)
 
-FETCH_AND_OP_2 (add,   , +, short, 2, 1)
-FETCH_AND_OP_2 (sub,   , -, short, 2, 1)
-FETCH_AND_OP_2 (or,    , |, short, 2, 1)
-FETCH_AND_OP_2 (and,   , &, short, 2, 1)
-FETCH_AND_OP_2 (xor,   , ^, short, 2, 1)
-FETCH_AND_OP_2 (nand, ~, &, short, 2, 1)
+FETCH_AND_OP_2 (add,   , +, u16, 2, 1)
+FETCH_AND_OP_2 (sub,   , -, u16, 2, 1)
+FETCH_AND_OP_2 (or,    , |, u16, 2, 1)
+FETCH_AND_OP_2 (and,   , &, u16, 2, 1)
+FETCH_AND_OP_2 (xor,   , ^, u16, 2, 1)
+FETCH_AND_OP_2 (nand, ~, &, u16, 2, 1)
 
-FETCH_AND_OP_2 (add,   , +, signed char, 1, 0)
-FETCH_AND_OP_2 (sub,   , -, signed char, 1, 0)
-FETCH_AND_OP_2 (or,    , |, signed char, 1, 0)
-FETCH_AND_OP_2 (and,   , &, signed char, 1, 0)
-FETCH_AND_OP_2 (xor,   , ^, signed char, 1, 0)
-FETCH_AND_OP_2 (nand, ~, &, signed char, 1, 0)
+FETCH_AND_OP_2 (add,   , +, u8, 1, 0)
+FETCH_AND_OP_2 (sub,   , -, u8, 1, 0)
+FETCH_AND_OP_2 (or,    , |, u8, 1, 0)
+FETCH_AND_OP_2 (and,   , &, u8, 1, 0)
+FETCH_AND_OP_2 (xor,   , ^, u8, 1, 0)
+FETCH_AND_OP_2 (nand, ~, &, u8, 1, 0)
 
 #define OP_AND_FETCH_2(OP, PFX_OP, INF_OP, TYPE, WIDTH, INDEX)		\
   TYPE HIDDEN								\
-  __sync_##OP##_and_fetch_##WIDTH (TYPE *ptr, TYPE val)			\
+  __sync_##OP##_and_fetch_##WIDTH (volatile void *ptr, TYPE val)	\
   {									\
     TYPE tmp, newval;							\
     long failure;							\
 									\
     do {								\
-      tmp = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);			\
+      tmp = atomic_load_##WIDTH ((volatile TYPE *)ptr);			\
       newval = PFX_OP (tmp INF_OP val);					\
       failure = __kernel_cmpxchg2 (ptr, &tmp, &newval, INDEX);		\
     } while (failure != 0);						\
@@ -164,36 +199,36 @@ FETCH_AND_OP_2 (nand, ~, &, signed char, 1, 0)
     return PFX_OP (tmp INF_OP val);					\
   }
 
-OP_AND_FETCH_2 (add,   , +, long long, 8, 3)
-OP_AND_FETCH_2 (sub,   , -, long long, 8, 3)
-OP_AND_FETCH_2 (or,    , |, long long, 8, 3)
-OP_AND_FETCH_2 (and,   , &, long long, 8, 3)
-OP_AND_FETCH_2 (xor,   , ^, long long, 8, 3)
-OP_AND_FETCH_2 (nand, ~, &, long long, 8, 3)
+OP_AND_FETCH_2 (add,   , +, u64, 8, 3)
+OP_AND_FETCH_2 (sub,   , -, u64, 8, 3)
+OP_AND_FETCH_2 (or,    , |, u64, 8, 3)
+OP_AND_FETCH_2 (and,   , &, u64, 8, 3)
+OP_AND_FETCH_2 (xor,   , ^, u64, 8, 3)
+OP_AND_FETCH_2 (nand, ~, &, u64, 8, 3)
 
-OP_AND_FETCH_2 (add,   , +, short, 2, 1)
-OP_AND_FETCH_2 (sub,   , -, short, 2, 1)
-OP_AND_FETCH_2 (or,    , |, short, 2, 1)
-OP_AND_FETCH_2 (and,   , &, short, 2, 1)
-OP_AND_FETCH_2 (xor,   , ^, short, 2, 1)
-OP_AND_FETCH_2 (nand, ~, &, short, 2, 1)
+OP_AND_FETCH_2 (add,   , +, u16, 2, 1)
+OP_AND_FETCH_2 (sub,   , -, u16, 2, 1)
+OP_AND_FETCH_2 (or,    , |, u16, 2, 1)
+OP_AND_FETCH_2 (and,   , &, u16, 2, 1)
+OP_AND_FETCH_2 (xor,   , ^, u16, 2, 1)
+OP_AND_FETCH_2 (nand, ~, &, u16, 2, 1)
 
-OP_AND_FETCH_2 (add,   , +, signed char, 1, 0)
-OP_AND_FETCH_2 (sub,   , -, signed char, 1, 0)
-OP_AND_FETCH_2 (or,    , |, signed char, 1, 0)
-OP_AND_FETCH_2 (and,   , &, signed char, 1, 0)
-OP_AND_FETCH_2 (xor,   , ^, signed char, 1, 0)
-OP_AND_FETCH_2 (nand, ~, &, signed char, 1, 0)
+OP_AND_FETCH_2 (add,   , +, u8, 1, 0)
+OP_AND_FETCH_2 (sub,   , -, u8, 1, 0)
+OP_AND_FETCH_2 (or,    , |, u8, 1, 0)
+OP_AND_FETCH_2 (and,   , &, u8, 1, 0)
+OP_AND_FETCH_2 (xor,   , ^, u8, 1, 0)
+OP_AND_FETCH_2 (nand, ~, &, u8, 1, 0)
 
 #define FETCH_AND_OP_WORD(OP, PFX_OP, INF_OP)				\
-  int HIDDEN								\
-  __sync_fetch_and_##OP##_4 (int *ptr, int val)				\
+  unsigned int HIDDEN							\
+  __sync_fetch_and_##OP##_4 (volatile void *ptr, unsigned int val)	\
   {									\
-    int tmp;								\
+    unsigned int tmp;							\
     long failure;							\
 									\
     do {								\
-      tmp = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);			\
+      tmp = atomic_load_4 ((volatile unsigned int *)ptr);		\
       failure = __kernel_cmpxchg (ptr, tmp, PFX_OP (tmp INF_OP val));	\
     } while (failure != 0);						\
 									\
@@ -208,14 +243,14 @@ FETCH_AND_OP_WORD (xor,   , ^)
 FETCH_AND_OP_WORD (nand, ~, &)
 
 #define OP_AND_FETCH_WORD(OP, PFX_OP, INF_OP)				\
-  int HIDDEN								\
-  __sync_##OP##_and_fetch_4 (int *ptr, int val)				\
+  unsigned int HIDDEN							\
+  __sync_##OP##_and_fetch_4 (volatile void *ptr, unsigned int val)	\
   {									\
-    int tmp;								\
+    unsigned int tmp;							\
     long failure;							\
 									\
     do {								\
-      tmp = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);			\
+      tmp = atomic_load_4 ((volatile unsigned int *)ptr);		\
       failure = __kernel_cmpxchg (ptr, tmp, PFX_OP (tmp INF_OP val));	\
     } while (failure != 0);						\
 									\
@@ -233,7 +268,7 @@ typedef unsigned char bool;
 
 #define COMPARE_AND_SWAP_2(TYPE, WIDTH, INDEX)				\
   TYPE HIDDEN								\
-  __sync_val_compare_and_swap_##WIDTH (TYPE *ptr, TYPE oldval,		\
+  __sync_val_compare_and_swap_##WIDTH (volatile void *ptr, TYPE oldval,	\
 				       TYPE newval)			\
   {									\
     TYPE actual_oldval;							\
@@ -241,7 +276,7 @@ typedef unsigned char bool;
 									\
     while (1)								\
       {									\
-	actual_oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);	\
+	actual_oldval = atomic_load_##WIDTH ((volatile TYPE *)ptr);	\
 									\
 	if (__builtin_expect (oldval != actual_oldval, 0))		\
 	  return actual_oldval;						\
@@ -253,27 +288,28 @@ typedef unsigned char bool;
       }									\
   }									\
 									\
-  bool HIDDEN								\
-  __sync_bool_compare_and_swap_##WIDTH (TYPE *ptr, TYPE oldval,		\
-					TYPE newval)			\
+  _Bool HIDDEN								\
+  __sync_bool_compare_and_swap_##WIDTH (volatile void *ptr,		\
+					TYPE oldval, TYPE newval)	\
   {									\
     long failure = __kernel_cmpxchg2 (ptr, &oldval, &newval, INDEX);	\
     return (failure == 0);						\
   }
 
-COMPARE_AND_SWAP_2 (long long, 8, 3)
-COMPARE_AND_SWAP_2 (short, 2, 1)
-COMPARE_AND_SWAP_2 (char, 1, 0)
+COMPARE_AND_SWAP_2 (u64, 8, 3)
+COMPARE_AND_SWAP_2 (u16, 2, 1)
+COMPARE_AND_SWAP_2 (u8, 1, 0)
 
-int HIDDEN
-__sync_val_compare_and_swap_4 (int *ptr, int oldval, int newval)
+unsigned int HIDDEN
+__sync_val_compare_and_swap_4 (volatile void *ptr, unsigned int oldval,
+			       unsigned int newval)
 {
   long fail;
-  int actual_oldval;
+  unsigned int actual_oldval;
     
   while (1)
     {
-      actual_oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);
+      actual_oldval = atomic_load_4 ((volatile unsigned int *)ptr);
 
       if (__builtin_expect (oldval != actual_oldval, 0))
 	return actual_oldval;
@@ -285,8 +321,9 @@ __sync_val_compare_and_swap_4 (int *ptr, int oldval, int newval)
     }
 }
 
-bool HIDDEN
-__sync_bool_compare_and_swap_4 (int *ptr, int oldval, int newval)
+_Bool HIDDEN
+__sync_bool_compare_and_swap_4 (volatile void *ptr, unsigned int oldval,
+				unsigned int newval)
 {
   long failure = __kernel_cmpxchg (ptr, oldval, newval);
   return (failure == 0);
@@ -294,62 +331,82 @@ __sync_bool_compare_and_swap_4 (int *ptr, int oldval, int newval)
 
 #define SYNC_LOCK_TEST_AND_SET_2(TYPE, WIDTH, INDEX)			\
 TYPE HIDDEN								\
-  __sync_lock_test_and_set_##WIDTH (TYPE *ptr, TYPE val)		\
+  __sync_lock_test_and_set_##WIDTH (volatile void *ptr, TYPE val)	\
   {									\
     TYPE oldval;							\
     long failure;							\
 									\
     do {								\
-      oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);			\
+      oldval = atomic_load_##WIDTH ((volatile TYPE *)ptr);		\
       failure = __kernel_cmpxchg2 (ptr, &oldval, &val, INDEX);		\
     } while (failure != 0);						\
 									\
     return oldval;							\
   }
 
-SYNC_LOCK_TEST_AND_SET_2 (long long, 8, 3)
-SYNC_LOCK_TEST_AND_SET_2 (short, 2, 1)
-SYNC_LOCK_TEST_AND_SET_2 (signed char, 1, 0)
+SYNC_LOCK_TEST_AND_SET_2 (u64, 8, 3)
+SYNC_LOCK_TEST_AND_SET_2 (u16, 2, 1)
+SYNC_LOCK_TEST_AND_SET_2 (u8, 1, 0)
 
-int HIDDEN
-__sync_lock_test_and_set_4 (int *ptr, int val)
+u32 HIDDEN
+__sync_lock_test_and_set_4 (volatile void *ptr, unsigned int val)
 {
   long failure;
-  int oldval;
+  unsigned int oldval;
 
   do {
-    oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);
+    oldval = atomic_load_4 ((volatile unsigned int *)ptr);
     failure = __kernel_cmpxchg (ptr, oldval, val);
   } while (failure != 0);
 
   return oldval;
 }
 
-#define SYNC_LOCK_RELEASE_2(TYPE, WIDTH, INDEX)			\
+#define SYNC_LOCK_RELEASE_1(TYPE, WIDTH, INDEX)			\
   void HIDDEN							\
-  __sync_lock_release_##WIDTH (TYPE *ptr)			\
+  __sync_lock_release_##WIDTH (volatile void *ptr)		\
   {								\
-    TYPE oldval, zero = 0;					\
+    TYPE oldval, val = 0;					\
     long failure;						\
 								\
     do {							\
-      oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);		\
-      failure = __kernel_cmpxchg2 (ptr, &oldval, &zero, INDEX);	\
+      oldval = atomic_load_##WIDTH ((volatile TYPE *)ptr);	\
+      failure = __kernel_cmpxchg2 (ptr, &oldval, &val, INDEX);	\
     } while (failure != 0);					\
   }
 
-SYNC_LOCK_RELEASE_2 (long long, 8, 3)
-SYNC_LOCK_RELEASE_2 (short, 2, 1)
-SYNC_LOCK_RELEASE_2 (signed char, 1, 0)
+SYNC_LOCK_RELEASE_1 (u64, 8, 3)
+SYNC_LOCK_RELEASE_1 (u16, 2, 1)
+SYNC_LOCK_RELEASE_1 (u8, 1, 0)
 
 void HIDDEN
-__sync_lock_release_4 (int *ptr)
+__sync_lock_release_4 (volatile void *ptr)
 {
   long failure;
-  int oldval;
+  unsigned int oldval;
 
   do {
-    oldval = __atomic_load_n (ptr, __ATOMIC_SEQ_CST);
+    oldval = atomic_load_4 ((volatile unsigned int *)ptr);
     failure = __kernel_cmpxchg (ptr, oldval, 0);
   } while (failure != 0);
 }
+
+#ifndef __LP64__
+#define SYNC_LOCK_LOAD_2(TYPE, WIDTH, INDEX)				\
+  TYPE __sync_lock_load_##WIDTH (volatile void *) HIDDEN;		\
+  TYPE									\
+  __sync_lock_load_##WIDTH (volatile void *ptr)				\
+  {									\
+    TYPE oldval;							\
+    long failure;							\
+									\
+    do {								\
+      oldval = atomic_load_##WIDTH ((volatile TYPE *)ptr);		\
+      failure = __kernel_cmpxchg2 (ptr, &oldval, &oldval, INDEX);	\
+    } while (failure != 0);						\
+									\
+    return oldval;							\
+  }
+
+SYNC_LOCK_LOAD_2 (u64, 8, 3)
+#endif

@@ -7,7 +7,6 @@
 #ifndef GO_PARSE_H
 #define GO_PARSE_H
 
-class Set_iota_traverse;
 class Lex;
 class Gogo;
 class Named_object;
@@ -127,7 +126,7 @@ class Parse
   struct Enclosing_var_comparison
   {
     bool
-    operator()(const Enclosing_var&, const Enclosing_var&);
+    operator()(const Enclosing_var&, const Enclosing_var&) const;
   };
 
   // A set of Enclosing_var entries.
@@ -182,16 +181,17 @@ class Parse
   void method_spec(Typed_identifier_list*);
   void declaration();
   bool declaration_may_start_here();
-  void decl(void (Parse::*)(void*), void*);
-  void list(void (Parse::*)(void*), void*, bool);
+  void decl(void (Parse::*)());
+  void list(void (Parse::*)(), bool);
   void const_decl();
-  void const_spec(Type**, Expression_list**);
+  void const_spec(int, Type**, Expression_list**);
+  void update_references(Expression**);
   void type_decl();
-  void type_spec(void*);
+  void type_spec();
   void var_decl();
-  void var_spec(void*);
+  void var_spec();
   void init_vars(const Typed_identifier_list*, Type*, Expression_list*,
-		 bool is_coloneq, Location);
+		 bool is_coloneq, std::vector<std::string>*, Location);
   bool init_vars_from_call(const Typed_identifier_list*, Type*, Expression*,
 			   bool is_coloneq, Location);
   bool init_vars_from_map(const Typed_identifier_list*, Type*, Expression*,
@@ -210,7 +210,7 @@ class Parse
   void simple_var_decl_or_assignment(const std::string&, Location,
 				     bool may_be_composite_lit,
 				     Range_clause*, Type_switch*);
-  void function_decl(unsigned int pragmas);
+  void function_decl();
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,
@@ -232,7 +232,7 @@ class Parse
 			 bool* is_type_switch, bool* is_parenthesized);
   Type* reassociate_chan_direction(Channel_type*, Location);
   Expression* qualified_expr(Expression*, Location);
-  Expression* id_to_expression(const std::string&, Location, bool);
+  Expression* id_to_expression(const std::string&, Location, bool, bool);
   void statement(Label*);
   bool statement_may_start_here();
   void labeled_stmt(const std::string&, Location);
@@ -278,11 +278,10 @@ class Parse
   void goto_stat();
   void package_clause();
   void import_decl();
-  void import_spec(void*);
+  void import_spec();
 
-  void reset_iota();
-  int iota_value();
-  void increment_iota();
+  // Check for unused compiler directives.
+  void check_directives();
 
   // Skip past an error looking for a semicolon or OP.  Return true if
   // all is well, false if we found EOF.
@@ -319,8 +318,6 @@ class Parse
   Bc_stack* break_stack_;
   // A stack of statements for which continue may be used.
   Bc_stack* continue_stack_;
-  // The current iota value.
-  int iota_;
   // References from the local function to variables defined in
   // enclosing functions.
   Enclosing_vars enclosing_vars_;

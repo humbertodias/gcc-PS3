@@ -1,6 +1,6 @@
 // TR1 functional_hash.h header -*- C++ -*-
 
-// Copyright (C) 2007-2017 Free Software Foundation, Inc.
+// Copyright (C) 2007-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -34,9 +34,13 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace tr1
 {
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+// Ignore warnings about std::unary_function and std::binary_function.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 
   /// Class template hash.
   // Declaration of default hash functor std::tr1::hash.  The types for
@@ -56,6 +60,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       operator()(_Tp* __p) const
       { return reinterpret_cast<size_t>(__p); }
     };
+#pragma GCC diagnostic pop
 
   /// Explicit specializations for integer types.
 #define _TR1_hashtable_define_trivial_hash(_Tp) 	\
@@ -192,9 +197,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     _GLIBCXX_PURE size_t
     hash<const wstring&>::operator()(const wstring&) const;
 #endif
+}
 
 _GLIBCXX_END_NAMESPACE_VERSION
-}
 }
 
 #endif // _GLIBCXX_TR1_FUNCTIONAL_HASH_H

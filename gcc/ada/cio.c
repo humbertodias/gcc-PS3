@@ -6,7 +6,7 @@
  *                                                                          *
  *                          C Implementation File                           *
  *                                                                          *
- *          Copyright (C) 1992-2015, Free Software Foundation, Inc.         *
+ *          Copyright (C) 1992-2023, Free Software Foundation, Inc.         *
  *                                                                          *
  * GNAT is free software;  you can  redistribute it  and/or modify it under *
  * terms of the  GNU General Public License as published  by the Free Soft- *
@@ -30,8 +30,7 @@
  ****************************************************************************/
 
 #ifdef IN_RTS
-#include "tconfig.h"
-#include "tsystem.h"
+#include "runtime.h"
 #include <sys/stat.h>
 #else
 #include "config.h"
@@ -68,6 +67,7 @@ extern "C" {
 #endif
 
 #ifdef RTX
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <Rtapi.h>
 #endif

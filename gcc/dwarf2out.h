@@ -1,5 +1,5 @@
-/* dwarf2out.h - Various declarations for functions found in dwarf2out.c
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+/* dwarf2out.h - Various declarations for functions found in dwarf2out.cc
+   Copyright (C) 1998-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -43,7 +43,8 @@ enum dw_cfi_oprnd_type {
   dw_cfi_oprnd_reg_num,
   dw_cfi_oprnd_offset,
   dw_cfi_oprnd_addr,
-  dw_cfi_oprnd_loc
+  dw_cfi_oprnd_loc,
+  dw_cfi_oprnd_cfa_loc
 };
 
 typedef union GTY(()) {
@@ -51,6 +52,8 @@ typedef union GTY(()) {
   HOST_WIDE_INT GTY ((tag ("dw_cfi_oprnd_offset"))) dw_cfi_offset;
   const char * GTY ((tag ("dw_cfi_oprnd_addr"))) dw_cfi_addr;
   struct dw_loc_descr_node * GTY ((tag ("dw_cfi_oprnd_loc"))) dw_cfi_loc;
+  struct dw_cfa_location * GTY ((tag ("dw_cfi_oprnd_cfa_loc")))
+    dw_cfi_cfa_loc;
 } dw_cfi_oprnd;
 
 struct GTY(()) dw_cfi_node {
@@ -105,8 +108,49 @@ struct GTY(()) dw_fde_node {
   /* True iff dw_fde_second_begin label is in text_section or
      cold_text_section.  */
   unsigned second_in_std_section : 1;
+  /* True if Rule 18 described in dwarf2cfi.cc is in action, i.e. for dynamic
+     stack realignment in between pushing of hard frame pointer to stack
+     and setting hard frame pointer to stack pointer.  The register save for
+     hard frame pointer register should be emitted only on the latter
+     instruction.  */
+  unsigned rule18 : 1;
+  /* True if this function is to be ignored by debugger.  */
+  unsigned ignored_debug : 1;
 };
 
+
+/* This represents a register, in DWARF_FRAME_REGNUM space, for use in CFA
+   definitions and expressions.
+   Most architectures only need a single register number, but some (amdgcn)
+   have pointers that span multiple registers.  DWARF permits arbitrary
+   register sets but existing use-cases only require contiguous register
+   sets, as represented here.  */
+struct GTY(()) cfa_reg {
+  unsigned int reg;
+  unsigned short span;
+  unsigned short span_width;  /* A.K.A. register mode size.  */
+
+  cfa_reg& set_by_dwreg (unsigned int r)
+    {
+      reg = r;
+      span = 1;
+      span_width = 0;  /* Unknown size (permitted when span == 1).  */
+      return *this;
+    }
+
+  bool operator== (const cfa_reg &other) const
+    {
+      return (reg == other.reg && span == other.span
+	      && (span_width == other.span_width
+		  || (span == 1
+		      && (span_width == 0 || other.span_width == 0))));
+    }
+
+  bool operator!= (const cfa_reg &other) const
+    {
+      return !(*this == other);
+    }
+};
 
 /* This is how we define the location of the CFA. We use to handle it
    as REG + OFFSET all the time,  but now it can be more complex.
@@ -114,10 +158,10 @@ struct GTY(()) dw_fde_node {
    Instead of passing around REG and OFFSET, we pass a copy
    of this structure.  */
 struct GTY(()) dw_cfa_location {
-  HOST_WIDE_INT offset;
-  HOST_WIDE_INT base_offset;
+  poly_int64_pod offset;
+  poly_int64_pod base_offset;
   /* REG is in DWARF_FRAME_REGNUM space, *not* normal REGNO space.  */
-  unsigned int reg;
+  struct cfa_reg reg;
   BOOL_BITFIELD indirect : 1;  /* 1 if CFA is accessed via a dereference.  */
   BOOL_BITFIELD in_use : 1;    /* 1 if a saved cfa is stored here.  */
 };
@@ -157,7 +201,9 @@ enum dw_val_class
   dw_val_class_discr_list,
   dw_val_class_const_implicit,
   dw_val_class_unsigned_const_implicit,
-  dw_val_class_file_implicit
+  dw_val_class_file_implicit,
+  dw_val_class_view_list,
+  dw_val_class_symview
 };
 
 /* Describe a floating point constant value, or a vector constant value.  */
@@ -200,6 +246,7 @@ struct GTY(()) dw_val_node {
       rtx GTY ((tag ("dw_val_class_addr"))) val_addr;
       unsigned HOST_WIDE_INT GTY ((tag ("dw_val_class_offset"))) val_offset;
       dw_loc_list_ref GTY ((tag ("dw_val_class_loc_list"))) val_loc_list;
+      dw_die_ref GTY ((tag ("dw_val_class_view_list"))) val_view_list;
       dw_loc_descr_ref GTY ((tag ("dw_val_class_loc"))) val_loc;
       HOST_WIDE_INT GTY ((default)) val_int;
       unsigned HOST_WIDE_INT
@@ -228,6 +275,7 @@ struct GTY(()) dw_val_node {
 	} GTY ((tag ("dw_val_class_vms_delta"))) val_vms_delta;
       dw_discr_value GTY ((tag ("dw_val_class_discr_value"))) val_discr_value;
       dw_discr_list_ref GTY ((tag ("dw_val_class_discr_list"))) val_discr_list;
+      char * GTY ((tag ("dw_val_class_symview"))) val_symbolic_view;
     }
   GTY ((desc ("%1.val_class"))) v;
 };
@@ -265,11 +313,12 @@ struct GTY(()) dw_discr_list_node {
   int dw_discr_range;
 };
 
-/* Interface from dwarf2out.c to dwarf2cfi.c.  */
+/* Interface from dwarf2out.cc to dwarf2cfi.cc.  */
 extern struct dw_loc_descr_node *build_cfa_loc
-  (dw_cfa_location *, HOST_WIDE_INT);
+  (dw_cfa_location *, poly_int64);
 extern struct dw_loc_descr_node *build_cfa_aligned_loc
-  (dw_cfa_location *, HOST_WIDE_INT offset, HOST_WIDE_INT alignment);
+  (dw_cfa_location *, poly_int64, HOST_WIDE_INT);
+extern struct dw_loc_descr_node *build_span_loc (struct cfa_reg);
 extern struct dw_loc_descr_node *mem_loc_descriptor
   (rtx, machine_mode mode, machine_mode mem_mode,
    enum var_init_status);
@@ -280,7 +329,7 @@ extern unsigned long size_of_locs (dw_loc_descr_ref);
 extern void output_loc_sequence (dw_loc_descr_ref, int);
 extern void output_loc_sequence_raw (dw_loc_descr_ref);
 
-/* Interface from dwarf2cfi.c to dwarf2out.c.  */
+/* Interface from dwarf2cfi.cc to dwarf2out.cc.  */
 extern void lookup_cfa_1 (dw_cfi_ref cfi, dw_cfa_location *loc,
 			  dw_cfa_location *remember);
 extern bool cfa_equal_p (const dw_cfa_location *, const dw_cfa_location *);
@@ -355,26 +404,67 @@ enum fixed_point_scale_factor
 
 struct fixed_point_type_info
 {
-  /* A scale factor is the value one has to multiply with physical data in
-     order to get the fixed point logical data.  The DWARF standard enables one
-     to encode it in three ways.  */
+  /* The scale factor is the value one has to multiply the actual data with
+     to get the fixed point value.  We support three ways to encode it.  */
   enum fixed_point_scale_factor scale_factor_kind;
   union
     {
-      /* For binary scale factor, the scale factor is: 2 ** binary.  */
+      /* For a binary scale factor, the scale factor is 2 ** binary.  */
       int binary;
-      /* For decimal scale factor, the scale factor is: 10 ** binary.  */
+      /* For a decimal scale factor, the scale factor is 10 ** decimal.  */
       int decimal;
-      /* For arbitrary scale factor, the scale factor is:
+      /* For an arbitrary scale factor, the scale factor is the ratio
 	 numerator / denominator.  */
-      struct
-	{
-	  unsigned HOST_WIDE_INT numerator;
-	  HOST_WIDE_INT denominator;
-	} arbitrary;
+      struct { tree numerator; tree denominator; } arbitrary;
     } scale_factor;
 };
 
-void dwarf2out_c_finalize (void);
+void dwarf2out_cc_finalize (void);
+
+/* Some DWARF internals are exposed for the needs of DWARF-based debug
+   formats.  */
+
+/* Each DIE attribute has a field specifying the attribute kind,
+   a link to the next attribute in the chain, and an attribute value.
+   Attributes are typically linked below the DIE they modify.  */
+
+typedef struct GTY(()) dw_attr_struct {
+  enum dwarf_attribute dw_attr;
+  dw_val_node dw_attr_val;
+}
+dw_attr_node;
+
+extern dw_attr_node *get_AT (dw_die_ref, enum dwarf_attribute);
+extern HOST_WIDE_INT AT_int (dw_attr_node *);
+extern unsigned HOST_WIDE_INT AT_unsigned (dw_attr_node *a);
+extern dw_loc_descr_ref AT_loc (dw_attr_node *);
+extern dw_die_ref get_AT_ref (dw_die_ref, enum dwarf_attribute);
+extern const char *get_AT_string (dw_die_ref, enum dwarf_attribute);
+extern enum dw_val_class AT_class (dw_attr_node *);
+extern unsigned HOST_WIDE_INT AT_unsigned (dw_attr_node *);
+extern unsigned get_AT_unsigned (dw_die_ref, enum dwarf_attribute);
+extern int get_AT_flag (dw_die_ref, enum dwarf_attribute);
+
+extern void add_name_attribute (dw_die_ref, const char *);
+
+extern dw_die_ref new_die_raw (enum dwarf_tag);
+extern dw_die_ref base_type_die (tree, bool);
+
+extern dw_die_ref lookup_decl_die (tree);
+extern dw_die_ref lookup_type_die (tree);
+
+extern dw_die_ref dw_get_die_child (dw_die_ref);
+extern dw_die_ref dw_get_die_sib (dw_die_ref);
+extern enum dwarf_tag dw_get_die_tag (dw_die_ref);
+
+/* Data about a single source file.  */
+struct GTY((for_user)) dwarf_file_data {
+  const char * key;
+  const char * filename;
+  int emitted_number;
+};
+
+extern struct dwarf_file_data *get_AT_file (dw_die_ref,
+					    enum dwarf_attribute);
 
 #endif /* GCC_DWARF2OUT_H */

@@ -1,5 +1,5 @@
 /* Implementation of the CHMOD intrinsic.
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
    Contributed by François-Xavier Coudert <coudert@clipper.ens.fr>
 
 This file is part of the GNU Fortran runtime library (libgfortran).
@@ -64,7 +64,6 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 static int
 chmod_internal (char *file, char *mode, gfc_charlen_type mode_len)
 {
-  int i;
   bool ugo[3];
   bool rwxXstugo[9];
   int set_mode, part;
@@ -72,7 +71,10 @@ chmod_internal (char *file, char *mode, gfc_charlen_type mode_len)
 #ifndef __MINGW32__
   bool is_dir;
 #endif
-  mode_t mode_mask, file_mode, new_mode;
+#ifdef HAVE_UMASK
+  mode_t mode_mask;
+#endif
+  mode_t file_mode, new_mode;
   struct stat stat_buf;
 
   if (mode_len == 0)
@@ -104,7 +106,7 @@ chmod_internal (char *file, char *mode, gfc_charlen_type mode_len)
   honor_umask = false;
 #endif
 
-  for (i = 0; i < mode_len; i++)
+  for (gfc_charlen_type i = 0; i < mode_len; i++)
     {
       if (!continue_clause)
 	{
@@ -269,7 +271,7 @@ chmod_internal (char *file, char *mode, gfc_charlen_type mode_len)
 	      part = 3;
 	      break;
 
-	    /* Tailing blanks are valid in Fortran.  */
+	    /* Trailing blanks are valid in Fortran.  */
 	    case ' ':
 	      for (i++; i < mode_len; i++)
 		if (mode[i] != ' ')

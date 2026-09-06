@@ -1,4 +1,4 @@
-@c Copyright (C) 2001-2017 Free Software Foundation, Inc.
+@c Copyright (C) 2001-2023 Free Software Foundation, Inc.
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
 
@@ -16,7 +16,7 @@ implementation-defined in one version of the standard.
 Some choices depend on the externally determined ABI for the platform
 (including standard character encodings) which GCC follows; these are
 listed as ``determined by ABI'' below.  @xref{Compatibility, , Binary
-Compatibility}, and @uref{http://gcc.gnu.org/readings.html}.  Some
+Compatibility}, and @uref{https://gcc.gnu.org/readings.html}.  Some
 choices are documented in the preprocessor manual.
 @xref{Implementation-defined behavior, , Implementation-defined
 behavior, cpp, The C Preprocessor}.  Some choices are made by the
@@ -293,7 +293,7 @@ The accuracy is unknown.
 
 @item
 @cite{The rounding behaviors characterized by non-standard values
-of @code{FLT_ROUNDS} @gol
+of @code{FLT_ROUNDS}
 (C90, C99 and C11 5.2.4.2.2).}
 
 GCC does not use such values.
@@ -339,7 +339,8 @@ This is subject to change.
 7.6.1).}
 
 This pragma is not implemented, but the default is to ``off'' unless
-@option{-frounding-math} is used in which case it is ``on''.
+@option{-frounding-math} is used and @option{-fno-trapping-math} is not
+in which case it is ``on''.
 
 @item
 @cite{Additional floating-point exceptions, rounding modes, environments,
@@ -565,16 +566,21 @@ volatile int *src = @var{somevalue};
 @end smallexample
 
 According to the C standard, such an expression is an rvalue whose type
-is the unqualified version of its original type, i.e. @code{int}.  Whether
+is the unqualified version of its original type, i.e.@: @code{int}.  Whether
 GCC interprets this as a read of the volatile object being pointed to or
-only as a request to evaluate the expression for its side-effects depends
+only as a request to evaluate the expression for its side effects depends
 on this type.
 
 If it is a scalar type, or on most targets an aggregate type whose only
 member object is of a scalar type, or a union type whose member objects
 are of scalar types, the expression is interpreted by GCC as a read of
 the volatile object; in the other cases, the expression is only evaluated
-for its side-effects.
+for its side effects.
+
+When an object of an aggregate type, with the same size and alignment as a
+scalar type @code{S}, is the subject of a volatile access by an assignment
+expression or an atomic function, the access to it is performed as if the
+object's declared type were @code{volatile S}.
 
 @end itemize
 

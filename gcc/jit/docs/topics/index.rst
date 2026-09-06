@@ -1,4 +1,4 @@
-.. Copyright (C) 2014-2017 Free Software Foundation, Inc.
+.. Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Originally contributed by David Malcolm <dmalcolm@redhat.com>
 
    This is free software: you can redistribute it and/or modify it
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see
-   <http://www.gnu.org/licenses/>.
+   <https://www.gnu.org/licenses/>.
 
 Topic Reference
 ===============
@@ -26,7 +26,9 @@ Topic Reference
    types.rst
    expressions.rst
    functions.rst
+   function-pointers.rst
    locations.rst
    compilation.rst
    compatibility.rst
    performance.rst
+   asm.rst

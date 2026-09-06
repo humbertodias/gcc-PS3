@@ -1,6 +1,7 @@
 // { dg-do compile { target c++11 } }
+// { dg-require-effective-target hosted }
 
-// Copyright (C) 2005-2017 Free Software Foundation, Inc.
+// Copyright (C) 2005-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -35,3 +36,5 @@ test01()
   std::shared_ptr<B> b;
   a = b;                      // { dg-error "no match" }
 }
+
+// { dg-prune-output "enable_if" }

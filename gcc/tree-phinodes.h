@@ -1,5 +1,5 @@
 /* Header file for PHI node routines
-   Copyright (C) 2013-2017 Free Software Foundation, Inc.
+   Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -24,14 +24,14 @@ extern void phinodes_print_statistics (void);
 extern void reserve_phi_args_for_new_edge (basic_block);
 extern void add_phi_node_to_bb (gphi *phi, basic_block bb);
 extern gphi *create_phi_node (tree, basic_block);
-extern void add_phi_arg (gphi *, tree, edge, source_location);
+extern void add_phi_arg (gphi *, tree, edge, location_t);
 extern void remove_phi_args (edge);
 extern void remove_phi_node (gimple_stmt_iterator *, bool);
 extern void remove_phi_nodes (basic_block);
 extern tree degenerate_phi_result (gphi *);
 extern void set_phi_nodes (basic_block, gimple_seq);
 
-static inline use_operand_p
+inline use_operand_p
 gimple_phi_arg_imm_use_ptr (gimple *gs, int i)
 {
   return &gimple_phi_arg (gs, i)->imm_use;
@@ -39,7 +39,7 @@ gimple_phi_arg_imm_use_ptr (gimple *gs, int i)
 
 /* Return the phi argument which contains the specified use.  */
 
-static inline int
+inline int
 phi_arg_index_from_use (use_operand_p use)
 {
   struct phi_arg_d *element, *root;

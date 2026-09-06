@@ -6,7 +6,7 @@
  *                                                                          *
  *                          C Implementation File                           *
  *                                                                          *
- *         Copyright (C) 1992-2012, Free Software Foundation, Inc.          *
+ *         Copyright (C) 1992-2023, Free Software Foundation, Inc.          *
  *                                                                          *
  * GNAT is free software;  you can  redistribute it  and/or modify it under *
  * terms of the  GNU General Public License as published  by the Free Soft- *
@@ -43,9 +43,9 @@
    Ada.Command_Line.Environment package.  */
 
 #ifdef IN_RTS
-#include "tconfig.h"
-#include "tsystem.h"
-#include <sys/stat.h>
+#include "runtime.h"
+#include <stdlib.h>
+#include <string.h>
 #else
 #include "config.h"
 #include "system.h"
@@ -61,14 +61,13 @@ extern "C" {
    envp of the main program is saved under gnat_envp.  */
 
 int gnat_argc = 0;
-const char **gnat_argv = (const char **) 0;
-const char **gnat_envp = (const char **) 0;
+char **gnat_argv = NULL;
+char **gnat_envp = NULL;
 
 #if defined (_WIN32) && !defined (RTX)
 /* Note that on Windows environment the environ point to a buffer that could
    be reallocated if needed. It means that gnat_envp needs to be updated
    before using gnat_envp to point to the right environment space */
-#include <stdlib.h>
 /* for the environ variable definition */
 #define gnat_envp (environ)
 #endif
@@ -92,7 +91,7 @@ void
 __gnat_fill_arg (char *a, int i)
 {
   if (gnat_argv != NULL)
-    strncpy (a, gnat_argv[i], strlen(gnat_argv[i]));
+    memcpy (a, gnat_argv[i], strlen (gnat_argv[i]));
 }
 
 int
@@ -118,7 +117,7 @@ void
 __gnat_fill_env (char *a, int i)
 {
   if (gnat_envp != NULL)
-    strncpy (a, gnat_envp[i], strlen (gnat_envp[i]));
+    memcpy (a, gnat_envp[i], strlen (gnat_envp[i]));
 }
 
 #ifdef __cplusplus

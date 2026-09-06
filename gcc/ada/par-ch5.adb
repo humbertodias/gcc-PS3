@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -27,7 +27,7 @@ pragma Style_Checks (All_Checks);
 --  Turn off subprogram body ordering check. Subprograms are in order by RM
 --  section rather than alphabetical.
 
-with Sinfo.CN; use Sinfo.CN;
+with Sinfo.CN;       use Sinfo.CN;
 
 separate (Par)
 package body Ch5 is
@@ -61,11 +61,6 @@ package body Ch5 is
    --  Parse for statement. If Loop_Name is non-Empty on entry, it is
    --  the N_Identifier node for the label on the loop. If Loop_Name is
    --  Empty on entry (the default), then the for statement is unlabeled.
-
-   function P_Iterator_Specification (Def_Id : Node_Id) return Node_Id;
-   --  Parse an iterator specification. The defining identifier has already
-   --  been scanned, as it is the common prefix between loop and iterator
-   --  specification.
 
    function P_Loop_Statement (Loop_Name : Node_Id := Empty) return Node_Id;
    --  Parse loop statement. If Loop_Name is non-Empty on entry, it is
@@ -108,21 +103,11 @@ package body Ch5 is
    --  | LOOP_STATEMENT       | BLOCK_STATEMENT
    --  | ACCEPT_STATEMENT     | SELECT_STATEMENT
 
-   --  This procedure scans a sequence of statements. The caller sets SS_Flags
-   --  to indicate acceptable termination conditions for the sequence:
-
-   --    SS_Flags.Eftm Terminate on ELSIF
-   --    SS_Flags.Eltm Terminate on ELSE
-   --    SS_Flags.Extm Terminate on EXCEPTION
-   --    SS_Flags.Ortm Terminate on OR
-   --    SS_Flags.Tatm Terminate on THEN ABORT (Token = ABORT on return)
-   --    SS_Flags.Whtm Terminate on WHEN
-   --    SS_Flags.Unco Unconditional terminate after scanning one statement
-
-   --  In addition, the scan is always terminated by encountering END or the
-   --  end of file (EOF) condition. If one of the six above terminators is
-   --  encountered with the corresponding SS_Flags flag not set, then the
-   --  action taken is as follows:
+   --  This procedure scans a sequence of statements. SS_Flags indicates
+   --  termination conditions for the sequence. In addition, the sequence is
+   --  always terminated by encountering END or end of file. If one of the six
+   --  above terminators is encountered with the corresponding SS_Flags flag
+   --  not set, then the action taken is as follows:
 
    --    If the keyword occurs to the left of the expected column of the end
    --    for the current sequence (as recorded in the current end context),
@@ -136,7 +121,8 @@ package body Ch5 is
 
    --  Note that the first action means that control can return to the caller
    --  with Token set to a terminator other than one of those specified by the
-   --  SS parameter. The caller should treat such a case as equivalent to END.
+   --  SS_Flags parameter. The caller should treat such a case as equivalent to
+   --  END.
 
    --  In addition, the flag SS_Flags.Sreq is set to True to indicate that at
    --  least one real statement (other than a pragma) is required in the
@@ -149,54 +135,34 @@ package body Ch5 is
    --  parsing a statement, then the scan pointer is advanced past the next
    --  semicolon and the parse continues.
 
-   function P_Sequence_Of_Statements (SS_Flags : SS_Rec) return List_Id is
-
-      Statement_Required : Boolean;
+   function P_Sequence_Of_Statements
+     (SS_Flags : SS_Rec; Handled : Boolean := False) return List_Id
+   is
+      Statement_Required : Boolean := SS_Flags.Sreq;
       --  This flag indicates if a subsequent statement (other than a pragma)
       --  is required. It is initialized from the Sreq flag, and modified as
       --  statements are scanned (a statement turns it off, and a label turns
       --  it back on again since a statement must follow a label).
       --  Note : this final requirement is lifted in Ada 2012.
 
-      Statement_Seen : Boolean;
+      Statement_Seen : Boolean := False;
       --  In Ada 2012, a label can end a sequence of statements, but the
       --  sequence cannot contain only labels. This flag is set whenever a
       --  label is encountered, to enforce this rule at the end of a sequence.
 
-      Declaration_Found : Boolean := False;
-      --  This flag is set True if a declaration is encountered, so that the
-      --  error message about declarations in the statement part is only
-      --  given once for a given sequence of statements.
-
       Scan_State_Label : Saved_Scan_State;
       Scan_State       : Saved_Scan_State;
 
-      Statement_List : List_Id;
+      Statement_List : constant List_Id := New_List;
       Block_Label    : Name_Id;
       Id_Node        : Node_Id;
       Name_Node      : Node_Id;
 
-      procedure Junk_Declaration;
-      --  Procedure called to handle error of declaration encountered in
-      --  statement sequence.
+      Decl_Loc, Label_Loc : Source_Ptr := No_Location;
+      --  Sloc of the first declaration/label encountered, if any.
 
       procedure Test_Statement_Required;
       --  Flag error if Statement_Required flag set
-
-      ----------------------
-      -- Junk_Declaration --
-      ----------------------
-
-      procedure Junk_Declaration is
-      begin
-         if (not Declaration_Found) or All_Errors_Mode then
-            Error_Msg_SC -- CODEFIX
-              ("declarations must come before BEGIN");
-            Declaration_Found := True;
-         end if;
-
-         Skip_Declaration (Statement_List);
-      end Junk_Declaration;
 
       -----------------------------
       -- Test_Statement_Required --
@@ -240,21 +206,12 @@ package body Ch5 is
                    and then Statement_Seen)
                 or else All_Pragmas)
             then
-               --  This Ada 2012 construct not allowed in a compiler unit
+               null;
 
-               Check_Compiler_Unit ("null statement list", Token_Ptr);
+            --  If not Ada 2012, or not special case above, and no declaration
+            --  seen (as allowed in Ada 2020), give error message.
 
-               declare
-                  Null_Stm : constant Node_Id :=
-                               Make_Null_Statement (Token_Ptr);
-               begin
-                  Set_Comes_From_Source (Null_Stm, False);
-                  Append_To (Statement_List, Null_Stm);
-               end;
-
-            --  If not Ada 2012, or not special case above, give error message
-
-            else
+            elsif No (Decl_Loc) then
                Error_Msg_BC -- CODEFIX
                  ("statement expected");
             end if;
@@ -264,14 +221,37 @@ package body Ch5 is
    --  Start of processing for P_Sequence_Of_Statements
 
    begin
-      Statement_List := New_List;
-      Statement_Required := SS_Flags.Sreq;
-      Statement_Seen     := False;
+      --  In Ada 2022, we allow declarative items to be mixed with
+      --  statements. The loop below alternates between calling
+      --  P_Declarative_Items to parse zero or more declarative items,
+      --  and parsing a statement.
 
       loop
          Ignore (Tok_Semicolon);
 
+         declare
+            Num_Statements : constant Nat := List_Length (Statement_List);
          begin
+            P_Declarative_Items
+              (Statement_List, Declare_Expression => False,
+               In_Spec => False, In_Statements => True);
+
+            --  Use the length of the list to determine whether we parsed
+            --  any declarative items. If so, it's an error unless language
+            --  extensions are enabled.
+
+            if List_Length (Statement_List) > Num_Statements then
+               if All_Errors_Mode or else No (Decl_Loc) then
+                  Decl_Loc := Sloc (Pick (Statement_List, Num_Statements + 1));
+
+                  Error_Msg_GNAT_Extension
+                    ("declarations mixed with statements",
+                     Sloc (Pick (Statement_List, Num_Statements + 1)));
+               end if;
+            end if;
+         end;
+
+         begin -- handle Error_Resync
             if Style_Check then
                Style.Check_Indentation;
             end if;
@@ -291,18 +271,13 @@ package body Ch5 is
                   --  with the exception of the cases tested for below.
 
                   (Token = Tok_Semicolon
-                    and then Prev_Token /= Tok_Return
-                    and then Prev_Token /= Tok_Null
-                    and then Prev_Token /= Tok_Raise
-                    and then Prev_Token /= Tok_End
-                    and then Prev_Token /= Tok_Exit)
+                    and then Prev_Token not in
+                     Tok_Return | Tok_Null | Tok_Raise | Tok_End | Tok_Exit)
 
                   --  If followed by colon, colon-equal, or dot, then we
                   --  definitely  have an identifier (could not be reserved)
 
-                  or else Token = Tok_Colon
-                  or else Token = Tok_Colon_Equal
-                  or else Token = Tok_Dot
+                  or else Token in Tok_Colon | Tok_Colon_Equal | Tok_Dot
 
                   --  Left paren means we have an identifier except for those
                   --  reserved words that can legitimately be followed by a
@@ -310,14 +285,9 @@ package body Ch5 is
 
                   or else
                     (Token = Tok_Left_Paren
-                      and then Prev_Token /= Tok_Case
-                      and then Prev_Token /= Tok_Delay
-                      and then Prev_Token /= Tok_If
-                      and then Prev_Token /= Tok_Elsif
-                      and then Prev_Token /= Tok_Return
-                      and then Prev_Token /= Tok_When
-                      and then Prev_Token /= Tok_While
-                      and then Prev_Token /= Tok_Separate)
+                      and then Prev_Token not in
+                       Tok_Case | Tok_Delay | Tok_If | Tok_Elsif | Tok_Return |
+                       Tok_When | Tok_While | Tok_Separate)
                then
                   --  Here we have an apparent reserved identifier and the
                   --  token past it is appropriate to this usage (and would
@@ -358,7 +328,7 @@ package body Ch5 is
                   --  of the expected column of the end for this sequence
 
                   if SS_Flags.Eftm
-                     or else Start_Column < Scope.Table (Scope.Last).Ecol
+                     or else Start_Column < Scopes (Scope.Last).Ecol
                   then
                      Test_Statement_Required;
                      exit;
@@ -381,7 +351,7 @@ package body Ch5 is
                   --  of the expected column of the end for this sequence
 
                   if SS_Flags.Eltm
-                     or else Start_Column < Scope.Table (Scope.Last).Ecol
+                     or else Start_Column < Scopes (Scope.Last).Ecol
                   then
                      Test_Statement_Required;
                      exit;
@@ -405,7 +375,7 @@ package body Ch5 is
                   --  is not permitted.
 
                   if not SS_Flags.Extm and then
-                     Start_Column >= Scope.Table (Scope.Last).Ecol
+                     Start_Column >= Scopes (Scope.Last).Ecol
 
                   then
                      Error_Msg_SC ("exception handler not permitted here");
@@ -427,7 +397,7 @@ package body Ch5 is
                   --  expected column of the end for this sequence.
 
                   if SS_Flags.Ortm
-                     or else Start_Column < Scope.Table (Scope.Last).Ecol
+                     or else Start_Column < Scopes (Scope.Last).Ecol
                   then
                      Test_Statement_Required;
                      exit;
@@ -467,7 +437,7 @@ package body Ch5 is
                   --  the expected column of the end for this sequence.
 
                   if SS_Flags.Whtm
-                    or else Start_Column < Scope.Table (Scope.Last).Ecol
+                    or else Start_Column < Scopes (Scope.Last).Ecol
                   then
                      Test_Statement_Required;
                      exit;
@@ -622,14 +592,6 @@ package body Ch5 is
                         Append_To (Statement_List,
                           P_For_Statement (Id_Node));
 
-                     --  Improper statement follows label. If we have an
-                     --  expression token, then assume the colon was part
-                     --  of a misplaced declaration.
-
-                     elsif Token not in Token_Class_Eterm then
-                        Restore_Scan_State (Scan_State_Label);
-                        Junk_Declaration;
-
                      --  Otherwise complain we have inappropriate statement
 
                      else
@@ -713,11 +675,12 @@ package body Ch5 is
                   --  instance of an incorrectly spelled keyword. If so, we
                   --  do nothing. The Bad_Spelling_Of will have reset Token
                   --  to the appropriate keyword, so the next time round the
-                  --  loop we will process the modified token. Note that we
-                  --  check for ELSIF before ELSE here. That's not accidental.
-                  --  We don't want to identify a misspelling of ELSE as
-                  --  ELSIF, and in particular we do not want to treat ELSEIF
-                  --  as ELSE IF.
+                  --  loop we will process the modified token.
+                  --
+                  --  Note that we check for ELSIF before ELSE here, because
+                  --  we don't want to identify a misspelling of ELSE as ELSIF,
+                  --  and in particular we do not want to treat ELSEIF as
+                  --  ELSE IF.
 
                   else
                      Restore_Scan_State (Scan_State_Label); -- to identifier
@@ -819,6 +782,10 @@ package body Ch5 is
 
                   Append_To (Statement_List, P_Label);
                   Statement_Required := True;
+
+                  if No (Label_Loc) then
+                     Label_Loc := Sloc (Last (Statement_List));
+                  end if;
 
                --  Pragma appearing as a statement in a statement sequence
 
@@ -950,14 +917,9 @@ package body Ch5 is
                --  handling of a bad statement.
 
                when others =>
-                  if Token in Token_Class_Declk then
-                     Junk_Declaration;
-
-                  else
-                     Error_Msg_BC -- CODEFIX
-                       ("statement expected");
-                     raise Error_Resync;
-                  end if;
+                  Error_Msg_BC -- CODEFIX
+                    ("statement expected");
+                  raise Error_Resync;
             end case;
 
          --  On error resynchronization, skip past next semicolon, and, since
@@ -975,7 +937,96 @@ package body Ch5 is
          exit when SS_Flags.Unco;
       end loop;
 
-      return Statement_List;
+      --  If there are no declarative items in the list, or if the list is part
+      --  of a handled sequence of statements, we just return the list.
+      --  Otherwise, we wrap the list in a block statement, so the declarations
+      --  will have a proper scope. In the Handled case, it would be wrong to
+      --  wrap, because we want the code before and after "begin" to be in the
+      --  same scope. Example:
+      --
+      --     if ... then
+      --        use Some_Package;
+      --        Do_Something (...);
+      --     end if;
+      --
+      --  is tranformed into:
+      --
+      --     if ... then
+      --        begin
+      --           use Some_Package;
+      --           Do_Something (...);
+      --        end;
+      --     end if;
+      --
+      --  But we don't wrap this:
+      --
+      --     declare
+      --        X : Integer;
+      --     begin
+      --        X : Integer;
+      --
+      --  Otherwise, we would fail to detect the error (conflicting X's).
+      --  Similarly, if a representation clause appears in the statement
+      --  part, we don't want it to appear more nested than the declarative
+      --  part -- that would cause an unwanted error.
+
+      if Present (Decl_Loc) then
+         --  Forbid labels and declarative items from coexisting. Otherwise,
+         --  one could jump past a declaration, leading to chaos. Jumping
+         --  backward past a declaration is also questionable -- does the
+         --  declaration get elaborated again? Is secondary stack storage
+         --  reclaimed? (A more liberal rule was proposed, but this is what
+         --  we're doing for now.)
+
+         if Present (Label_Loc) then
+            Error_Msg ("declarative item in same list as label", Decl_Loc);
+            Error_Msg ("label in same list as declarative item", Label_Loc);
+         end if;
+
+         --  Forbid exception handlers and declarative items from
+         --  coexisting. Example:
+         --
+         --     X : Integer := 123;
+         --     procedure P is
+         --     begin
+         --        X : Integer := 456;
+         --     exception
+         --        when Cain =>
+         --           Put(X);
+         --     end P;
+         --
+         --  It was proposed that in the handler, X should refer to the outer
+         --  X, but that's just confusing.
+
+         if Token = Tok_Exception then
+            Error_Msg
+              ("declarative item in statements conflicts with " &
+               "exception handler below",
+               Decl_Loc);
+            Error_Msg
+              ("exception handler conflicts with " &
+               "declarative item in statements above",
+               Token_Ptr);
+         end if;
+
+         if Handled then
+            return Statement_List;
+         else
+            declare
+               Loc : constant Source_Ptr := Sloc (First (Statement_List));
+               Block : constant Node_Id :=
+                 Make_Block_Statement
+                   (Loc,
+                    Handled_Statement_Sequence =>
+                      Make_Handled_Sequence_Of_Statements
+                        (Loc, Statements => Statement_List));
+            begin
+               return New_List (Block);
+            end;
+         end if;
+      else
+         return Statement_List;
+      end if;
    end P_Sequence_Of_Statements;
 
    --------------------
@@ -1067,9 +1118,11 @@ package body Ch5 is
 
    begin
       Assign_Node := New_Node (N_Assignment_Statement, Prev_Token_Ptr);
+      Current_Assign_Node := Assign_Node;
       Set_Name (Assign_Node, LHS);
       Set_Expression (Assign_Node, P_Expression_No_Right_Paren);
       TF_Semicolon;
+      Current_Assign_Node := Empty;
       return Assign_Node;
    end P_Assignment_Statement;
 
@@ -1140,9 +1193,9 @@ package body Ch5 is
       procedure Check_If_Column is
       begin
          if RM_Column_Check and then Token_Is_At_Start_Of_Line
-           and then Start_Column /= Scope.Table (Scope.Last).Ecol
+           and then Start_Column /= Scopes (Scope.Last).Ecol
          then
-            Error_Msg_Col := Scope.Table (Scope.Last).Ecol;
+            Error_Msg_Col := Scopes (Scope.Last).Ecol;
             Error_Msg_SC ("(style) this token should be@");
          end if;
       end Check_If_Column;
@@ -1190,11 +1243,11 @@ package body Ch5 is
       If_Node := New_Node (N_If_Statement, Token_Ptr);
 
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Etyp := E_If;
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
-      Scope.Table (Scope.Last).Labl := Error;
-      Scope.Table (Scope.Last).Node := If_Node;
+      Scopes (Scope.Last).Etyp := E_If;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Labl := Error;
+      Scopes (Scope.Last).Node := If_Node;
 
       if Token = Tok_If then
          Loc := Token_Ptr;
@@ -1302,21 +1355,22 @@ package body Ch5 is
 
          return Cond;
 
-      --  Otherwise check for redundant parentheses
-
-      --  If the condition is a conditional or a quantified expression, it is
-      --  parenthesized in the context of a condition, because of a separate
-      --  syntax rule.
+      --  Otherwise check for redundant parentheses but do not emit messages
+      --  about expressions that require parentheses (e.g. conditional,
+      --  quantified or declaration expressions).
 
       else
-         if Style_Check and then Paren_Count (Cond) > 0 then
-            if not Nkind_In (Cond, N_If_Expression,
-                                   N_Case_Expression,
-                                   N_Quantified_Expression)
-              or else Paren_Count (Cond) > 1
-            then
-               Style.Check_Xtra_Parens (First_Sloc (Cond));
-            end if;
+         if Style_Check
+           and then
+             Paren_Count (Cond) >
+               (if Nkind (Cond) in N_Case_Expression
+                                 | N_Expression_With_Actions
+                                 | N_If_Expression
+                                 | N_Quantified_Expression
+                then 1
+                else 0)
+         then
+            Style.Check_Xtra_Parens (First_Sloc (Cond));
          end if;
 
          --  And return the result
@@ -1348,11 +1402,11 @@ package body Ch5 is
       Case_Node := New_Node (N_Case_Statement, Token_Ptr);
 
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Etyp := E_Case;
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
-      Scope.Table (Scope.Last).Labl := Error;
-      Scope.Table (Scope.Last).Node := Case_Node;
+      Scopes (Scope.Last).Etyp := E_Case;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Labl := Error;
+      Scopes (Scope.Last).Node := Case_Node;
 
       Scan; -- past CASE
       Set_Expression (Case_Node, P_Expression_No_Right_Paren);
@@ -1370,7 +1424,7 @@ package body Ch5 is
          --  If we have a WHEN or OTHERS, then that's fine keep going. Note
          --  that it is a semantic check to ensure the proper use of OTHERS
 
-         if Token = Tok_When or else Token = Tok_Others then
+         if Token in Tok_When | Tok_Others then
             Append (P_Case_Statement_Alternative, Alternatives_List);
 
          --  If we have an END, then probably we are at the end of the case
@@ -1390,7 +1444,7 @@ package body Ch5 is
          --  complain about the missing WHEN, and discard the junk statements.
 
          elsif not Token_Is_At_Start_Of_Line
-           or else Start_Column > Scope.Table (Scope.Last).Ecol
+           or else Start_Column > Scopes (Scope.Last).Ecol
          then
             Error_Msg_BC ("WHEN (case statement alternative) expected");
 
@@ -1488,10 +1542,10 @@ package body Ch5 is
 
    begin
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Labl := Loop_Name;
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
-      Scope.Table (Scope.Last).Etyp := E_Loop;
+      Scopes (Scope.Last).Labl := Loop_Name;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Etyp := E_Loop;
 
       Loop_Node := New_Node (N_Loop_Statement, Token_Ptr);
       TF_Loop;
@@ -1502,7 +1556,7 @@ package body Ch5 is
          Set_Comes_From_Source (Created_Name, False);
          Set_Has_Created_Identifier (Loop_Node, True);
          Set_Identifier (Loop_Node, Created_Name);
-         Scope.Table (Scope.Last).Labl := Created_Name;
+         Scopes (Scope.Last).Labl := Created_Name;
       else
          Set_Identifier (Loop_Node, Loop_Name);
       end if;
@@ -1534,10 +1588,10 @@ package body Ch5 is
 
    begin
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Labl := Loop_Name;
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
-      Scope.Table (Scope.Last).Etyp := E_Loop;
+      Scopes (Scope.Last).Labl := Loop_Name;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Etyp := E_Loop;
 
       Loop_For_Flag := (Prev_Token = Tok_Loop);
       Scan; -- past FOR
@@ -1573,7 +1627,7 @@ package body Ch5 is
             Set_Comes_From_Source (Created_Name, False);
             Set_Has_Created_Identifier (Loop_Node, True);
             Set_Identifier (Loop_Node, Created_Name);
-            Scope.Table (Scope.Last).Labl := Created_Name;
+            Scopes (Scope.Last).Labl := Created_Name;
          else
             Set_Identifier (Loop_Node, Loop_Name);
          end if;
@@ -1605,10 +1659,10 @@ package body Ch5 is
 
    begin
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Labl := Loop_Name;
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
-      Scope.Table (Scope.Last).Etyp := E_Loop;
+      Scopes (Scope.Last).Labl := Loop_Name;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Etyp := E_Loop;
 
       Loop_While_Flag := (Prev_Token = Tok_Loop);
       Iter_Scheme_Node := New_Node (N_Iteration_Scheme, Token_Ptr);
@@ -1639,7 +1693,7 @@ package body Ch5 is
             Set_Comes_From_Source (Created_Name, False);
             Set_Has_Created_Identifier (Loop_Node, True);
             Set_Identifier (Loop_Node, Created_Name);
-            Scope.Table (Scope.Last).Labl := Created_Name;
+            Scopes (Scope.Last).Labl := Created_Name;
          else
             Set_Identifier (Loop_Node, Loop_Name);
          end if;
@@ -1658,6 +1712,7 @@ package body Ch5 is
 
    --  LOOP_PARAMETER_SPECIFICATION ::=
    --    DEFINING_IDENTIFIER in [reverse] DISCRETE_SUBTYPE_DEFINITION
+   --    [Iterator_Filter]
 
    --  Error recovery: cannot raise Error_Resync
 
@@ -1681,7 +1736,7 @@ package body Ch5 is
       --  expression it is an iterator specification. Ambiguity is resolved
       --  during analysis of the loop parameter specification.
 
-      if Token = Tok_Of or else Token = Tok_Colon then
+      if Token in Tok_Of | Tok_Colon then
          Error_Msg_Ada_2012_Feature ("iterator", Token_Ptr);
          return P_Iterator_Specification (ID_Node);
       end if;
@@ -1713,6 +1768,15 @@ package body Ch5 is
 
       Set_Discrete_Subtype_Definition
         (Loop_Param_Specification_Node, P_Discrete_Subtype_Definition);
+
+      if Token = Tok_When then
+         Error_Msg_Ada_2022_Feature ("iterator filter", Token_Ptr);
+
+         Scan; -- past WHEN
+         Set_Iterator_Filter
+           (Loop_Param_Specification_Node, P_Condition);
+      end if;
+
       return Loop_Param_Specification_Node;
 
    exception
@@ -1733,7 +1797,15 @@ package body Ch5 is
 
       if Token = Tok_Colon then
          Scan;  --  past :
-         Set_Subtype_Indication (Node1, P_Subtype_Indication);
+
+         if Token = Tok_Access then
+            Error_Msg_Ada_2022_Feature
+              ("access definition in loop parameter", Token_Ptr);
+            Set_Subtype_Indication (Node1, P_Access_Definition (False));
+
+         else
+            Set_Subtype_Indication (Node1, P_Subtype_Indication);
+         end if;
       end if;
 
       if Token = Tok_Of then
@@ -1753,7 +1825,7 @@ package body Ch5 is
          Set_Of_Present (Node1);
          Error_Msg_N
            ("subtype indication is only legal on an element iterator",
-              Subtype_Indication (Node1));
+            Subtype_Indication (Node1));
 
       else
          return Error;
@@ -1765,6 +1837,15 @@ package body Ch5 is
       end if;
 
       Set_Name (Node1, P_Name);
+
+      if Token = Tok_When then
+         Error_Msg_Ada_2022_Feature ("iterator filter", Token_Ptr);
+
+         Scan; -- past WHEN
+         Set_Iterator_Filter
+           (Node1, P_Condition);
+      end if;
+
       return Node1;
    end P_Iterator_Specification;
 
@@ -1803,11 +1884,11 @@ package body Ch5 is
       Block_Node := New_Node (N_Block_Statement, Token_Ptr);
 
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Etyp := E_Name;
-      Scope.Table (Scope.Last).Lreq := Present (Block_Name);
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Labl := Block_Name;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Etyp := E_Name;
+      Scopes (Scope.Last).Lreq := Present (Block_Name);
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Labl := Block_Name;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
 
       Scan; -- past DECLARE
 
@@ -1817,7 +1898,7 @@ package body Ch5 is
          Set_Comes_From_Source (Created_Name, False);
          Set_Has_Created_Identifier (Block_Node, True);
          Set_Identifier (Block_Node, Created_Name);
-         Scope.Table (Scope.Last).Labl := Created_Name;
+         Scopes (Scope.Last).Labl := Created_Name;
       else
          Set_Identifier (Block_Node, Block_Name);
       end if;
@@ -1846,11 +1927,11 @@ package body Ch5 is
       Block_Node := New_Node (N_Block_Statement, Token_Ptr);
 
       Push_Scope_Stack;
-      Scope.Table (Scope.Last).Etyp := E_Name;
-      Scope.Table (Scope.Last).Lreq := Present (Block_Name);
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Labl := Block_Name;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Etyp := E_Name;
+      Scopes (Scope.Last).Lreq := Present (Block_Name);
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Labl := Block_Name;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
 
       if No (Block_Name) then
          Created_Name :=
@@ -1858,15 +1939,15 @@ package body Ch5 is
          Set_Comes_From_Source (Created_Name, False);
          Set_Has_Created_Identifier (Block_Node, True);
          Set_Identifier (Block_Node, Created_Name);
-         Scope.Table (Scope.Last).Labl := Created_Name;
+         Scopes (Scope.Last).Labl := Created_Name;
       else
          Set_Identifier (Block_Node, Block_Name);
       end if;
 
       Append_Elmt (Block_Node, Label_List);
 
-      Scope.Table (Scope.Last).Ecol := Start_Column;
-      Scope.Table (Scope.Last).Sloc := Token_Ptr;
+      Scopes (Scope.Last).Ecol := Start_Column;
+      Scopes (Scope.Last).Sloc := Token_Ptr;
       Scan; -- past BEGIN
       Set_Handled_Statement_Sequence
         (Block_Node, P_Handled_Sequence_Of_Statements);
@@ -1888,47 +1969,6 @@ package body Ch5 is
    function P_Exit_Statement return Node_Id is
       Exit_Node : Node_Id;
 
-      function Missing_Semicolon_On_Exit return Boolean;
-      --  This function deals with the following specialized situation
-      --
-      --    when 'x' =>
-      --       exit [identifier]
-      --    when 'y' =>
-      --
-      --  This looks like a messed up EXIT WHEN, when in fact the problem
-      --  is a missing semicolon. It is called with Token pointing to the
-      --  WHEN token, and returns True if a semicolon is missing before
-      --  the WHEN as in the above example.
-
-      -------------------------------
-      -- Missing_Semicolon_On_Exit --
-      -------------------------------
-
-      function Missing_Semicolon_On_Exit return Boolean is
-         State : Saved_Scan_State;
-
-      begin
-         if not Token_Is_At_Start_Of_Line then
-            return False;
-
-         elsif Scope.Table (Scope.Last).Etyp /= E_Case then
-            return False;
-
-         else
-            Save_Scan_State (State);
-            Scan; -- past WHEN
-            Scan; -- past token after WHEN
-
-            if Token = Tok_Arrow then
-               Restore_Scan_State (State);
-               return True;
-            else
-               Restore_Scan_State (State);
-               return False;
-            end if;
-         end if;
-      end Missing_Semicolon_On_Exit;
-
    --  Start of processing for P_Exit_Statement
 
    begin
@@ -1944,13 +1984,13 @@ package body Ch5 is
 
          Check_No_Exit_Name :
          for J in reverse 1 .. Scope.Last loop
-            if Scope.Table (J).Etyp = E_Loop then
-               if Present (Scope.Table (J).Labl)
-                 and then Comes_From_Source (Scope.Table (J).Labl)
+            if Scopes (J).Etyp = E_Loop then
+               if Present (Scopes (J).Labl)
+                 and then Comes_From_Source (Scopes (J).Labl)
                then
                   --  Innermost loop in fact had a name, style check fails
 
-                  Style.No_Exit_Name (Scope.Table (J).Labl);
+                  Style.No_Exit_Name (Scopes (J).Labl);
                end if;
 
                exit Check_No_Exit_Name;
@@ -1958,7 +1998,7 @@ package body Ch5 is
          end loop Check_No_Exit_Name;
       end if;
 
-      if Token = Tok_When and then not Missing_Semicolon_On_Exit then
+      if Token = Tok_When and then not Missing_Semicolon_On_When then
          Scan; -- past WHEN
          Set_Condition (Exit_Node, P_Condition);
 
@@ -1993,7 +2033,15 @@ package body Ch5 is
       Scan; -- past GOTO (or TO)
       Set_Name (Goto_Node, P_Qualified_Simple_Name_Resync);
       Append_Elmt (Goto_Node, Goto_List);
-      No_Constraint;
+
+      if Token = Tok_When then
+         Error_Msg_GNAT_Extension ("goto when statement", Token_Ptr);
+
+         Scan; -- past WHEN
+         Mutate_Nkind (Goto_Node, N_Goto_When_Statement);
+         Set_Condition (Goto_Node, P_Expression_No_Right_Paren);
+      end if;
+
       TF_Semicolon;
       return Goto_Node;
    end P_Goto_Statement;
@@ -2152,7 +2200,7 @@ package body Ch5 is
                Style.Check_Indentation;
             end if;
 
-            Error_Msg_Col := Scope.Table (Scope.Last).Ecol;
+            Error_Msg_Col := Scopes (Scope.Last).Ecol;
 
             if RM_Column_Check
               and then Token_Is_At_Start_Of_Line
@@ -2161,10 +2209,10 @@ package body Ch5 is
                Error_Msg_SC ("(style) BEGIN in wrong column, should be@");
 
             else
-               Scope.Table (Scope.Last).Ecol := Start_Column;
+               Scopes (Scope.Last).Ecol := Start_Column;
             end if;
 
-            Scope.Table (Scope.Last).Sloc := Token_Ptr;
+            Scopes (Scope.Last).Sloc := Token_Ptr;
             Scan; -- past BEGIN
             Set_Handled_Statement_Sequence (Parent,
               P_Handled_Sequence_Of_Statements);
@@ -2181,9 +2229,9 @@ package body Ch5 is
 
             if Parent_Nkind = N_Subprogram_Body
               and then Token  = Tok_End
-              and then Scope.Table (Scope.Last).Etyp = E_Suspicious_Is
+              and then Scopes (Scope.Last).Etyp = E_Suspicious_Is
             then
-               Scope.Table (Scope.Last).Etyp := E_Bad_Is;
+               Scopes (Scope.Last).Etyp := E_Bad_Is;
 
             --  Otherwise BEGIN is not required for a package body, so we
             --  don't mind if it is missing, but we do construct a dummy
@@ -2196,9 +2244,7 @@ package body Ch5 is
             --  END, EOF, or a token which starts declarations.
 
             elsif Parent_Nkind = N_Package_Body
-              and then (Token = Tok_End
-                          or else Token = Tok_EOF
-                          or else Token in Token_Class_Declk)
+              and then (Token in Tok_End | Tok_EOF | Token_Class_Declk)
             then
                Set_Null_HSS (Parent);
 
@@ -2209,8 +2255,8 @@ package body Ch5 is
 
                --  Prepare to issue error message
 
-               Error_Msg_Sloc := Scope.Table (Scope.Last).Sloc;
-               Error_Msg_Node_1 := Scope.Table (Scope.Last).Labl;
+               Error_Msg_Sloc := Scopes (Scope.Last).Sloc;
+               Error_Msg_Node_1 := Scopes (Scope.Last).Labl;
 
                --  Now issue appropriate message
 
@@ -2270,6 +2316,7 @@ package body Ch5 is
       --  (because it is required to do so under all circumstances). We can
       --  therefore reference the entry it removed one past the stack top.
       --  What we are interested in is whether it was a case of a bad IS.
+      --  We can't call Scopes here.
 
       if Scope.Table (Scope.Last + 1).Etyp = E_Bad_Is then
          Error_Msg -- CODEFIX
@@ -2307,7 +2354,7 @@ package body Ch5 is
          TF_Then;
       end loop;
 
-      if Token = Tok_And or else Token = Tok_Or then
+      if Token in Tok_And | Tok_Or then
          Error_Msg_SC ("unexpected logical operator");
          Scan; -- past logical operator
 

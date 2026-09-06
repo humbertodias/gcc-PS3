@@ -1,6 +1,6 @@
 // Standard stream manipulators -*- C++ -*-
 
-// Copyright (C) 1997-2017 Free Software Foundation, Inc.
+// Copyright (C) 1997-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -34,6 +34,8 @@
 #define _GLIBCXX_IOMANIP 1
 
 #pragma GCC system_header
+
+#include <bits/requires_hosted.h> // iostreams
 
 #include <bits/c++config.h>
 #include <iosfwd>
@@ -446,15 +448,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __is;
     }
 
-#if __cplusplus > 201103L
+#if __cplusplus >= 201402L
 
-#define __cpp_lib_quoted_string_io 201304
+#define __cpp_lib_quoted_string_io 201304L
 
   /**
    * @brief Manipulator for quoted strings.
    * @param __string String to quote.
    * @param __delim  Character to quote string with.
    * @param __escape Escape character to escape itself or quote character.
+   * @since C++14
    */
   template<typename _CharT>
     inline auto
@@ -471,8 +474,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	   _CharT __delim = _CharT('"'), _CharT __escape = _CharT('\\'))
     {
       return __detail::_Quoted_string<
-			const basic_string<_CharT, _Traits, _Alloc>&, _CharT>(
-				__string, __delim, __escape);
+	const basic_string<_CharT, _Traits, _Alloc>&, _CharT>(
+	    __string, __delim, __escape);
     }
 
   template<typename _CharT, typename _Traits, typename _Alloc>
@@ -481,11 +484,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	   _CharT __delim = _CharT('"'), _CharT __escape = _CharT('\\'))
     {
       return __detail::_Quoted_string<
-			basic_string<_CharT, _Traits, _Alloc>&, _CharT>(
-				__string, __delim, __escape);
+	basic_string<_CharT, _Traits, _Alloc>&, _CharT>(
+	    __string, __delim, __escape);
     }
 
-#endif // __cplusplus > 201103L
+#if __cplusplus >= 201703L
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2785. quoted should work with basic_string_view
+  template<typename _CharT, typename _Traits>
+    inline auto
+    quoted(basic_string_view<_CharT, _Traits> __sv,
+	   _CharT __delim = _CharT('"'), _CharT __escape = _CharT('\\'))
+    {
+      return __detail::_Quoted_string<
+	basic_string_view<_CharT, _Traits>, _CharT>(__sv, __delim, __escape);
+    }
+#endif // C++17
+#endif // C++14
 
 #endif // __cplusplus >= 201103L
 

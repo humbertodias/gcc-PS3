@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    F2003 I/O support contributed by Jerry DeLisle
 
@@ -28,8 +28,8 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #include "format.h"
 #include "unix.h"
 #include <string.h>
-#include <ctype.h>
 #include <assert.h>
+#include "async.h"
 
 typedef unsigned char uchar;
 
@@ -42,9 +42,18 @@ typedef unsigned char uchar;
 void
 set_integer (void *dest, GFC_INTEGER_LARGEST value, int length)
 {
+  NOTE ("set_integer: %lld %p", (long long int) value, dest);
   switch (length)
     {
 #ifdef HAVE_GFC_INTEGER_16
+#ifdef HAVE_GFC_REAL_17
+    case 17:
+      {
+	GFC_INTEGER_16 tmp = value;
+	memcpy (dest, (void *) &tmp, 16);
+      }
+      break;
+#endif
 /* length=10 comes about for kind=10 real/complex BOZ, cf. PR41711. */
     case 10:
     case 16:
@@ -94,7 +103,14 @@ si_max (int length)
 #endif
 
   switch (length)
-      {
+    {
+#if defined HAVE_GFC_REAL_17
+    case 17:
+      value = 1;
+      for (int n = 1; n < 4 * 16; n++)
+	value = (value << 2) + 3;
+      return value;
+#endif
 #if defined HAVE_GFC_REAL_16 || defined HAVE_GFC_REAL_10
     case 16:
     case 10:
@@ -170,13 +186,29 @@ convert_real (st_parameter_dt *dtp, void *dest, const char *buffer, int length)
 #if defined(HAVE_GFC_REAL_16)
 # if defined(GFC_REAL_16_IS_FLOAT128)
     case 16:
+#  if defined(GFC_REAL_16_USE_IEC_60559)
+      *((GFC_REAL_16*) dest) = strtof128 (buffer, &endptr);
+#  else
       *((GFC_REAL_16*) dest) = __qmath_(strtoflt128) (buffer, &endptr);
+#  endif
       break;
 # elif defined(HAVE_STRTOLD)
     case 16:
       *((GFC_REAL_16*) dest) = gfc_strtold (buffer, &endptr);
       break;
 # endif
+#endif
+
+#if defined(HAVE_GFC_REAL_17)
+    case 17:
+# if defined(POWER_IEEE128)
+      *((GFC_REAL_17*) dest) = __strtoieee128 (buffer, &endptr);
+# elif defined(GFC_REAL_17_USE_IEC_60559)
+      *((GFC_REAL_17*) dest) = strtof128 (buffer, &endptr);
+# else
+      *((GFC_REAL_17*) dest) = __qmath_(strtoflt128) (buffer, &endptr);
+# endif
+      break;
 #endif
 
     default:
@@ -246,7 +278,14 @@ convert_infnan (st_parameter_dt *dtp, void *dest, const char *buffer,
 #if defined(HAVE_GFC_REAL_16)
 # if defined(GFC_REAL_16_IS_FLOAT128)
     case 16:
+#  if defined(GFC_REAL_16_USE_IEC_60559)
+      if (is_inf)
+	*((GFC_REAL_16*) dest) = plus ? __builtin_inff128 () : -__builtin_inff128 ();
+      else
+	*((GFC_REAL_16*) dest) = plus ? __builtin_nanf128 ("") : -__builtin_nanf128 ("");
+#  else
       *((GFC_REAL_16*) dest) = __qmath_(strtoflt128) (buffer, NULL);
+#  endif
       break;
 # else
     case 16:
@@ -256,6 +295,15 @@ convert_infnan (st_parameter_dt *dtp, void *dest, const char *buffer,
 	*((GFC_REAL_16*) dest) = plus ? __builtin_nanl ("") : -__builtin_nanl ("");
       break;
 # endif
+#endif
+
+#if defined(HAVE_GFC_REAL_17)
+    case 17:
+      if (is_inf)
+	*((GFC_REAL_17*) dest) = plus ? __builtin_infl () : -__builtin_infl ();
+      else
+	*((GFC_REAL_17*) dest) = plus ? __builtin_nanl ("") : -__builtin_nanl ("");
+      break;
 #endif
 
     default:
@@ -272,7 +320,7 @@ void
 read_l (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 {
   char *p;
-  int w;
+  size_t w;
 
   w = f->u.w;
 
@@ -316,11 +364,11 @@ read_l (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 
 
 static gfc_char4_t
-read_utf8 (st_parameter_dt *dtp, int *nbytes) 
+read_utf8 (st_parameter_dt *dtp, size_t *nbytes)
 {
   static const uchar masks[6] = { 0x7F, 0x1F, 0x0F, 0x07, 0x02, 0x01 };
   static const uchar patns[6] = { 0x00, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC };
-  int i, nb, nread;
+  size_t nb, nread;
   gfc_char4_t c;
   char *s;
 
@@ -353,7 +401,7 @@ read_utf8 (st_parameter_dt *dtp, int *nbytes)
   if (s == NULL)
     return 0;
   /* Decode the bytes read.  */
-  for (i = 1; i < nb; i++)
+  for (size_t i = 1; i < nb; i++)
     {
       gfc_char4_t n = *s++;
 
@@ -383,12 +431,11 @@ read_utf8 (st_parameter_dt *dtp, int *nbytes)
 
 
 static void
-read_utf8_char1 (st_parameter_dt *dtp, char *p, int len, int width)
+read_utf8_char1 (st_parameter_dt *dtp, char *p, size_t len, size_t width)
 {
   gfc_char4_t c;
   char *dest;
-  int nbytes;
-  int i, j;
+  size_t nbytes, j;
 
   len = (width < len) ? len : width;
 
@@ -407,16 +454,16 @@ read_utf8_char1 (st_parameter_dt *dtp, char *p, int len, int width)
     }
 
   /* If there was a short read, pad the remaining characters.  */
-  for (i = j; i < len; i++)
+  for (size_t i = j; i < len; i++)
     *dest++ = ' ';
   return;
 }
 
 static void
-read_default_char1 (st_parameter_dt *dtp, char *p, int len, int width)
+read_default_char1 (st_parameter_dt *dtp, char *p, size_t len, size_t width)
 {
   char *s;
-  int m, n;
+  size_t m;
 
   s = read_block_form (dtp, &width);
   
@@ -428,18 +475,16 @@ read_default_char1 (st_parameter_dt *dtp, char *p, int len, int width)
   m = (width > len) ? len : width;
   memcpy (p, s, m);
 
-  n = len - width;
-  if (n > 0)
-    memset (p + m, ' ', n);
+  if (len > width)
+    memset (p + m, ' ', len - width);
 }
 
 
 static void
-read_utf8_char4 (st_parameter_dt *dtp, void *p, int len, int width)
+read_utf8_char4 (st_parameter_dt *dtp, void *p, size_t len, size_t width)
 {
   gfc_char4_t *dest;
-  int nbytes;
-  int i, j;
+  size_t nbytes, j;
 
   len = (width < len) ? len : width;
 
@@ -456,16 +501,16 @@ read_utf8_char4 (st_parameter_dt *dtp, void *p, int len, int width)
     }
 
   /* If there was a short read, pad the remaining characters.  */
-  for (i = j; i < len; i++)
+  for (size_t i = j; i < len; i++)
     *dest++ = (gfc_char4_t) ' ';
   return;
 }
 
 
 static void
-read_default_char4 (st_parameter_dt *dtp, char *p, int len, int width)
+read_default_char4 (st_parameter_dt *dtp, char *p, size_t len, size_t width)
 {
-  int m, n;
+  size_t m, n;
   gfc_char4_t *dest;
 
   if (is_char4_unit(dtp))
@@ -479,15 +524,18 @@ read_default_char4 (st_parameter_dt *dtp, char *p, int len, int width)
       if (width > len)
 	 s4 += (width - len);
 
-      m = ((int) width > len) ? len : (int) width;
+      m = (width > len) ? len : width;
 
       dest = (gfc_char4_t *) p;
 
       for (n = 0; n < m; n++)
 	*dest++ = *s4++;
 
-      for (n = 0; n < len - (int) width; n++)
-	*dest++ = (gfc_char4_t) ' ';
+      if (len > width)
+	{
+	  for (n = 0; n < len - width; n++)
+	    *dest++ = (gfc_char4_t) ' ';
+	}
     }
   else
     {
@@ -500,15 +548,18 @@ read_default_char4 (st_parameter_dt *dtp, char *p, int len, int width)
       if (width > len)
 	 s += (width - len);
 
-      m = ((int) width > len) ? len : (int) width;
+      m = (width > len) ? len : width;
 
       dest = (gfc_char4_t *) p;
 
       for (n = 0; n < m; n++, dest++, s++)
 	*dest = (unsigned char ) *s;
 
-      for (n = 0; n < len - (int) width; n++, dest++)
-	*dest = (unsigned char) ' ';
+      if (len > width)
+	{
+	  for (n = 0; n < len - width; n++, dest++)
+	    *dest = (unsigned char) ' ';
+	}
     }
 }
 
@@ -517,15 +568,14 @@ read_default_char4 (st_parameter_dt *dtp, char *p, int len, int width)
    processing UTF-8 encoding if necessary.  */
 
 void
-read_a (st_parameter_dt *dtp, const fnode *f, char *p, int length)
+read_a (st_parameter_dt *dtp, const fnode *f, char *p, size_t length)
 {
-  int wi;
-  int w;
+  size_t w;
 
-  wi = f->u.w;
-  if (wi == -1) /* '(A)' edit descriptor  */
-    wi = length;
-  w = wi;
+  if (f->u.w == -1) /* '(A)' edit descriptor  */
+    w = length;
+  else
+    w = f->u.w;
 
   /* Read in w characters, treating comma as not a separator.  */
   dtp->u.p.sf_read_comma = 0;
@@ -544,13 +594,14 @@ read_a (st_parameter_dt *dtp, const fnode *f, char *p, int length)
    processing UTF-8 encoding if necessary.  */
 
 void
-read_a_char4 (st_parameter_dt *dtp, const fnode *f, char *p, int length)
+read_a_char4 (st_parameter_dt *dtp, const fnode *f, char *p, size_t length)
 {
-  int w;
+  size_t w;
 
-  w = f->u.w;
-  if (w == -1) /* '(A)' edit descriptor  */
+  if (f->u.w == -1) /* '(A)' edit descriptor  */
     w = length;
+  else
+    w = f->u.w;
 
   /* Read in w characters, treating comma as not a separator.  */
   dtp->u.p.sf_read_comma = 0;
@@ -568,7 +619,7 @@ read_a_char4 (st_parameter_dt *dtp, const fnode *f, char *p, int length)
    ignore the leading spaces.  */
 
 static char *
-eat_leading_spaces (int *width, char *p)
+eat_leading_spaces (size_t *width, char *p)
 {
   for (;;)
     {
@@ -584,7 +635,7 @@ eat_leading_spaces (int *width, char *p)
 
 
 static char
-next_char (st_parameter_dt *dtp, char **p, int *w)
+next_char (st_parameter_dt *dtp, char **p, size_t *w)
 {
   char c, *q;
 
@@ -624,10 +675,17 @@ read_decimal (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 {
   GFC_UINTEGER_LARGEST value, maxv, maxv_10;
   GFC_INTEGER_LARGEST v;
-  int w, negative; 
+  size_t w;
+  int negative;
   char c, *p;
 
   w = f->u.w;
+
+  /* This is a legacy extension, and the frontend will only allow such cases
+   * through when -fdec-format-defaults is passed.
+   */
+  if (w == (size_t) DEFAULT_WIDTH)
+    w = default_width_for_integer (length);
 
   p = read_block_form (dtp, &w);
 
@@ -732,7 +790,8 @@ read_radix (st_parameter_dt *dtp, const fnode *f, char *dest, int length,
 {
   GFC_UINTEGER_LARGEST value, maxv, maxv_r;
   GFC_INTEGER_LARGEST v;
-  int w, negative;
+  size_t w;
+  int negative;
   char c, *p;
 
   w = f->u.w;
@@ -882,7 +941,8 @@ read_f (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 #define READF_TMP 50
   char tmp[READF_TMP];
   size_t buf_size = 0;
-  int w, seen_dp, exponent;
+  size_t w;
+  int seen_dp, exponent;
   int exponent_sign;
   const char *p;
   char *buffer;
@@ -945,7 +1005,7 @@ read_f (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 	 between "NaN" and the optional perenthesis is not permitted.  */
       while (w > 0)
 	{
-	  *out = tolower (*p);
+	  *out = safe_tolower (*p);
 	  switch (*p)
 	    {
 	    case ' ':
@@ -967,7 +1027,7 @@ read_f (st_parameter_dt *dtp, const fnode *f, char *dest, int length)
 		goto bad_float;
 	      break;
 	    default:
-	      if (!isalnum (*out))
+	      if (!safe_isalnum (*out))
 		goto bad_float;
 	    }
 	  --w;
@@ -1087,7 +1147,7 @@ exponent:
   if (w == 0)
     {
       /* Extension: allow default exponent of 0 when omitted.  */
-      if (dtp->common.flags & IOPARM_DT_DEFAULT_EXP)
+      if (dtp->common.flags & IOPARM_DT_DEC_EXT)
 	goto done;
       else
 	goto bad_float;
@@ -1095,7 +1155,7 @@ exponent:
 
   if (dtp->u.p.blank_status == BLANK_UNSPECIFIED)
     {
-      while (w > 0 && isdigit (*p))
+      while (w > 0 && safe_isdigit (*p))
 	{
 	  exponent *= 10;
 	  exponent += *p - '0';
@@ -1123,7 +1183,7 @@ exponent:
 	      else
 		assert (dtp->u.p.blank_status == BLANK_NULL);
 	    }
-	  else if (!isdigit (*p))
+	  else if (!safe_isdigit (*p))
 	    goto bad_float;
 	  else
 	    {
@@ -1211,6 +1271,12 @@ zero:
 	break;
 #endif
 
+#ifdef HAVE_GFC_REAL_17
+      case 17:
+	*((GFC_REAL_17 *) dest) = 0.0;
+	break;
+#endif
+
       default:
 	internal_error (&dtp->common, "Unsupported real kind during IO");
     }
@@ -1230,12 +1296,13 @@ bad_float:
    and never look at it. */
 
 void
-read_x (st_parameter_dt *dtp, int n)
+read_x (st_parameter_dt *dtp, size_t n)
 {
-  int length, q, q2;
+  size_t length;
+  int q, q2;
 
   if ((dtp->u.p.current_unit->pad_status == PAD_NO || is_internal_unit (dtp))
-       && dtp->u.p.current_unit->bytes_left < n)
+      && dtp->u.p.current_unit->bytes_left < (gfc_offset) n)
     n = dtp->u.p.current_unit->bytes_left;
     
   if (n == 0)

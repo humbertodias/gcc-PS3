@@ -2,11 +2,13 @@
 
 /* { dg-do compile { target i?86-*-* x86_64-*-* } } */
 /* { dg-options "-O2 -fstack-protector-explicit" } */
+/* { dg-additional-options "-fno-PIE" { target ia32 } } */
 
 int A()
 {
 	int A[23];
 	char b[22];
+	return 0;
 }
 
 int __attribute__((stack_protect)) B()

@@ -1,5 +1,5 @@
 /* Internal functions.
-   Copyright (C) 2011-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -32,11 +32,15 @@ along with GCC; see the file COPYING3.  If not see
    or leaving partitioned execution.
       DEP_VAR = UNIQUE ({HEAD,TAIL}_MARK, REMAINING_MARKS, ...PRIMARY_FLAGS)
 
-   The PRIMARY_FLAGS only occur on the first HEAD_MARK of a sequence.  */
+   The PRIMARY_FLAGS only occur on the first HEAD_MARK of a sequence.
+
+   PRIVATE captures variables to be made private at the surrounding parallelism
+   level.  */
 #define IFN_UNIQUE_CODES				  \
   DEF(UNSPEC),	\
     DEF(OACC_FORK), DEF(OACC_JOIN),		\
-    DEF(OACC_HEAD_MARK), DEF(OACC_TAIL_MARK)
+    DEF(OACC_HEAD_MARK), DEF(OACC_TAIL_MARK),	\
+    DEF(OACC_PRIVATE)
 
 enum ifn_unique_kind {
 #define DEF(X) IFN_UNIQUE_##X
@@ -101,17 +105,19 @@ extern void init_internal_fns ();
 
 extern const char *const internal_fn_name_array[];
 
-static inline const char *
+inline const char *
 internal_fn_name (enum internal_fn fn)
 {
   return internal_fn_name_array[(int) fn];
 }
 
+extern internal_fn lookup_internal_fn (const char *);
+
 /* Return the ECF_* flags for function FN.  */
 
 extern const int internal_fn_flags_array[];
 
-static inline int
+inline int
 internal_fn_flags (enum internal_fn fn)
 {
   return internal_fn_flags_array[(int) fn];
@@ -121,7 +127,7 @@ internal_fn_flags (enum internal_fn fn)
 
 extern GTY(()) const_tree internal_fn_fnspec_array[IFN_LAST + 1];
 
-static inline const_tree
+inline const_tree
 internal_fn_fnspec (enum internal_fn fn)
 {
   return internal_fn_fnspec_array[(int) fn];
@@ -158,6 +164,17 @@ direct_internal_fn_p (internal_fn fn)
   return direct_internal_fn_array[fn].type0 >= -1;
 }
 
+/* Return true if FN is a direct internal function that can be vectorized by
+   converting the return type and all argument types to vectors of the same
+   number of elements.  E.g. we can vectorize an IFN_SQRT on floats as an
+   IFN_SQRT on vectors of N floats.  */
+
+inline bool
+vectorizable_internal_fn_p (internal_fn fn)
+{
+  return direct_internal_fn_array[fn].vectorizable;
+}
+
 /* Return optab information about internal function FN.  Only meaningful
    if direct_internal_fn_p (FN).  */
 
@@ -174,10 +191,70 @@ extern bool direct_internal_fn_supported_p (internal_fn, tree_pair,
 					    optimization_type);
 extern bool direct_internal_fn_supported_p (internal_fn, tree,
 					    optimization_type);
+extern bool direct_internal_fn_supported_p (gcall *, optimization_type);
+
+/* Return true if FN is supported for types TYPE0 and TYPE1 when the
+   optimization type is OPT_TYPE.  The types are those associated with
+   the "type0" and "type1" fields of FN's direct_internal_fn_info
+   structure.  */
+
+inline bool
+direct_internal_fn_supported_p (internal_fn fn, tree type0, tree type1,
+				optimization_type opt_type)
+{
+  return direct_internal_fn_supported_p (fn, tree_pair (type0, type1),
+					 opt_type);
+}
+
+extern bool commutative_binary_fn_p (internal_fn);
+extern bool commutative_ternary_fn_p (internal_fn);
+extern int first_commutative_argument (internal_fn);
+extern bool associative_binary_fn_p (internal_fn);
+
 extern bool set_edom_supported_p (void);
 
+extern internal_fn get_conditional_internal_fn (tree_code);
+extern internal_fn get_conditional_internal_fn (internal_fn);
+extern tree_code conditional_internal_fn_code (internal_fn);
+extern internal_fn get_unconditional_internal_fn (internal_fn);
+extern bool can_interpret_as_conditional_op_p (gimple *, tree *,
+					       tree_code *, tree (&)[3],
+					       tree *);
+
+extern bool internal_load_fn_p (internal_fn);
+extern bool internal_store_fn_p (internal_fn);
+extern bool internal_gather_scatter_fn_p (internal_fn);
+extern int internal_fn_mask_index (internal_fn);
+extern int internal_fn_stored_value_index (internal_fn);
+extern bool internal_gather_scatter_fn_supported_p (internal_fn, tree,
+						    tree, tree, int);
+extern bool internal_check_ptrs_fn_supported_p (internal_fn, tree,
+						poly_uint64, unsigned int);
+#define VECT_PARTIAL_BIAS_UNSUPPORTED 127
+
+extern signed char internal_len_load_store_bias (internal_fn ifn,
+						 machine_mode);
+
+extern void expand_addsub_overflow (location_t, tree_code, tree, tree, tree,
+				    bool, bool, bool, bool, tree *);
 extern void expand_internal_call (gcall *);
 extern void expand_internal_call (internal_fn, gcall *);
 extern void expand_PHI (internal_fn, gcall *);
+extern void expand_SHUFFLEVECTOR (internal_fn, gcall *);
+extern void expand_SPACESHIP (internal_fn, gcall *);
+extern void expand_TRAP (internal_fn, gcall *);
+extern void expand_ASSUME (internal_fn, gcall *);
+extern void expand_MASK_CALL (internal_fn, gcall *);
+
+extern bool vectorized_internal_fn_supported_p (internal_fn, tree);
+
+enum {
+  ATOMIC_OP_FETCH_CMP_0_EQ = 0,
+  ATOMIC_OP_FETCH_CMP_0_NE = 1,
+  ATOMIC_OP_FETCH_CMP_0_LT = 2,
+  ATOMIC_OP_FETCH_CMP_0_LE = 3,
+  ATOMIC_OP_FETCH_CMP_0_GT = 4,
+  ATOMIC_OP_FETCH_CMP_0_GE = 5
+};
 
 #endif

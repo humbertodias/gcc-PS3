@@ -1,5 +1,5 @@
 /* Target macros for riscv*-elf targets.
-   Copyright (C) 1994-2017 Free Software Foundation, Inc.
+   Copyright (C) 1994-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -18,13 +18,18 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #define LINK_SPEC "\
--melf" XLEN_SPEC "lriscv \
+-melf" XLEN_SPEC DEFAULT_ENDIAN_SPEC "riscv \
+%{mno-relax:--no-relax} \
+%{mbig-endian:-EB} \
+%{mlittle-endian:-EL} \
 %{shared}"
 
 /* Link against Newlib libraries, because the ELF backend assumes Newlib.
    Handle the circular dependence between libc and libgloss. */
 #undef  LIB_SPEC
-#define LIB_SPEC "--start-group -lc -lgloss --end-group"
+#define LIB_SPEC \
+  "--start-group -lc %{!specs=nosys.specs:-lgloss} --end-group " \
+  "%{!nostartfiles:%{!nodefaultlibs:%{!nolibc:%{!nostdlib:%:riscv_multi_lib_check()}}}}"
 
 #undef  STARTFILE_SPEC
 #define STARTFILE_SPEC "crt0%O%s crtbegin%O%s"
@@ -32,4 +37,4 @@ along with GCC; see the file COPYING3.  If not see
 #undef  ENDFILE_SPEC
 #define ENDFILE_SPEC "crtend%O%s"
 
-#define NO_IMPLICIT_EXTERN_C 1
+#define RISCV_USE_CUSTOMISED_MULTI_LIB select_by_abi_arch_cmodel

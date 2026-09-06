@@ -1,5 +1,5 @@
 /* Definitions for SOM assembler support.
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -17,20 +17,9 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-/* So we can conditionalize small amounts of code in pa.c or pa.md.  */
+/* So we can conditionalize small amounts of code in pa.cc or pa.md.  */
 #undef TARGET_SOM
 #define TARGET_SOM 1
-
-/* We do not use BINCL stabs in SOM.
-   ??? If it does not hurt, we probably should to avoid useless divergence
-   from other embedded stabs implementations.  */
-#undef DBX_USE_BINCL
-
-#define DBX_LINES_FUNCTION_RELATIVE 1
-
-/* gdb needs a null N_SO at the end of each file for scattered loading.  */
-
-#define DBX_OUTPUT_NULL_N_SO_AT_MAIN_SOURCE_FILE_END
 
 /* HPUX has a program 'chatr' to list the dependencies of dynamically
    linked executables and shared libraries.  */
@@ -47,32 +36,29 @@ along with GCC; see the file COPYING3.  If not see
 do {								\
   static int in_shlib_list = 0;					\
   while (*PTR == ' ') PTR++;					\
-  if (strncmp (PTR, "shared library list:",			\
-	       sizeof ("shared library list:") - 1) == 0)	\
+  if (startswith (PTR, "shared library list:"))			\
     {								\
       PTR = 0;							\
       in_shlib_list = 1;					\
     }								\
-  else if (strncmp (PTR, "shared library binding:",		\
-		    sizeof ("shared library binding:") - 1) == 0)\
+  else if (startswith (PTR, "shared library binding:"))		\
     {								\
       PTR = 0;							\
       in_shlib_list = 0;					\
     }								\
-  else if (strncmp (PTR, "static branch prediction disabled",	\
-		    sizeof ("static branch prediction disabled") - 1) == 0)\
+  else if (startswith (PTR, "static branch prediction disabled")) \
     {								\
       PTR = 0;							\
       in_shlib_list = 0;					\
     }								\
   else if (in_shlib_list					\
-	   &&  strncmp (PTR, "dynamic", sizeof ("dynamic") - 1) == 0) \
+	   && startswith (PTR, "dynamic"))			\
     {								\
       PTR += sizeof ("dynamic") - 1;				\
       while (*p == ' ') PTR++;					\
     }								\
   else if (in_shlib_list					\
-	   && strncmp (PTR, "static", sizeof ("static") - 1) == 0) \
+	   && startswith (PTR, "static"))			\
     {								\
       PTR += sizeof ("static") - 1;				\
       while (*p == ' ') PTR++;					\
@@ -98,8 +84,8 @@ do {								\
 
 
 #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL) \
-    do { tree fntype = TREE_TYPE (TREE_TYPE (DECL));			\
-	 tree tree_type = TREE_TYPE (DECL);				\
+    do { tree tree_type = TREE_TYPE (DECL);				\
+	 tree fntype = TREE_TYPE (tree_type);				\
 	 tree parm;							\
 	 int i;								\
 	 if (TREE_PUBLIC (DECL) || TARGET_GAS)				\
@@ -119,11 +105,13 @@ do {								\
 	     for (parm = DECL_ARGUMENTS (DECL), i = 0; parm && i < 4;	\
 		  parm = DECL_CHAIN (parm))				\
 	       {							\
-		 if (TYPE_MODE (DECL_ARG_TYPE (parm)) == SFmode		\
-		     && ! TARGET_SOFT_FLOAT)				\
+		 tree type = DECL_ARG_TYPE (parm);			\
+		 machine_mode mode = TYPE_MODE (type);			\
+		 if (!AGGREGATE_TYPE_P (type)				\
+		     && mode == SFmode && ! TARGET_SOFT_FLOAT)		\
 		   fprintf (FILE, ",ARGW%d=FR", i++);			\
-		 else if (TYPE_MODE (DECL_ARG_TYPE (parm)) == DFmode	\
-			  && ! TARGET_SOFT_FLOAT)			\
+		 else if (!AGGREGATE_TYPE_P (type)			\
+			  && mode == DFmode && ! TARGET_SOFT_FLOAT)	\
 		   {							\
 		     if (i <= 2)					\
 		       {						\
@@ -135,13 +123,10 @@ do {								\
 		   }							\
 		 else							\
 		   {							\
-		     int arg_size =					\
-		       FUNCTION_ARG_SIZE (TYPE_MODE (DECL_ARG_TYPE (parm)),\
-					  DECL_ARG_TYPE (parm));	\
+		     int arg_size = pa_function_arg_size (mode, type);	\
 		     /* Passing structs by invisible reference uses	\
 			one general register.  */			\
-		     if (arg_size > 2					\
-			 || TREE_ADDRESSABLE (DECL_ARG_TYPE (parm)))	\
+		     if (arg_size > 2 || TREE_ADDRESSABLE (type))	\
 		       arg_size = 1;					\
 		     if (arg_size == 2 && i <= 2)			\
 		       {						\
@@ -161,9 +146,13 @@ do {								\
 		 for (; i < 4; i++)					\
 		   fprintf (FILE, ",ARGW%d=GR", i);			\
 	       }							\
-	     if (TYPE_MODE (fntype) == DFmode && ! TARGET_SOFT_FLOAT)	\
+	     if (!AGGREGATE_TYPE_P (fntype)				\
+		 && TYPE_MODE (fntype) == DFmode			\
+		 && ! TARGET_SOFT_FLOAT)				\
 	       fputs (DFMODE_RETURN_STRING, FILE);			\
-	     else if (TYPE_MODE (fntype) == SFmode && ! TARGET_SOFT_FLOAT) \
+	     else if (!AGGREGATE_TYPE_P (fntype)			\
+		      && TYPE_MODE (fntype) == SFmode			\
+		      && ! TARGET_SOFT_FLOAT)				\
 	       fputs (SFMODE_RETURN_STRING, FILE);			\
 	     else if (fntype != void_type_node)				\
 	       fputs (",RTNVAL=GR", FILE);				\
@@ -274,7 +263,7 @@ do {						\
 /* If GAS supports weak, we can support weak when we have working linker
    support for secondary definitions and are generating code for GAS.
    This is primarily for one-only support as SOM doesn't allow undefined
-   weak symbols.  */
+   weak symbols or weak aliases.  */
 #ifdef HAVE_GAS_WEAK
 #define TARGET_SUPPORTS_WEAK (TARGET_SOM_SDEF && TARGET_GAS)
 #else
@@ -325,12 +314,43 @@ do {						\
    be used to remove dead procedures.  Thus, support for named sections
    is not needed and in previous testing caused problems with various
    HP tools.  */
-#define ASM_WEAKEN_LABEL(FILE,NAME) \
-  do { fputs ("\t.weak\t", FILE);				\
-       assemble_name (FILE, NAME);				\
-       fputc ('\n', FILE);					\
-       targetm.asm_out.globalize_label (FILE, NAME);		\
-  } while (0)
+#if defined HAVE_GAS_WEAK
+#define ASM_WEAKEN_DECL(FILE,DECL,NAME,VALUE) \
+  do									\
+    {									\
+      if ((VALUE) != NULL)						\
+	error_at (DECL_SOURCE_LOCATION (DECL),				\
+		  "weak aliases are not supported");			\
+      fputs ("\t.weak\t", FILE);					\
+      assemble_name (FILE, NAME);					\
+      fputc ('\n', FILE);						\
+									\
+      /* Import external objects.  */					\
+      if (DECL_EXTERNAL (DECL))						\
+	{								\
+	  fputs ("\t.IMPORT ", FILE);					\
+	  assemble_name (FILE, NAME);					\
+	  if (TREE_CODE (DECL) == FUNCTION_DECL)			\
+	    fputs (",CODE\n", FILE);					\
+	  else								\
+	    fputs (",DATA\n", FILE);					\
+	}								\
+      /* Functions are globalized by ASM_DECLARE_FUNCTION_NAME.  */	\
+      else if (TREE_CODE (DECL) != FUNCTION_DECL)			\
+	{								\
+	  fputs ("\t.EXPORT ", FILE);					\
+	  assemble_name (FILE, NAME);					\
+	  fputs (",DATA\n", FILE);					\
+	}								\
+    }									\
+  while (0)
+#endif
+
+/* Although gas accepts .weakref, it doesn't provide the correct symbol
+   type for function references.  For now, we use ASM_WEAKEN_DECL instead.
+   We have to undefine HAVE_GAS_WEAKREF to prevent default.h from defining
+   ASM_OUTPUT_WEAKREF.  */
+#undef HAVE_GAS_WEAKREF
 
 /* We can't handle weak aliases, and therefore can't support pragma weak.
    Suppress the use of pragma weak in gthr-dce.h and gthr-posix.h.  */

@@ -1,5 +1,6 @@
 /* { dg-do compile } */
 /* { dg-options "-O2 -fdump-tree-dse-details -fexceptions -fnon-call-exceptions -fno-isolate-erroneous-paths-dereference" } */
+/* { dg-require-effective-target exceptions } */
 
 
 int foo (int *p, int b)
@@ -17,4 +18,5 @@ int foo (int *p, int b)
 /* { dg-final { scan-tree-dump-not "Deleted dead store" "dse1"} } */
 /* { dg-final { scan-tree-dump-not "Deleted dead store" "dse2"} } */
 /* { dg-final { scan-tree-dump-not "Deleted dead store" "dse3"} } */
+/* { dg-final { scan-tree-dump-not "Deleted dead store" "dse5"} } */
 

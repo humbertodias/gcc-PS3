@@ -1,5 +1,5 @@
 /* Special implementation of the SPREAD intrinsic
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2023 Free Software Foundation, Inc.
    Contributed by Thomas Koenig <tkoenig@gcc.gnu.org>, based on
    spread_generic.c written by Paul Brook <paul@nowt.org>
 
@@ -56,6 +56,8 @@ spread_r8 (gfc_array_r8 *ret, const gfc_array_r8 *source,
 
   srank = GFC_DESCRIPTOR_RANK(source);
 
+  sstride[0] = 0; /* Avoid warnings if not initialized.  */
+  
   rrank = srank + 1;
   if (rrank > GFC_MAX_DIMENSIONS)
     runtime_error ("return rank too large in spread()");
@@ -72,7 +74,8 @@ spread_r8 (gfc_array_r8 *ret, const gfc_array_r8 *source,
 
       /* The front end has signalled that we need to populate the
 	 return array descriptor.  */
-      ret->dtype = (source->dtype & ~GFC_DTYPE_RANK_MASK) | rrank;
+      ret->dtype.rank = rrank;
+
       dim = 0;
       rs = 1;
       for (n = 0; n < rrank; n++)
@@ -227,10 +230,8 @@ spread_r8 (gfc_array_r8 *ret, const gfc_array_r8 *source,
 
 void
 spread_scalar_r8 (gfc_array_r8 *ret, const GFC_REAL_8 *source,
-			const index_type along, const index_type pncopies)
+			const index_type along, const index_type ncopies)
 {
-  int n;
-  int ncopies = pncopies;
   GFC_REAL_8 * restrict dest;
   index_type stride;
 
@@ -256,7 +257,7 @@ spread_scalar_r8 (gfc_array_r8 *ret, const GFC_REAL_8 *source,
   dest = ret->base_addr;
   stride = GFC_DESCRIPTOR_STRIDE(ret,0);
 
-  for (n = 0; n < ncopies; n++)
+  for (index_type n = 0; n < ncopies; n++)
     {
       *dest = *source;
       dest += stride;

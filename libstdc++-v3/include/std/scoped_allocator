@@ -1,6 +1,6 @@
 // <scoped_allocator> -*- C++ -*-
 
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -35,9 +35,13 @@
 # include <bits/c++0x_warning.h>
 #else
 
-#include <utility>
 #include <tuple>
 #include <bits/alloc_traits.h>
+#include <bits/stl_pair.h>
+#include <bits/uses_allocator.h>
+#if __cplusplus > 201703L
+# include <bits/uses_allocator_args.h>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -48,6 +52,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * @{
    */
 
+  template<typename _OuterAlloc, typename... _InnerAllocs>
+    class scoped_allocator_adaptor;
+
+  /// @cond undocumented
+
   template<typename _Alloc>
     using __outer_allocator_t
       = decltype(std::declval<_Alloc>().outer_allocator());
@@ -56,7 +65,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct __outermost_type
     {
       using type = _Alloc;
-      static type& _S_outermost(_Alloc& __a) { return __a; }
+      static type& _S_outermost(_Alloc& __a) noexcept { return __a; }
     };
 
   template<typename _Alloc>
@@ -70,17 +79,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       >;
 
       static typename __base::type&
-      _S_outermost(_Alloc& __a)
+      _S_outermost(_Alloc& __a) noexcept
       { return __base::_S_outermost(__a.outer_allocator()); }
     };
 
+  // Implementation of the OUTERMOST pseudofunction
   template<typename _Alloc>
     inline typename __outermost_type<_Alloc>::type&
     __outermost(_Alloc& __a)
     { return __outermost_type<_Alloc>::_S_outermost(__a); }
-
-  template<typename _OuterAlloc, typename... _InnerAllocs>
-    class scoped_allocator_adaptor;
 
   template<typename...>
     struct __inner_type_impl;
@@ -97,11 +104,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __inner_type_impl& operator=(__inner_type_impl&&) = default;
 
       template<typename _Alloc>
-      __inner_type_impl(const __inner_type_impl<_Alloc>& __other)
+      __inner_type_impl(const __inner_type_impl<_Alloc>& __other) noexcept
       { }
 
       template<typename _Alloc>
-      __inner_type_impl(__inner_type_impl<_Alloc>&& __other)
+      __inner_type_impl(__inner_type_impl<_Alloc>&& __other) noexcept
       { }
 
       __type&
@@ -130,16 +137,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __inner_type_impl& operator=(__inner_type_impl&&) = default;
 
       template<typename... _Allocs>
-      __inner_type_impl(const __inner_type_impl<_Allocs...>& __other)
+      __inner_type_impl(const __inner_type_impl<_Allocs...>& __other) noexcept
       : _M_inner(__other._M_inner) { }
 
       template<typename... _Allocs>
-      __inner_type_impl(__inner_type_impl<_Allocs...>&& __other)
+      __inner_type_impl(__inner_type_impl<_Allocs...>&& __other) noexcept
       : _M_inner(std::move(__other._M_inner)) { }
 
     template<typename... _Args>
       explicit
-      __inner_type_impl(_Args&&... __args)
+      __inner_type_impl(_Args&&... __args) noexcept
       : _M_inner(std::forward<_Args>(__args)...) { }
 
       __type&
@@ -163,7 +170,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __type _M_inner;
     };
 
-  /// Primary class template.
+  /// @endcond
+
+  /// An adaptor to recursively pass an allocator to the objects it constructs
   template<typename _OuterAlloc, typename... _InnerAllocs>
     class scoped_allocator_adaptor
     : public _OuterAlloc
@@ -187,6 +196,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	using __outermost_alloc_traits
 	  = allocator_traits<typename __outermost_type<_Alloc>::type>;
 
+#if ! __cpp_lib_make_obj_using_allocator
       template<typename _Tp, typename... _Args>
         void
         _M_construct(__uses_alloc0, _Tp* __p, _Args&&... __args)
@@ -218,6 +228,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			       std::forward<_Args>(__args)...,
 			       inner_allocator());
         }
+#endif // ! make_obj_using_allocator
 
       template<typename _Alloc>
         static _Alloc
@@ -240,6 +251,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         using _Constructible = typename enable_if<
             is_constructible<_OuterAlloc, _Alloc>::value
           >::type;
+
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2975. Missing case for pair construction in scoped [...] allocators
+      template<typename _Tp>
+	struct __not_pair { using type = void; };
+
+      template<typename _Tp, typename _Up>
+	struct __not_pair<pair<_Tp, _Up>> { };
 
     public:
       typedef _OuterAlloc                       outer_allocator_type;
@@ -288,31 +307,32 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Outer2, typename = _Constructible<_Outer2>>
         scoped_allocator_adaptor(_Outer2&& __outer,
-                                 const _InnerAllocs&... __inner)
+                                 const _InnerAllocs&... __inner) noexcept
         : _OuterAlloc(std::forward<_Outer2>(__outer)),
           _M_inner(__inner...)
         { }
 
-      scoped_allocator_adaptor(const scoped_allocator_adaptor& __other)
+      scoped_allocator_adaptor(const scoped_allocator_adaptor& __other) noexcept
       : _OuterAlloc(__other.outer_allocator()),
 	_M_inner(__other._M_inner)
       { }
 
-      scoped_allocator_adaptor(scoped_allocator_adaptor&& __other)
+      scoped_allocator_adaptor(scoped_allocator_adaptor&& __other) noexcept
       : _OuterAlloc(std::move(__other.outer_allocator())),
 	_M_inner(std::move(__other._M_inner))
       { }
 
       template<typename _Outer2, typename = _Constructible<const _Outer2&>>
         scoped_allocator_adaptor(
-            const scoped_allocator_adaptor<_Outer2, _InnerAllocs...>& __other)
+	  const scoped_allocator_adaptor<_Outer2, _InnerAllocs...>& __other
+	) noexcept
         : _OuterAlloc(__other.outer_allocator()),
           _M_inner(__other._M_inner)
         { }
 
       template<typename _Outer2, typename = _Constructible<_Outer2>>
         scoped_allocator_adaptor(
-            scoped_allocator_adaptor<_Outer2, _InnerAllocs...>&& __other)
+	  scoped_allocator_adaptor<_Outer2, _InnerAllocs...>&& __other) noexcept
         : _OuterAlloc(std::move(__other.outer_allocator())),
           _M_inner(std::move(__other._M_inner))
         { }
@@ -323,38 +343,46 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       scoped_allocator_adaptor&
       operator=(scoped_allocator_adaptor&&) = default;
 
-      inner_allocator_type& inner_allocator() noexcept
+      inner_allocator_type&
+      inner_allocator() noexcept
       { return _M_inner._M_get(this); }
 
-      const inner_allocator_type& inner_allocator() const noexcept
+      const inner_allocator_type&
+      inner_allocator() const noexcept
       { return _M_inner._M_get(this); }
 
-      outer_allocator_type& outer_allocator() noexcept
+      outer_allocator_type&
+      outer_allocator() noexcept
       { return static_cast<_OuterAlloc&>(*this); }
 
-      const outer_allocator_type& outer_allocator() const noexcept
+      const outer_allocator_type&
+      outer_allocator() const noexcept
       { return static_cast<const _OuterAlloc&>(*this); }
 
-      pointer allocate(size_type __n)
+      _GLIBCXX_NODISCARD pointer
+      allocate(size_type __n)
       { return __traits::allocate(outer_allocator(), __n); }
 
-      pointer allocate(size_type __n, const_void_pointer __hint)
+      _GLIBCXX_NODISCARD pointer
+      allocate(size_type __n, const_void_pointer __hint)
       { return __traits::allocate(outer_allocator(), __n, __hint); }
 
-      void deallocate(pointer __p, size_type __n)
+      void deallocate(pointer __p, size_type __n) noexcept
       { return __traits::deallocate(outer_allocator(), __p, __n); }
 
       size_type max_size() const
       { return __traits::max_size(outer_allocator()); }
 
+#if ! __cpp_lib_make_obj_using_allocator
       template<typename _Tp, typename... _Args>
-        void construct(_Tp* __p, _Args&&... __args)
-        {
-          auto& __inner = inner_allocator();
-          auto __use_tag
-            = __use_alloc<_Tp, inner_allocator_type, _Args...>(__inner);
-          _M_construct(__use_tag, __p, std::forward<_Args>(__args)...);
-        }
+	typename __not_pair<_Tp>::type
+	construct(_Tp* __p, _Args&&... __args)
+	{
+	  auto& __inner = inner_allocator();
+	  auto __use_tag
+	    = std::__use_alloc<_Tp, inner_allocator_type, _Args...>(__inner);
+	  _M_construct(__use_tag, __p, std::forward<_Args>(__args)...);
+	}
 
       template<typename _T1, typename _T2, typename... _Args1,
 	       typename... _Args2>
@@ -366,9 +394,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  // 2203.  wrong argument types for piecewise construction
 	  auto& __inner = inner_allocator();
 	  auto __x_use_tag
-	    = __use_alloc<_T1, inner_allocator_type, _Args1...>(__inner);
+	    = std::__use_alloc<_T1, inner_allocator_type, _Args1...>(__inner);
 	  auto __y_use_tag
-	    = __use_alloc<_T2, inner_allocator_type, _Args2...>(__inner);
+	    = std::__use_alloc<_T2, inner_allocator_type, _Args2...>(__inner);
 	  typename _Build_index_tuple<sizeof...(_Args1)>::__type __x_indices;
 	  typename _Build_index_tuple<sizeof...(_Args2)>::__type __y_indices;
 	  typedef __outermost_alloc_traits<scoped_allocator_adaptor> _O_traits;
@@ -408,6 +436,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		    std::forward_as_tuple(std::forward<_Up>(__x.first)),
 		    std::forward_as_tuple(std::forward<_Vp>(__x.second)));
 	}
+#else // make_obj_using_allocator
+      template<typename _Tp, typename... _Args>
+	__attribute__((__nonnull__))
+	void
+	construct(_Tp* __p, _Args&&... __args)
+	{
+	  typedef __outermost_alloc_traits<scoped_allocator_adaptor> _O_traits;
+	  std::apply([__p, this](auto&&... __newargs) {
+	      _O_traits::construct(__outermost(*this), __p,
+		  std::forward<decltype(__newargs)>(__newargs)...);
+	  },
+	  uses_allocator_construction_args<_Tp>(inner_allocator(),
+	    std::forward<_Args>(__args)...));
+	}
+#endif
 
       template<typename _Tp>
         void destroy(_Tp* __p)
@@ -430,6 +473,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                  const scoped_allocator_adaptor<_OutA2, _InA...>& __b) noexcept;
 
     private:
+#if ! __cpp_lib_make_obj_using_allocator
       template<typename _Ind, typename... _Args>
 	tuple<_Args&&...>
 	_M_construct_p(__uses_alloc0, _Ind, tuple<_Args...>& __t)
@@ -452,8 +496,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	{
 	  return { std::get<_Ind>(std::move(__t))..., inner_allocator() };
 	}
+#endif // ! make_obj_using_allocator
     };
 
+  /// @related std::scoped_allocator_adaptor
   template <typename _OutA1, typename _OutA2, typename... _InA>
     inline bool
     operator==(const scoped_allocator_adaptor<_OutA1, _InA...>& __a,
@@ -463,11 +509,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
           && __a._M_inner == __b._M_inner;
     }
 
+#if __cpp_impl_three_way_comparison < 201907L
+  /// @related std::scoped_allocator_adaptor
   template <typename _OutA1, typename _OutA2, typename... _InA>
     inline bool
     operator!=(const scoped_allocator_adaptor<_OutA1, _InA...>& __a,
                const scoped_allocator_adaptor<_OutA2, _InA...>& __b) noexcept
     { return !(__a == __b); }
+#endif
 
   /// @}
 

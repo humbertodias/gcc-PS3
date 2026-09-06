@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1998-2014, Free Software Foundation, Inc.         --
+--          Copyright (C) 1998-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,25 +23,29 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;    use Atree;
-with Einfo;    use Einfo;
-with Elists;   use Elists;
-with Exp_Ch7;  use Exp_Ch7;
-with Exp_Ch9;  use Exp_Ch9;
-with Exp_Tss;  use Exp_Tss;
-with Exp_Util; use Exp_Util;
-with Nmake;    use Nmake;
-with Namet;    use Namet;
-with Nlists;   use Nlists;
-with Rtsfind;  use Rtsfind;
-with Sem;      use Sem;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Util; use Sem_Util;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
-with Stand;    use Stand;
-with Stringt;  use Stringt;
-with Tbuild;   use Tbuild;
+with Atree;          use Atree;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Elists;         use Elists;
+with Exp_Ch7;        use Exp_Ch7;
+with Exp_Ch9;        use Exp_Ch9;
+with Exp_Tss;        use Exp_Tss;
+with Exp_Util;       use Exp_Util;
+with Nmake;          use Nmake;
+with Namet;          use Namet;
+with Nlists;         use Nlists;
+with Rtsfind;        use Rtsfind;
+with Sem;            use Sem;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Util;       use Sem_Util;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Stringt;        use Stringt;
+with Tbuild;         use Tbuild;
 
 package body Exp_Smem is
 
@@ -82,7 +86,7 @@ package body Exp_Smem is
 
    function Build_Shared_Var_Proc_Call
      (Loc : Source_Ptr;
-      E   : Node_Id;
+      E   : Entity_Id;
       N   : Name_Id) return Node_Id;
    --  Build a call to support procedure N for shared object E (provided by the
    --  instance of System.Shared_Storage.Shared_Var_Procs associated to E).
@@ -207,7 +211,7 @@ package body Exp_Smem is
 
       else
          Insert_Action (N, Vde);
-         Establish_Transient_Scope (N, Sec_Stack => False);
+         Establish_Transient_Scope (N, Manage_Sec_Stack => False);
       end if;
 
       --  Mark object as locked in the current (transient) scope
@@ -255,13 +259,15 @@ package body Exp_Smem is
    ---------------------
 
    procedure Add_Write_After (N : Node_Id) is
-      Loc : constant Source_Ptr := Sloc (N);
       Ent : constant Entity_Id  := Entity (N);
+      Loc : constant Source_Ptr := Sloc (N);
       Par : constant Node_Id    := Insert_Node;
+
    begin
       if Present (Shared_Var_Procs_Instance (Ent)) then
          if Nkind (Insert_Node) = N_Function_Call then
-            Establish_Transient_Scope (Insert_Node, Sec_Stack => False);
+            Establish_Transient_Scope (Insert_Node, Manage_Sec_Stack => False);
+
             Store_After_Actions_In_Scope (New_List (
               Build_Shared_Var_Proc_Call (Loc, Ent, Name_Write)));
          else
@@ -370,7 +376,7 @@ package body Exp_Smem is
          return False;
 
       else
-         if Ekind_In (Formal, E_Out_Parameter, E_In_Out_Parameter) then
+         if Ekind (Formal) in E_Out_Parameter | E_In_Out_Parameter then
             Insert_Node := Call;
             return True;
          else
@@ -452,7 +458,7 @@ package body Exp_Smem is
 
       begin
          while Next (Nod) /= After loop
-            Nod := Next (Nod);
+            Next (Nod);
          end loop;
 
          return Nod;
@@ -475,7 +481,7 @@ package body Exp_Smem is
             return False;
          end if;
 
-      elsif Nkind_In (P, N_Indexed_Component, N_Selected_Component)
+      elsif Nkind (P) in N_Indexed_Component | N_Selected_Component
         and then N = Prefix (P)
       then
          return On_Lhs_Of_Assignment (P);

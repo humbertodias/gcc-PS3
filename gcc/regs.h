@@ -1,5 +1,5 @@
 /* Define per-register tables for data flow info and register allocation.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -64,7 +64,7 @@ struct regstat_n_sets_and_refs_t
 extern struct regstat_n_sets_and_refs_t *regstat_n_sets_and_refs;
 
 /* Indexed by n, gives number of times (REG n) is used or set.  */
-static inline int
+inline int
 REG_N_REFS (int regno)
 {
   return regstat_n_sets_and_refs[regno].refs;
@@ -75,7 +75,7 @@ REG_N_REFS (int regno)
 #define INC_REG_N_REFS(N,V) (regstat_n_sets_and_refs[N].refs += V)
 
 /* Indexed by n, gives number of times (REG n) is set.  */
-static inline int
+inline int
 REG_N_SETS (int regno)
 {
   return regstat_n_sets_and_refs[regno].sets;
@@ -88,7 +88,7 @@ REG_N_SETS (int regno)
 /* Given a REG, return TRUE if the reg is a PARM_DECL, FALSE otherwise.  */
 extern bool reg_is_parm_p (rtx);
 
-/* Functions defined in regstat.c.  */
+/* Functions defined in regstat.cc.  */
 extern void regstat_init_n_sets_and_refs (void);
 extern void regstat_free_n_sets_and_refs (void);
 extern void regstat_compute_ri (void);
@@ -128,10 +128,13 @@ extern size_t reg_info_p_size;
    or profile driven feedback is available and the function is never executed,
    frequency is always equivalent.  Otherwise rescale the basic block
    frequency.  */
-#define REG_FREQ_FROM_BB(bb) (optimize_function_for_size_p (cfun)	      \
+#define REG_FREQ_FROM_BB(bb) ((optimize_function_for_size_p (cfun)	      \
+			       || !cfun->cfg->count_max.initialized_p ())     \
 			      ? REG_FREQ_MAX				      \
-			      : ((bb)->frequency * REG_FREQ_MAX / BB_FREQ_MAX)\
-			      ? ((bb)->frequency * REG_FREQ_MAX / BB_FREQ_MAX)\
+			      : ((bb)->count.to_frequency (cfun)	      \
+				* REG_FREQ_MAX / BB_FREQ_MAX)		      \
+			      ? ((bb)->count.to_frequency (cfun)	      \
+				 * REG_FREQ_MAX / BB_FREQ_MAX)		      \
 			      : 1)
 
 /* Indexed by N, gives number of insns in which register N dies.
@@ -190,13 +193,7 @@ extern int caller_save_needed;
 /* Select a register mode required for caller save of hard regno REGNO.  */
 #ifndef HARD_REGNO_CALLER_SAVE_MODE
 #define HARD_REGNO_CALLER_SAVE_MODE(REGNO, NREGS, MODE) \
-  choose_hard_reg_mode (REGNO, NREGS, false)
-#endif
-
-/* Registers that get partially clobbered by a call in a given mode.
-   These must not be call used registers.  */
-#ifndef HARD_REGNO_CALL_PART_CLOBBERED
-#define HARD_REGNO_CALL_PART_CLOBBERED(REGNO, MODE) 0
+  choose_hard_reg_mode (REGNO, NREGS, NULL)
 #endif
 
 /* Target-dependent globals.  */
@@ -204,6 +201,9 @@ struct target_regs {
   /* For each starting hard register, the number of consecutive hard
      registers that a given machine mode occupies.  */
   unsigned char x_hard_regno_nregs[FIRST_PSEUDO_REGISTER][MAX_MACHINE_MODE];
+
+  /* The max value found in x_hard_regno_nregs.  */
+  unsigned char x_hard_regno_max_nregs;
 
   /* For each hard register, the widest mode object that it can contain.
      This will be a MODE_INT mode if the register can hold integers.  Otherwise
@@ -238,9 +238,8 @@ extern struct target_regs *this_target_regs;
 #else
 #define this_target_regs (&default_target_regs)
 #endif
-
-#define hard_regno_nregs \
-  (this_target_regs->x_hard_regno_nregs)
+#define hard_regno_max_nregs \
+  (this_target_regs->x_hard_regno_max_nregs)
 #define reg_raw_mode \
   (this_target_regs->x_reg_raw_mode)
 #define have_regs_of_mode \
@@ -256,19 +255,27 @@ extern struct target_regs *this_target_regs;
 #define float_extend_from_mem \
   (this_target_regs->x_float_extend_from_mem)
 
+/* Return the number of hard registers in (reg:MODE REGNO).  */
+
+ALWAYS_INLINE unsigned char
+hard_regno_nregs (unsigned int regno, machine_mode mode)
+{
+  return this_target_regs->x_hard_regno_nregs[regno][mode];
+}
+
 /* Return an exclusive upper bound on the registers occupied by hard
    register (reg:MODE REGNO).  */
 
-static inline unsigned int
+inline unsigned int
 end_hard_regno (machine_mode mode, unsigned int regno)
 {
-  return regno + hard_regno_nregs[regno][(int) mode];
+  return regno + hard_regno_nregs (regno, mode);
 }
 
 /* Add to REGS all the registers required to store a value of mode MODE
    in register REGNO.  */
 
-static inline void
+inline void
 add_to_hard_reg_set (HARD_REG_SET *regs, machine_mode mode,
 		     unsigned int regno)
 {
@@ -282,7 +289,7 @@ add_to_hard_reg_set (HARD_REG_SET *regs, machine_mode mode,
 
 /* Likewise, but remove the registers.  */
 
-static inline void
+inline void
 remove_from_hard_reg_set (HARD_REG_SET *regs, machine_mode mode,
 			  unsigned int regno)
 {
@@ -296,8 +303,8 @@ remove_from_hard_reg_set (HARD_REG_SET *regs, machine_mode mode,
 
 /* Return true if REGS contains the whole of (reg:MODE REGNO).  */
 
-static inline bool
-in_hard_reg_set_p (const HARD_REG_SET regs, machine_mode mode,
+inline bool
+in_hard_reg_set_p (const_hard_reg_set regs, machine_mode mode,
 		   unsigned int regno)
 {
   unsigned int end_regno;
@@ -321,8 +328,8 @@ in_hard_reg_set_p (const HARD_REG_SET regs, machine_mode mode,
 
 /* Return true if (reg:MODE REGNO) includes an element of REGS.  */
 
-static inline bool
-overlaps_hard_reg_set_p (const HARD_REG_SET regs, machine_mode mode,
+inline bool
+overlaps_hard_reg_set_p (const_hard_reg_set regs, machine_mode mode,
 			 unsigned int regno)
 {
   unsigned int end_regno;
@@ -341,7 +348,7 @@ overlaps_hard_reg_set_p (const HARD_REG_SET regs, machine_mode mode,
 /* Like add_to_hard_reg_set, but use a REGNO/NREGS range instead of
    REGNO and MODE.  */
 
-static inline void
+inline void
 add_range_to_hard_reg_set (HARD_REG_SET *regs, unsigned int regno,
 			   int nregs)
 {
@@ -351,7 +358,7 @@ add_range_to_hard_reg_set (HARD_REG_SET *regs, unsigned int regno,
 
 /* Likewise, but remove the registers.  */
 
-static inline void
+inline void
 remove_range_from_hard_reg_set (HARD_REG_SET *regs, unsigned int regno,
 				int nregs)
 {
@@ -361,8 +368,8 @@ remove_range_from_hard_reg_set (HARD_REG_SET *regs, unsigned int regno,
 
 /* Like overlaps_hard_reg_set_p, but use a REGNO/NREGS range instead of
    REGNO and MODE.  */
-static inline bool
-range_overlaps_hard_reg_set_p (const HARD_REG_SET set, unsigned regno,
+inline bool
+range_overlaps_hard_reg_set_p (const_hard_reg_set set, unsigned regno,
 			       int nregs)
 {
   while (nregs-- > 0)
@@ -373,17 +380,13 @@ range_overlaps_hard_reg_set_p (const HARD_REG_SET set, unsigned regno,
 
 /* Like in_hard_reg_set_p, but use a REGNO/NREGS range instead of
    REGNO and MODE.  */
-static inline bool
-range_in_hard_reg_set_p (const HARD_REG_SET set, unsigned regno, int nregs)
+inline bool
+range_in_hard_reg_set_p (const_hard_reg_set set, unsigned regno, int nregs)
 {
   while (nregs-- > 0)
     if (!TEST_HARD_REG_BIT (set, regno + nregs))
       return false;
   return true;
 }
-
-/* Get registers used by given function call instruction.  */
-extern bool get_call_reg_set_usage (rtx_insn *insn, HARD_REG_SET *reg_set,
-				    HARD_REG_SET default_set);
 
 #endif /* GCC_REGS_H */

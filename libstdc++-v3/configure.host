@@ -70,6 +70,9 @@
 #                          additional symbols to export from the shared
 #                          library, when symbol versioning is in use
 #
+#   tmake_file		   A list of machine-description-specific
+#			   makefile fragments.
+#
 #
 # If the defaults will not work for your platform, you need only change the
 # variables that won't work, i.e., you do not need to explicitly set a
@@ -91,6 +94,7 @@ try_cpu=generic
 abi_baseline_subdir_switch=--print-multi-directory
 abi_tweaks_dir="cpu/generic"
 error_constants_dir="os/generic"
+tmake_file=
 
 # HOST-SPECIFIC OVERRIDES
 # Set any CPU-dependent bits.
@@ -206,17 +210,7 @@ case "${host_os}" in
     # Newer versions of AIX only support PowerPC architecture, so use
     # atomic instructions directly.
     os_include_dir="os/aix"
-    ;;
-  aix4.[3456789]*)
-    # We set os_include_dir to os/aix only on AIX 4.3 and newer, but
-    # os/aix/atomicity.h works on earlier versions of AIX 4.*, so we
-    # explicitly duplicate the directory for 4.[<3].
-    os_include_dir="os/aix"
-    atomicity_dir="os/aix"
-    ;;
-  aix4.*)
-    os_include_dir="os/generic"
-    atomicity_dir="os/aix"
+    tmake_file="os/aix/t-aix"
     ;;
   aix*)
     os_include_dir="os/generic"
@@ -230,22 +224,25 @@ case "${host_os}" in
     os_include_dir="os/newlib"
     OPT_LDFLAGS="${OPT_LDFLAGS} \$(lt_host_flags)"
     ;;
-  darwin | darwin[1-7] | darwin[1-7].*)
-    # On Darwin, performance is improved if libstdc++ is single-module.
-    # Up to at least 10.3.7, -flat_namespace is required for proper
-    # treatment of coalesced symbols.
+  darwin[4-7] | darwin[4-7].*)
+    # For earlier Darwin, performance is improved if libstdc++ is
+    # single-module. Up to at least 10.3.7, -flat_namespace is required
+    # for proper treatment of coalesced symbols.
     OPT_LDFLAGS="${OPT_LDFLAGS} -Wl,-single_module -Wl,-flat_namespace"
     os_include_dir="os/bsd/darwin"
     ;;
-  darwin[89] | darwin[89].* | darwin[1-9][0-9]* )
-    # On Darwin, performance is improved if libstdc++ is single-module,
-    # and on 8+ compatibility is better if not -flat_namespace.
+  darwin8 | darwin8.* )
+    # For 8+ compatibility is better if not -flat_namespace.
     OPT_LDFLAGS="${OPT_LDFLAGS} -Wl,-single_module"
     case "${host_cpu}" in
       i[34567]86 | x86_64)
         OPTIMIZE_CXXFLAGS="${OPTIMIZE_CXXFLAGS} -fvisibility-inlines-hidden"
         ;;
     esac
+    os_include_dir="os/bsd/darwin"
+    ;;
+  darwin*)
+    # Post Darwin8, defaults should be sufficient.
     os_include_dir="os/bsd/darwin"
     ;;
   *djgpp*)      # leading * picks up "msdosdjgpp"
@@ -261,7 +258,7 @@ case "${host_os}" in
   linux-musl*)
     os_include_dir="os/generic"
     ;;
-  gnu* | linux* | kfreebsd*-gnu)
+  gnu* | linux* | kfreebsd*-gnu | uclinux*)
     if [ "$uclibc" = "yes" ]; then
       os_include_dir="os/uclibc"
     elif [ "$bionic" = "yes" ]; then
@@ -300,19 +297,13 @@ case "${host_os}" in
     # Use libatomic if necessary and avoid libstdc++ specific atomicity support
     atomicity_dir="cpu/generic/atomicity_builtins"
     ;;
-  solaris2)
-    # This too-vague configuration does not provide enough information
-    # to select a ctype include, and thus os_include_dir is a crap shoot.
-    echo "Please specify the full version of Solaris, ie. solaris2.10 " 1>&2
-    exit 1
-    ;;
-  solaris2.1[0-9])
-    os_include_dir="os/solaris/solaris2.10"
+  solaris2*)
+    os_include_dir="os/solaris"
     ;;
   tpf)
     os_include_dir="os/tpf"
     ;;
-  vxworks)
+  vxworks*)
     os_include_dir="os/vxworks"
     ;;
   *)
@@ -324,7 +315,7 @@ esac
 # Set any OS-dependent and CPU-dependent bits.
 # THIS TABLE IS SORTED.  KEEP IT THAT WAY.
 case "${host}" in
-  *-*-linux*)
+  *-*-linux* | *-*-uclinux*)
     case "${host_cpu}" in
       i[567]86)
         abi_baseline_pair=i486-linux-gnu
@@ -332,6 +323,9 @@ case "${host}" in
       mips64*)
 	abi_baseline_pair=mips64-linux-gnu
 	;;
+      powerpc64le*)
+        abi_baseline_pair=powerpc64le-linux-gnu
+        ;;
       powerpc64*)
         abi_baseline_pair=powerpc64-linux-gnu
         ;;
@@ -340,6 +334,9 @@ case "${host}" in
         ;;
       s390x)
         abi_baseline_pair=s390x-linux-gnu
+        ;;
+      sparc64)
+        abi_baseline_pair=sparc64-linux-gnu
         ;;
       x86_64)
         abi_baseline_pair=x86_64-linux-gnu
@@ -355,7 +352,7 @@ case "${host}" in
         fi
     esac
     case "${host}" in
-      arm*-*-linux-*)
+      arm*-*-linux-* | arm*-*-uclinuxfdpiceabi)
 	port_specific_symbol_files="\$(srcdir)/../config/os/gnu-linux/arm-eabi-extra.ver"
 	;;
     esac
@@ -366,19 +363,8 @@ case "${host}" in
   powerpc*-*-darwin*)
     port_specific_symbol_files="\$(srcdir)/../config/os/bsd/darwin/ppc-extra.ver"
     ;;
-  *-*-solaris2.1[0-9])
-    # On Solaris 10 with Solaris ld, there's no COMDAT support.  GNU ld always
-    # provides it, as does Solaris ld since Solaris 11, leading to different
-    # baselines.
-    case "${host_os}:${with_gnu_ld}" in
-      # with_gnu_ld may either be unset (default) or no (with --without-gnu-ld).
-      solaris2.10: | solaris2.10:no)
-        abi_baseline_pair=solaris2.10
-	;;
-      *)
-        abi_baseline_pair=solaris2.11
-	;;
-    esac
+  *-*-solaris2*)
+    abi_baseline_pair=solaris
     case "${host_cpu}" in
 	i?86 | x86_64)
 	    abi_baseline_pair=i386-${abi_baseline_pair}

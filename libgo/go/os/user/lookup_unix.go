@@ -1,266 +1,236 @@
-// Copyright 2011 The Go Authors. All rights reserved.
+// Copyright 2016 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin dragonfly freebsd !android,linux netbsd openbsd solaris
-// +build cgo
+//go:build (aix || darwin || dragonfly || freebsd || hurd || (js && wasm) || (!android && linux) || netbsd || openbsd || solaris) && (!cgo || osusergo)
 
 package user
 
 import (
-	"fmt"
+	"bufio"
+	"bytes"
+	"errors"
+	"io"
+	"os"
 	"strconv"
 	"strings"
-	"syscall"
-	"unsafe"
 )
 
-// bytePtrToString takes a NUL-terminated array of bytes and convert
-// it to a Go string.
-func bytePtrToString(p *byte) string {
-	a := (*[10000]byte)(unsafe.Pointer(p))
-	i := 0
-	for a[i] != 0 {
-		i++
-	}
-	return string(a[:i])
-}
+const userFile = "/etc/passwd"
 
-func current() (*User, error) {
-	return lookupUnixUid(syscall.Getuid())
-}
+// lineFunc returns a value, an error, or (nil, nil) to skip the row.
+type lineFunc func(line []byte) (v any, err error)
 
-func lookupUser(username string) (*User, error) {
-	var pwd syscall.Passwd
-	var result *syscall.Passwd
-	p := syscall.StringBytePtr(username)
+// readColonFile parses r as an /etc/group or /etc/passwd style file, running
+// fn for each row. readColonFile returns a value, an error, or (nil, nil) if
+// the end of the file is reached without a match.
+//
+// readCols is the minimum number of colon-separated fields that will be passed
+// to fn; in a long line additional fields may be silently discarded.
+func readColonFile(r io.Reader, fn lineFunc, readCols int) (v any, err error) {
+	rd := bufio.NewReader(r)
 
-	buf := alloc(userBuffer)
-	defer buf.free()
+	// Read the file line-by-line.
+	for {
+		var isPrefix bool
+		var wholeLine []byte
 
-	err := retryWithBuffer(buf, func() syscall.Errno {
-		syscall.Entersyscall()
-		rv := libc_getpwnam_r(p,
-			&pwd,
-			buf.ptr,
-			buf.size,
-			&result)
-		syscall.Exitsyscall()
-		if rv != 0 {
-			return syscall.GetErrno()
+		// Read the next line. We do so in chunks (as much as reader's
+		// buffer is able to keep), check if we read enough columns
+		// already on each step and store final result in wholeLine.
+		for {
+			var line []byte
+			line, isPrefix, err = rd.ReadLine()
+
+			if err != nil {
+				// We should return (nil, nil) if EOF is reached
+				// without a match.
+				if err == io.EOF {
+					err = nil
+				}
+				return nil, err
+			}
+
+			// Simple common case: line is short enough to fit in a
+			// single reader's buffer.
+			if !isPrefix && len(wholeLine) == 0 {
+				wholeLine = line
+				break
+			}
+
+			wholeLine = append(wholeLine, line...)
+
+			// Check if we read the whole line (or enough columns)
+			// already.
+			if !isPrefix || bytes.Count(wholeLine, []byte{':'}) >= readCols {
+				break
+			}
 		}
-		return 0
-	})
-	if err != nil {
-		return nil, fmt.Errorf("user: lookup username %s: %v", username, err)
+
+		// There's no spec for /etc/passwd or /etc/group, but we try to follow
+		// the same rules as the glibc parser, which allows comments and blank
+		// space at the beginning of a line.
+		wholeLine = bytes.TrimSpace(wholeLine)
+		if len(wholeLine) == 0 || wholeLine[0] == '#' {
+			continue
+		}
+		v, err = fn(wholeLine)
+		if v != nil || err != nil {
+			return
+		}
+
+		// If necessary, skip the rest of the line
+		for ; isPrefix; _, isPrefix, err = rd.ReadLine() {
+			if err != nil {
+				// We should return (nil, nil) if EOF is reached without a match.
+				if err == io.EOF {
+					err = nil
+				}
+				return nil, err
+			}
+		}
 	}
-	if result == nil {
-		return nil, UnknownUserError(username)
-	}
-	return buildUser(&pwd), err
 }
 
-func lookupUserId(uid string) (*User, error) {
+func matchGroupIndexValue(value string, idx int) lineFunc {
+	var leadColon string
+	if idx > 0 {
+		leadColon = ":"
+	}
+	substr := []byte(leadColon + value + ":")
+	return func(line []byte) (v any, err error) {
+		if !bytes.Contains(line, substr) || bytes.Count(line, colon) < 3 {
+			return
+		}
+		// wheel:*:0:root
+		parts := strings.SplitN(string(line), ":", 4)
+		if len(parts) < 4 || parts[0] == "" || parts[idx] != value ||
+			// If the file contains +foo and you search for "foo", glibc
+			// returns an "invalid argument" error. Similarly, if you search
+			// for a gid for a row where the group name starts with "+" or "-",
+			// glibc fails to find the record.
+			parts[0][0] == '+' || parts[0][0] == '-' {
+			return
+		}
+		if _, err := strconv.Atoi(parts[2]); err != nil {
+			return nil, nil
+		}
+		return &Group{Name: parts[0], Gid: parts[2]}, nil
+	}
+}
+
+func findGroupId(id string, r io.Reader) (*Group, error) {
+	if v, err := readColonFile(r, matchGroupIndexValue(id, 2), 3); err != nil {
+		return nil, err
+	} else if v != nil {
+		return v.(*Group), nil
+	}
+	return nil, UnknownGroupIdError(id)
+}
+
+func findGroupName(name string, r io.Reader) (*Group, error) {
+	if v, err := readColonFile(r, matchGroupIndexValue(name, 0), 3); err != nil {
+		return nil, err
+	} else if v != nil {
+		return v.(*Group), nil
+	}
+	return nil, UnknownGroupError(name)
+}
+
+// returns a *User for a row if that row's has the given value at the
+// given index.
+func matchUserIndexValue(value string, idx int) lineFunc {
+	var leadColon string
+	if idx > 0 {
+		leadColon = ":"
+	}
+	substr := []byte(leadColon + value + ":")
+	return func(line []byte) (v any, err error) {
+		if !bytes.Contains(line, substr) || bytes.Count(line, colon) < 6 {
+			return
+		}
+		// kevin:x:1005:1006::/home/kevin:/usr/bin/zsh
+		parts := strings.SplitN(string(line), ":", 7)
+		if len(parts) < 6 || parts[idx] != value || parts[0] == "" ||
+			parts[0][0] == '+' || parts[0][0] == '-' {
+			return
+		}
+		if _, err := strconv.Atoi(parts[2]); err != nil {
+			return nil, nil
+		}
+		if _, err := strconv.Atoi(parts[3]); err != nil {
+			return nil, nil
+		}
+		u := &User{
+			Username: parts[0],
+			Uid:      parts[2],
+			Gid:      parts[3],
+			Name:     parts[4],
+			HomeDir:  parts[5],
+		}
+		// The pw_gecos field isn't quite standardized. Some docs
+		// say: "It is expected to be a comma separated list of
+		// personal data where the first item is the full name of the
+		// user."
+		u.Name, _, _ = strings.Cut(u.Name, ",")
+		return u, nil
+	}
+}
+
+func findUserId(uid string, r io.Reader) (*User, error) {
 	i, e := strconv.Atoi(uid)
 	if e != nil {
-		return nil, e
+		return nil, errors.New("user: invalid userid " + uid)
 	}
-	return lookupUnixUid(i)
+	if v, err := readColonFile(r, matchUserIndexValue(uid, 2), 6); err != nil {
+		return nil, err
+	} else if v != nil {
+		return v.(*User), nil
+	}
+	return nil, UnknownUserIdError(i)
 }
 
-func lookupUnixUid(uid int) (*User, error) {
-	var pwd syscall.Passwd
-	var result *syscall.Passwd
-
-	buf := alloc(userBuffer)
-	defer buf.free()
-
-	err := retryWithBuffer(buf, func() syscall.Errno {
-		syscall.Entersyscall()
-		rv := libc_getpwuid_r(syscall.Uid_t(uid),
-			&pwd,
-			buf.ptr,
-			buf.size,
-			&result)
-		syscall.Exitsyscall()
-		if rv != 0 {
-			return syscall.GetErrno()
-		}
-		return 0
-	})
-	if err != nil {
-		return nil, fmt.Errorf("user: lookup userid %d: %v", uid, err)
+func findUsername(name string, r io.Reader) (*User, error) {
+	if v, err := readColonFile(r, matchUserIndexValue(name, 0), 6); err != nil {
+		return nil, err
+	} else if v != nil {
+		return v.(*User), nil
 	}
-	if result == nil {
-		return nil, UnknownUserIdError(uid)
-	}
-	return buildUser(&pwd), nil
-}
-
-func buildUser(pwd *syscall.Passwd) *User {
-	u := &User{
-		Uid:      strconv.Itoa(int(pwd.Pw_uid)),
-		Gid:      strconv.Itoa(int(pwd.Pw_gid)),
-		Username: bytePtrToString((*byte)(unsafe.Pointer(pwd.Pw_name))),
-		Name:     bytePtrToString((*byte)(unsafe.Pointer(pwd.Pw_gecos))),
-		HomeDir:  bytePtrToString((*byte)(unsafe.Pointer(pwd.Pw_dir))),
-	}
-	// The pw_gecos field isn't quite standardized. Some docs
-	// say: "It is expected to be a comma separated list of
-	// personal data where the first item is the full name of the
-	// user."
-	if i := strings.Index(u.Name, ","); i >= 0 {
-		u.Name = u.Name[:i]
-	}
-	return u
-}
-
-func currentGroup() (*Group, error) {
-	return lookupUnixGid(syscall.Getgid())
+	return nil, UnknownUserError(name)
 }
 
 func lookupGroup(groupname string) (*Group, error) {
-	var grp syscall.Group
-	var result *syscall.Group
-
-	buf := alloc(groupBuffer)
-	defer buf.free()
-	p := syscall.StringBytePtr(groupname)
-
-	err := retryWithBuffer(buf, func() syscall.Errno {
-		syscall.Entersyscall()
-		rv := libc_getgrnam_r(p,
-			&grp,
-			buf.ptr,
-			buf.size,
-			&result)
-		syscall.Exitsyscall()
-		if rv != 0 {
-			return syscall.GetErrno()
-		}
-		return 0
-	})
+	f, err := os.Open(groupFile)
 	if err != nil {
-		return nil, fmt.Errorf("user: lookup groupname %s: %v", groupname, err)
+		return nil, err
 	}
-	if result == nil {
-		return nil, UnknownGroupError(groupname)
-	}
-	return buildGroup(&grp), nil
+	defer f.Close()
+	return findGroupName(groupname, f)
 }
 
-func lookupGroupId(gid string) (*Group, error) {
-	i, e := strconv.Atoi(gid)
-	if e != nil {
-		return nil, e
-	}
-	return lookupUnixGid(i)
-}
-
-func lookupUnixGid(gid int) (*Group, error) {
-	var grp syscall.Group
-	var result *syscall.Group
-
-	buf := alloc(groupBuffer)
-	defer buf.free()
-
-	err := retryWithBuffer(buf, func() syscall.Errno {
-		syscall.Entersyscall()
-		rv := libc_getgrgid_r(syscall.Gid_t(gid),
-			&grp,
-			buf.ptr,
-			buf.size,
-			&result)
-		syscall.Exitsyscall()
-		if rv != 0 {
-			return syscall.GetErrno()
-		}
-		return 0
-	})
+func lookupGroupId(id string) (*Group, error) {
+	f, err := os.Open(groupFile)
 	if err != nil {
-		return nil, fmt.Errorf("user: lookup groupid %d: %v", gid, err)
+		return nil, err
 	}
-	if result == nil {
-		return nil, UnknownGroupIdError(strconv.Itoa(gid))
+	defer f.Close()
+	return findGroupId(id, f)
+}
+
+func lookupUser(username string) (*User, error) {
+	f, err := os.Open(userFile)
+	if err != nil {
+		return nil, err
 	}
-	return buildGroup(&grp), nil
+	defer f.Close()
+	return findUsername(username, f)
 }
 
-func buildGroup(grp *syscall.Group) *Group {
-	g := &Group{
-		Gid:  strconv.Itoa(int(grp.Gr_gid)),
-		Name: bytePtrToString((*byte)(unsafe.Pointer(grp.Gr_name))),
+func lookupUserId(uid string) (*User, error) {
+	f, err := os.Open(userFile)
+	if err != nil {
+		return nil, err
 	}
-	return g
-}
-
-type bufferKind int
-
-const (
-	userBuffer  = bufferKind(syscall.SC_GETPW_R_SIZE_MAX)
-	groupBuffer = bufferKind(syscall.SC_GETGR_R_SIZE_MAX)
-)
-
-func (k bufferKind) initialSize() syscall.Size_t {
-	sz, _ := syscall.Sysconf(int(k))
-	if sz == -1 {
-		// DragonFly and FreeBSD do not have _SC_GETPW_R_SIZE_MAX.
-		// Additionally, not all Linux systems have it, either. For
-		// example, the musl libc returns -1.
-		return 1024
-	}
-	if !isSizeReasonable(int64(sz)) {
-		// Truncate.  If this truly isn't enough, retryWithBuffer will error on the first run.
-		return maxBufferSize
-	}
-	return syscall.Size_t(sz)
-}
-
-type memBuffer struct {
-	ptr  *byte
-	size syscall.Size_t
-}
-
-func alloc(kind bufferKind) *memBuffer {
-	sz := kind.initialSize()
-	b := make([]byte, sz)
-	return &memBuffer{
-		ptr:  &b[0],
-		size: sz,
-	}
-}
-
-func (mb *memBuffer) resize(newSize syscall.Size_t) {
-	b := make([]byte, newSize)
-	mb.ptr = &b[0]
-	mb.size = newSize
-}
-
-func (mb *memBuffer) free() {
-	mb.ptr = nil
-}
-
-// retryWithBuffer repeatedly calls f(), increasing the size of the
-// buffer each time, until f succeeds, fails with a non-ERANGE error,
-// or the buffer exceeds a reasonable limit.
-func retryWithBuffer(buf *memBuffer, f func() syscall.Errno) error {
-	for {
-		errno := f()
-		if errno == 0 {
-			return nil
-		} else if errno != syscall.ERANGE {
-			return errno
-		}
-		newSize := buf.size * 2
-		if !isSizeReasonable(int64(newSize)) {
-			return fmt.Errorf("internal buffer exceeds %d bytes", maxBufferSize)
-		}
-		buf.resize(newSize)
-	}
-}
-
-const maxBufferSize = 1 << 20
-
-func isSizeReasonable(sz int64) bool {
-	return sz > 0 && sz <= maxBufferSize
+	defer f.Close()
+	return findUserId(uid, f)
 }

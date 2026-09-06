@@ -1,4 +1,4 @@
-.. Copyright (C) 2014-2017 Free Software Foundation, Inc.
+.. Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Originally contributed by David Malcolm <dmalcolm@redhat.com>
 
    This is free software: you can redistribute it and/or modify it
@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see
-   <http://www.gnu.org/licenses/>.
+   <https://www.gnu.org/licenses/>.
 
 .. default-domain:: c
 
@@ -23,12 +23,12 @@ Objects
 .. type:: gcc_jit_object
 
 Almost every entity in the API (with the exception of
-:c:type:`gcc_jit_context *` and :c:type:`gcc_jit_result *`) is a
-"contextual" object, a :c:type:`gcc_jit_object *`
+:c:expr:`gcc_jit_context *` and :c:expr:`gcc_jit_result *`) is a
+"contextual" object, a :c:expr:`gcc_jit_object *`
 
 A JIT object:
 
-  * is associated with a :c:type:`gcc_jit_context *`.
+  * is associated with a :c:expr:`gcc_jit_context *`.
 
   * is automatically cleaned up for you when its context is released so
     you don't need to manually track and cleanup all objects, just the
@@ -48,6 +48,7 @@ looks like this::
           +- gcc_jit_lvalue
              +- gcc_jit_param
       +- gcc_jit_case
+      +- gcc_jit_extended_asm
 
 There are casting methods for upcasting from subclasses to parent classes.
 For example, :c:func:`gcc_jit_type_as_object`:

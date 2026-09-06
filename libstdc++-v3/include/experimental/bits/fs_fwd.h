@@ -1,6 +1,6 @@
 // Filesystem declarations -*- C++ -*-
 
-// Copyright (C) 2014-2017 Free Software Foundation, Inc.
+// Copyright (C) 2014-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -36,31 +36,34 @@
 
 #include <system_error>
 #include <cstdint>
-#include <chrono>
+#include <bits/chrono.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace experimental
 {
 namespace filesystem
 {
 inline namespace v1
 {
-#if _GLIBCXX_INLINE_VERSION
-inline namespace __7 { }
-#endif
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
-
 #if _GLIBCXX_USE_CXX11_ABI
 inline namespace __cxx11 __attribute__((__abi_tag__ ("cxx11"))) { }
 #endif
 
   /**
-   * @defgroup filesystem Filesystem
+   * @defgroup filesystem-ts Filesystem TS
    * @ingroup experimental
    *
    * Utilities for performing operations on file systems and their components,
    * such as paths, regular files, and directories.
+   *
+   * ISO/IEC TS 18822:2015	C++ File System Technical Specification
+   *
+   * @since C++11
+   *
+   * @remark Link using `-lstdc++fs` to use these types and functions.
    *
    * @{
    */
@@ -74,6 +77,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
   class recursive_directory_iterator;
 _GLIBCXX_END_NAMESPACE_CXX11
 
+  /// Information about free space on a disk
   struct space_info
   {
     uintmax_t capacity;
@@ -81,12 +85,13 @@ _GLIBCXX_END_NAMESPACE_CXX11
     uintmax_t available;
   };
 
+  /// Enumerated type representing the type of a file
   enum class file_type : signed char {
       none = 0, not_found = -1, regular = 1, directory = 2, symlink = 3,
       block = 4, character = 5, fifo = 6, socket = 7, unknown = 8
   };
 
-  /// Bitmask type
+  /// Bitmask type controlling effects of `filesystem::copy`
   enum class copy_options : unsigned short {
       none = 0,
       skip_existing = 1, overwrite_existing = 2, update_existing = 4,
@@ -95,6 +100,8 @@ _GLIBCXX_END_NAMESPACE_CXX11
       directories_only = 64, create_symlinks = 128, create_hard_links = 256
   };
 
+  /// @{
+  /// @relates copy_options
   constexpr copy_options
   operator&(copy_options __x, copy_options __y) noexcept
   {
@@ -137,9 +144,9 @@ _GLIBCXX_END_NAMESPACE_CXX11
   inline copy_options&
   operator^=(copy_options& __x, copy_options __y) noexcept
   { return __x = __x ^ __y; }
+  /// @}
 
-
-  /// Bitmask type
+  /// Bitmask type representing file access permissions
   enum class perms : unsigned {
       none		=  0,
       owner_read	=  0400,
@@ -165,6 +172,8 @@ _GLIBCXX_END_NAMESPACE_CXX11
       symlink_nofollow	= 0x40000
   };
 
+  /// @{
+  /// @relates std::experimental::filesystem::perms
   constexpr perms
   operator&(perms __x, perms __y) noexcept
   {
@@ -207,12 +216,15 @@ _GLIBCXX_END_NAMESPACE_CXX11
   inline perms&
   operator^=(perms& __x, perms __y) noexcept
   { return __x = __x ^ __y; }
+  /// @}
 
-  // Bitmask type
+  /// Bitmask type controlling directory iteration
   enum class directory_options : unsigned char {
       none = 0, follow_directory_symlink = 1, skip_permission_denied = 2
   };
 
+  /// @{
+  /// @relates directory_options
   constexpr directory_options
   operator&(directory_options __x, directory_options __y) noexcept
   {
@@ -255,7 +267,9 @@ _GLIBCXX_END_NAMESPACE_CXX11
   inline directory_options&
   operator^=(directory_options& __x, directory_options __y) noexcept
   { return __x = __x ^ __y; }
+  /// @}
 
+  /// The type used for file timestamps
   using file_time_type = std::chrono::system_clock::time_point;
 
   // operational functions
@@ -266,7 +280,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
 
   bool copy_file(const path& __from, const path& __to, copy_options __option);
   bool copy_file(const path& __from, const path& __to, copy_options __option,
-		 error_code&) noexcept;
+		 error_code&);
 
   path current_path();
 
@@ -281,11 +295,12 @@ _GLIBCXX_END_NAMESPACE_CXX11
   bool is_regular_file(file_status) noexcept;
   bool is_symlink(file_status) noexcept;
 
-  // @} group filesystem
-_GLIBCXX_END_NAMESPACE_VERSION
+  /// @} group filesystem-ts
 } // namespace v1
 } // namespace filesystem
 } // namespace experimental
+
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // C++11

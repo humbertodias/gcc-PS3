@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2017 Free Software Foundation, Inc.
+// Copyright (C) 2016-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -16,6 +16,7 @@
 // <http://www.gnu.org/licenses/>.
 
 // { dg-do run { target c++11 } }
+// { dg-require-effective-target hosted }
 
 #include <utility>
 #include <tuple>
@@ -73,9 +74,37 @@ test03()
   a.deallocate(ptr, 1);
 }
 
+void
+test04()
+{
+  struct X
+  {
+    using allocator_type = std::allocator<int>;
+    X() = default;
+    X(const X&) { throw 1; }
+    X(const X&, const allocator_type&) { }
+  };
+
+  struct Y
+  {
+    using allocator_type = std::allocator<int>;
+    Y() = default;
+    Y(const Y&) = delete;
+    Y(std::allocator_arg_t, const allocator_type&, const Y&) { }
+  };
+
+  using pair_type = std::pair<X, Y>;
+  std::scoped_allocator_adaptor<std::allocator<pair_type>> a;
+  auto ptr = a.allocate(1);
+  /* not const */ pair_type p;
+  a.construct(ptr, p); // LWG 2975
+  a.deallocate(ptr, 1);
+}
+
 int main()
 {
   test01();
   test02();
   test03();
+  test04();
 }

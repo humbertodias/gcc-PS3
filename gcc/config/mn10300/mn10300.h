@@ -1,6 +1,6 @@
 /* Definitions of target machine for GNU compiler.
    Matsushita MN10300 series
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Contributed by Jeff Law (law@cygnus.com).
 
    This file is part of GCC.
@@ -197,7 +197,7 @@ extern enum processor_type mn10300_tune_cpu;
    Aside from that, you can include as many other registers as you
    like.  */
 
-#define CALL_USED_REGISTERS \
+#define CALL_REALLY_USED_REGISTERS \
   { 1, 1, 0, 0,				/* data regs */		\
     1, 1, 0, 0,				/* addr regs */		\
     1,					/* arg reg */		\
@@ -211,39 +211,11 @@ extern enum processor_type mn10300_tune_cpu;
     1					/* cc reg */		\
   }
 
-/* Note: The definition of CALL_REALLY_USED_REGISTERS is not
-   redundant.  It is needed when compiling in PIC mode because
-   the a2 register becomes fixed (and hence must be marked as
-   call_used) but in order to preserve the ABI it is not marked
-   as call_really_used.  */
-#define CALL_REALLY_USED_REGISTERS CALL_USED_REGISTERS
-
 #define REG_ALLOC_ORDER \
   { 0, 1, 4, 5, 2, 3, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 8, 9 \
   , 42, 43, 44, 45, 46, 47, 48, 49, 34, 35, 36, 37, 38, 39, 40, 41 \
   , 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 50, 51 \
   }
-
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.  */
-
-#define HARD_REGNO_NREGS(REGNO, MODE)   \
-  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode
-   MODE.  */
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
-  mn10300_hard_regno_mode_ok ((REGNO), (MODE))
-
-/* Value is 1 if it is a good idea to tie two pseudo registers
-   when one has mode MODE1 and one has mode MODE2.
-   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
-   for any hard reg, then this must be 0 for correct output.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) \
-  mn10300_modes_tieable ((MODE1), (MODE2))
 
 /* 4 data, and effectively 3 address registers is small as far as I'm
    concerned.  */
@@ -346,7 +318,7 @@ enum reg_class
    They give nonzero only if REGNO is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in reginfo.c during register
+   has been allocated, which happens in reginfo.cc during register
    allocation.  */
 
 #ifndef REG_OK_STRICT
@@ -412,13 +384,6 @@ enum reg_class
    goes at a more negative offset in the frame.  */
 
 #define FRAME_GROWS_DOWNWARD 1
-
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-
-#define STARTING_FRAME_OFFSET 0
 
 /* Offset of first parameter from the argument pointer register value.  */
 /* Is equal to the size of the saved fp + pc, even if an fp isn't
@@ -581,7 +546,7 @@ do {									     \
 
 #define NO_FUNCTION_CSE 1
 
-/* According expr.c, a value of around 6 should minimize code size, and
+/* According expr.cc, a value of around 6 should minimize code size, and
    for the MN10300 series, that's our primary concern.  */
 #define MOVE_RATIO(speed) 6
 
@@ -659,7 +624,7 @@ do {									     \
 }
 
 /* Print an instruction operand X on file FILE.
-   look in mn10300.c for details */
+   look in mn10300.cc for details */
 
 #define PRINT_OPERAND(FILE, X, CODE) \
   mn10300_print_operand (FILE, X, CODE)
@@ -683,9 +648,6 @@ do {									     \
 #define ASM_OUTPUT_ALIGN(FILE,LOG)	\
   if ((LOG) != 0)			\
     fprintf (FILE, "\t.align %d\n", (LOG))
-
-/* We don't have to worry about dbx compatibility for the mn10300.  */
-#define DEFAULT_GDB_EXTENSIONS 1
 
 /* Use dwarf2 debugging info by default.  */
 #undef  PREFERRED_DEBUGGING_TYPE
@@ -711,10 +673,6 @@ do {									     \
    which implies one can omit a sign-extension or zero-extension
    of a shift count.  */
 #define SHIFT_COUNT_TRUNCATED 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction

@@ -1,5 +1,5 @@
 /* Definitions for C language specific types.
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -21,6 +21,13 @@ along with GCC; see the file COPYING3.  If not see
 #define GCC_C_LANG_H
 
 #include "c-family/c-common.h"
+
+/* In a RECORD_TYPE, a sorted array of the fields of the type, not a
+   tree for size reasons.  */
+struct GTY(()) sorted_fields_type {
+  int len;
+  tree GTY((length ("%h.len"))) elts[1];
+};
 
 struct GTY(()) lang_type {
   /* In a RECORD_TYPE, a sorted array of the fields of the type.  */
@@ -44,8 +51,7 @@ struct GTY(()) lang_decl {
 
 struct GTY(()) language_function {
   struct c_language_function base;
-  tree x_break_label;
-  tree x_cont_label;
+  unsigned char x_in_statement;
   struct c_switch * GTY((skip)) x_switch_stack;
   struct c_arg_info * GTY((skip)) arg_info;
   int returns_value;
@@ -54,8 +60,16 @@ struct GTY(()) language_function {
   int warn_about_return_type;
 };
 
+struct GTY(()) c_omp_declare_target_attr {
+  int device_type;
+};
+
 /* If non-zero, implicit "omp declare target" attribute is added into the
    attribute lists.  */
-extern GTY(()) int current_omp_declare_target_attribute;
+extern GTY(()) vec<c_omp_declare_target_attr, va_gc>
+  *current_omp_declare_target_attribute;
+/* Similarly whether we are in between #pragma omp begin assumes and
+   #pragma omp end assumes (and how many times when nested).  */
+extern GTY(()) int current_omp_begin_assumes;
 
 #endif /* ! GCC_C_LANG_H */

@@ -1,6 +1,6 @@
 // functional_hash.h header -*- C++ -*-
 
-// Copyright (C) 2007-2017 Free Software Foundation, Inc.
+// Copyright (C) 2007-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -32,6 +32,7 @@
 
 #pragma GCC system_header
 
+#include <type_traits>
 #include <bits/hash_bytes.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -49,8 +50,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Result, typename _Arg>
     struct __hash_base
     {
-      typedef _Result     result_type;
-      typedef _Arg      argument_type;
+      typedef _Result     result_type _GLIBCXX17_DEPRECATED;
+      typedef _Arg      argument_type _GLIBCXX17_DEPRECATED;
     };
 
   /// Primary class template hash.
@@ -135,6 +136,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// Explicit specialization for wchar_t.
   _Cxx_hashtable_define_trivial_hash(wchar_t)
 
+#ifdef _GLIBCXX_USE_CHAR8_T
+  /// Explicit specialization for char8_t.
+  _Cxx_hashtable_define_trivial_hash(char8_t)
+#endif
+
   /// Explicit specialization for char16_t.
   _Cxx_hashtable_define_trivial_hash(char16_t)
 
@@ -166,19 +172,27 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   _Cxx_hashtable_define_trivial_hash(unsigned long long)
 
 #ifdef __GLIBCXX_TYPE_INT_N_0
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_0)
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_0 unsigned)
 #endif
 #ifdef __GLIBCXX_TYPE_INT_N_1
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_1)
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_1 unsigned)
 #endif
 #ifdef __GLIBCXX_TYPE_INT_N_2
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_2)
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_2 unsigned)
 #endif
 #ifdef __GLIBCXX_TYPE_INT_N_3
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_3)
+  __extension__
   _Cxx_hashtable_define_trivial_hash(__GLIBCXX_TYPE_INT_N_3 unsigned)
 #endif
 
@@ -254,12 +268,29 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       operator()(long double __val) const noexcept;
     };
 
-  // @} group hashes
+#if __cplusplus >= 201703L
+  template<>
+    struct hash<nullptr_t> : public __hash_base<size_t, nullptr_t>
+    {
+      size_t
+      operator()(nullptr_t) const noexcept
+      { return 0; }
+    };
+#endif
 
-  // Hint about performance of hash functor. If not fast the hash-based
-  // containers will cache the hash code.
-  // Default behavior is to consider that hashers are fast unless specified
-  // otherwise.
+  /// @} group hashes
+
+  /** Hint about performance of hash functions.
+   *
+   * If a given hash function object is not fast, the hash-based containers
+   * will cache the hash code.
+   * The default behavior is to consider that hashers are fast unless specified
+   * otherwise.
+   *
+   * Users can specialize this for their own hash functions in order to force
+   * caching of hash codes in unordered containers. Specializing this trait
+   * affects the ABI of the unordered containers, so use it carefully.
+   */
   template<typename _Hash>
     struct __is_fast_hash : public std::true_type
     { };

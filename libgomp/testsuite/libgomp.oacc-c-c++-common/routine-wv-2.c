@@ -1,25 +1,30 @@
-/* This code uses nvptx inline assembly guarded with acc_on_device, which is
-   not optimized away at -O0, and then confuses the target assembler.
-   { dg-skip-if "" { *-*-* } { "-O0" } { "" } } */
+/* { dg-additional-options "-Wopenacc-parallelism" } for testing/documenting
+   aspects of that functionality.  */
 
 #include <stdio.h>
 #include <openacc.h>
+#include <gomp-constants.h>
 
 #define NUM_WORKERS 16
+#ifdef ACC_DEVICE_TYPE_radeon
+/* AMD GCN uses the autovectorizer for the vector dimension: the use
+   of a function call in vector-partitioned code in this test is not
+   currently supported.  */
+#define NUM_VECTORS 1
+#else
 #define NUM_VECTORS 32
+#endif
 #define WIDTH 64
 #define HEIGHT 32
 
 #define WORK_ID(I,N)						\
-  (acc_on_device (acc_device_nvidia)				\
-   ? ({unsigned __r;						\
-       __asm__ volatile ("mov.u32 %0,%%tid.y;" : "=r" (__r));	\
-       __r; }) : (I % N))
+  (acc_on_device (acc_device_not_host)				\
+   ? __builtin_goacc_parlevel_id (GOMP_DIM_WORKER)				\
+   : (I % N))
 #define VEC_ID(I,N)						\
-  (acc_on_device (acc_device_nvidia)				\
-   ? ({unsigned __r;						\
-       __asm__ volatile ("mov.u32 %0,%%tid.x;" : "=r" (__r));	\
-       __r; }) : (I % N))
+  (acc_on_device (acc_device_not_host)				\
+   ? __builtin_goacc_parlevel_id (GOMP_DIM_VECTOR)				\
+   : (I % N))
 
 #pragma acc routine worker
 void __attribute__ ((noinline))
@@ -44,6 +49,7 @@ int DoWorkVec (int nw)
   printf ("spawning %d ...", nw); fflush (stdout);
   
 #pragma acc parallel num_workers(nw) vector_length (NUM_VECTORS) copy (ary)
+  /* { dg-warning "region contains vector partitioned code but is not vector partitioned" "" { target openacc_radeon_accel_selected } .-1 } */
   {
     WorkVec ((int *)ary, WIDTH, HEIGHT, nw, NUM_VECTORS);
   }

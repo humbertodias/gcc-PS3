@@ -1,5 +1,5 @@
 /* Header file for SSA loop optimizations.
-   Copyright (C) 2013-2017 Free Software Foundation, Inc.
+   Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -36,8 +36,9 @@ struct affine_iv
    the structure can be evaluated at the end of the loop's preheader
    (and due to ssa form, also anywhere inside the body of the loop).  */
 
-struct tree_niter_desc
+class tree_niter_desc
 {
+public:
   tree assumptions;	/* The boolean expression.  If this expression evaluates
 			   to false, then the other fields in this structure
 			   should not be used; there is no guarantee that they
@@ -51,13 +52,14 @@ struct tree_niter_desc
 			   may_be_zero == false), more precisely the number
 			   of executions of the latch of the loop.  */
   widest_int max;	/* The upper bound on the number of iterations of
-			   the loop.  */
+			   the loop.  If niter is constant, then these values
+			   must agree.  */
 
-  /* The simplified shape of the exit condition.  The loop exits if
-     CONTROL CMP BOUND is false, where CMP is one of NE_EXPR,
-     LT_EXPR, or GT_EXPR, and step of CONTROL is positive if CMP is
-     LE_EXPR and negative if CMP is GE_EXPR.  This information is used
-     by loop unrolling.  */
+  /* The simplified shape of the exit condition.  This information is used by
+     loop unrolling.  If CMP is ERROR_MARK, then the loop cannot be unrolled.
+     Otherwise, the loop exits if CONTROL CMP BOUND is false, where CMP is one
+     of NE_EXPR, LT_EXPR, or GT_EXPR, and CONTROL.STEP is positive if CMP is
+     LT_EXPR and negative if CMP is GT_EXPR.  */
   affine_iv control;
   tree bound;
   enum tree_code cmp;
@@ -65,11 +67,11 @@ struct tree_niter_desc
 
 extern bool for_each_index (tree *, bool (*) (tree, tree *, void *), void *);
 extern char *get_lsm_tmp_name (tree ref, unsigned n, const char *suffix = NULL);
-extern unsigned tree_num_loop_insns (struct loop *, struct eni_weights *);
+extern unsigned tree_num_loop_insns (class loop *, struct eni_weights *);
 
 /* Returns the loop of the statement STMT.  */
 
-static inline struct loop *
+inline class loop *
 loop_containing_stmt (gimple *stmt)
 {
   basic_block bb = gimple_bb (stmt);

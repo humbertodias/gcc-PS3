@@ -1,5 +1,5 @@
 /* IR-agnostic target query functions relating to optabs
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -21,6 +21,15 @@ along with GCC; see the file COPYING3.  If not see
 #define GCC_OPTABS_QUERY_H
 
 #include "insn-opinit.h"
+#include "target.h"
+
+/* Return true if OP is a conversion optab.  */
+
+inline bool
+convert_optab_p (optab op)
+{
+  return op > unknown_optab && op <= LAST_CONV_OPTAB;
+}
 
 /* Return the insn used to implement mode MODE of OP, or CODE_FOR_nothing
    if the target does not have such an insn.  */
@@ -42,7 +51,7 @@ convert_optab_handler (convert_optab op, machine_mode to_mode,
 		       machine_mode from_mode)
 {
   unsigned scode = (op << 16) | (from_mode << 8) | to_mode;
-  gcc_assert (op > unknown_optab && op <= LAST_CONV_OPTAB);
+  gcc_assert (convert_optab_p (op));
   return raw_optab_handler (scode);
 }
 
@@ -83,7 +92,7 @@ trapv_binoptab_p (optab binoptab)
 /* Return insn code for a comparison operator with VMODE
    resultin MASK_MODE, unsigned if UNS is true.  */
 
-static inline enum insn_code
+inline enum insn_code
 get_vec_cmp_icode (machine_mode vmode, machine_mode mask_mode, bool uns)
 {
   optab tab = uns ? vec_cmpu_optab : vec_cmp_optab;
@@ -93,7 +102,7 @@ get_vec_cmp_icode (machine_mode vmode, machine_mode mask_mode, bool uns)
 /* Return insn code for a comparison operator with VMODE
    resultin MASK_MODE (only for EQ/NE).  */
 
-static inline enum insn_code
+inline enum insn_code
 get_vec_cmp_eq_icode (machine_mode vmode, machine_mode mask_mode)
 {
   return convert_optab_handler (vec_cmpeq_optab, vmode, mask_mode);
@@ -116,7 +125,7 @@ get_vcond_icode (machine_mode vmode, machine_mode cmode, bool uns)
 /* Return insn code for a conditional operator with a mask mode
    MMODE resulting in a value of mode VMODE.  */
 
-static inline enum insn_code
+inline enum insn_code
 get_vcond_mask_icode (machine_mode vmode, machine_mode mmode)
 {
   return convert_optab_handler (vcond_mask_optab, vmode, mmode);
@@ -125,7 +134,7 @@ get_vcond_mask_icode (machine_mode vmode, machine_mode mmode)
 /* Return insn code for a conditional operator with a comparison in
    mode CMODE (only EQ/NE), resulting in a value of mode VMODE.  */
 
-static inline enum insn_code
+inline enum insn_code
 get_vcond_eq_icode (machine_mode vmode, machine_mode cmode)
 {
   return convert_optab_handler (vcondeq_optab, vmode, cmode);
@@ -135,22 +144,24 @@ get_vcond_eq_icode (machine_mode vmode, machine_mode cmode)
 enum extraction_pattern { EP_insv, EP_extv, EP_extzv };
 
 /* Describes an instruction that inserts or extracts a bitfield.  */
-struct extraction_insn
+class extraction_insn
 {
+public:
   /* The code of the instruction.  */
   enum insn_code icode;
 
   /* The mode that the structure operand should have.  This is byte_mode
-     when using the legacy insv, extv and extzv patterns to access memory.  */
-  machine_mode struct_mode;
+     when using the legacy insv, extv and extzv patterns to access memory.
+     If no mode is given, the structure is a BLKmode memory.  */
+  opt_scalar_int_mode struct_mode;
 
   /* The mode of the field to be inserted or extracted, and by extension
      the mode of the insertion or extraction itself.  */
-  machine_mode field_mode;
+  scalar_int_mode field_mode;
 
   /* The mode of the field's bit position.  This is only important
      when the position is variable rather than constant.  */
-  machine_mode pos_mode;
+  scalar_int_mode pos_mode;
 };
 
 bool get_best_reg_extraction_insn (extraction_insn *,
@@ -164,19 +175,42 @@ enum insn_code can_extend_p (machine_mode, machine_mode, int);
 enum insn_code can_float_p (machine_mode, machine_mode, int);
 enum insn_code can_fix_p (machine_mode, machine_mode, int, bool *);
 bool can_conditionally_move_p (machine_mode mode);
-bool can_vec_perm_p (machine_mode, bool, const unsigned char *);
-enum insn_code widening_optab_handler (optab, machine_mode, machine_mode);
+opt_machine_mode qimode_for_vec_perm (machine_mode);
+bool selector_fits_mode_p (machine_mode, const vec_perm_indices &);
+bool can_vec_perm_var_p (machine_mode);
+bool can_vec_perm_const_p (machine_mode, machine_mode,
+			   const vec_perm_indices &, bool = true);
 /* Find a widening optab even if it doesn't widen as much as we want.  */
-#define find_widening_optab_handler(A,B,C,D) \
-  find_widening_optab_handler_and_mode (A, B, C, D, NULL)
+#define find_widening_optab_handler(A, B, C) \
+  find_widening_optab_handler_and_mode (A, B, C, NULL)
 enum insn_code find_widening_optab_handler_and_mode (optab, machine_mode,
-						     machine_mode, int,
+						     machine_mode,
 						     machine_mode *);
 int can_mult_highpart_p (machine_mode, bool);
 bool can_vec_mask_load_store_p (machine_mode, machine_mode, bool);
+opt_machine_mode get_len_load_store_mode (machine_mode, bool);
 bool can_compare_and_swap_p (machine_mode, bool);
 bool can_atomic_exchange_p (machine_mode, bool);
 bool can_atomic_load_p (machine_mode);
 bool lshift_cheap_p (bool);
+bool supports_vec_gather_load_p (machine_mode = E_VOIDmode);
+bool supports_vec_scatter_store_p (machine_mode = E_VOIDmode);
+bool can_vec_extract (machine_mode, machine_mode);
+
+/* Version of find_widening_optab_handler_and_mode that operates on
+   specific mode types.  */
+
+template<typename T>
+inline enum insn_code
+find_widening_optab_handler_and_mode (optab op, const T &to_mode,
+				      const T &from_mode, T *found_mode)
+{
+  machine_mode tmp;
+  enum insn_code icode = find_widening_optab_handler_and_mode
+    (op, machine_mode (to_mode), machine_mode (from_mode), &tmp);
+  if (icode != CODE_FOR_nothing && found_mode)
+    *found_mode = as_a <T> (tmp);
+  return icode;
+}
 
 #endif

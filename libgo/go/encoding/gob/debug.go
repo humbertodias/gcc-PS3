@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Delete the next line to include in the gob package.
-// +build ignore
+//go:build ignore
 
 package gob
 
@@ -118,7 +118,7 @@ type debugger struct {
 // dump prints the next nBytes of the input.
 // It arranges to print the output aligned from call to
 // call, to make it easy to see what has been consumed.
-func (deb *debugger) dump(format string, args ...interface{}) {
+func (deb *debugger) dump(format string, args ...any) {
 	if !dumpBytes {
 		return
 	}
@@ -594,7 +594,7 @@ func (deb *debugger) printBuiltin(indent tab, id typeId) {
 		x := deb.int64()
 		fmt.Fprintf(os.Stderr, "%s%d\n", indent, x)
 	case tUint:
-		x := deb.int64()
+		x := deb.uint64()
 		fmt.Fprintf(os.Stderr, "%s%d\n", indent, x)
 	case tFloat:
 		x := deb.uint64()

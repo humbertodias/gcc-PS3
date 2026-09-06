@@ -1,7 +1,6 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ(2.64)
 AC_INIT(cpplib, [ ], gcc-bugs@gcc.gnu.org, cpplib)
 AC_CONFIG_SRCDIR(ucnid.h)
 AC_CONFIG_MACRO_DIR(../config)
@@ -13,6 +12,7 @@ AC_PROG_INSTALL
 AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_RANLIB
+AC_CHECK_TOOL(AR, ar)
 
 AC_USE_SYSTEM_EXTENSIONS
 AC_SYS_LARGEFILE
@@ -21,6 +21,11 @@ MISSING=`cd $ac_aux_dir && ${PWDCMD-pwd}`/missing
 AC_CHECK_PROGS([ACLOCAL], [aclocal], [$MISSING aclocal])
 AC_CHECK_PROGS([AUTOCONF], [autoconf], [$MISSING autoconf])
 AC_CHECK_PROGS([AUTOHEADER], [autoheader], [$MISSING autoheader])
+
+if test -z "$ETAGS"; then
+  ETAGS=etags
+fi
+AC_SUBST([ETAGS])
 
 # Figure out what compiler warnings we can enable.
 # See config/warnings.m4 for details.
@@ -42,7 +47,7 @@ ACX_PROG_CC_WARNINGS_ARE_ERRORS([manual])
 # Dependency checking.
 ZW_CREATE_DEPDIR
 AC_LANG_PUSH([C++])
-AC_COMPILE_IFELSE([[int i;]], [],
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([int i;])], [],
 		  [AC_MSG_ERROR([C++ compiler missing or inoperational])])
 AC_LANG_POP([C++])
 ZW_PROG_COMPILER_DEPENDENCIES([CXX])
@@ -97,6 +102,9 @@ if test $ac_cv_type_uchar = yes; then
   AC_DEFINE(HAVE_UCHAR, 1,
   [Define if <sys/types.h> defines \`uchar'.])
 fi
+
+AC_CHECK_SIZEOF(ino_t)
+AC_CHECK_SIZEOF(dev_t)
 
 # g++ on Solaris 10+ defines _XOPEN_SOURCE=600, which exposes a different
 # iconv() prototype.
@@ -207,6 +215,51 @@ AC_ARG_ENABLE(host-shared,
 [PICFLAG=-fPIC], [PICFLAG=])
 AC_SUBST(PICFLAG)
 
+# Enable Intel CET on Intel CET enabled host if jit is enabled.
+GCC_CET_HOST_FLAGS(CET_HOST_FLAGS)
+case x$enable_languages in
+*jit*)
+  ;;
+*)
+  CET_HOST_FLAGS=
+  ;;
+esac
+AC_SUBST(CET_HOST_FLAGS)
+
+dnl # This check AC_REQUIREs various stuff, so it *must not* be inside
+dnl # an if statement.  This was the source of very frustrating bugs
+dnl # in converting to autoconf 2.5x!
+AC_CHECK_HEADER(valgrind.h, have_valgrind_h=yes, have_valgrind_h=no)
+
+# It is certainly possible that there's valgrind but no valgrind.h.
+# GCC relies on making annotations so we must have both.
+AC_MSG_CHECKING(for VALGRIND_DISCARD in <valgrind/memcheck.h>)
+AC_PREPROC_IFELSE([AC_LANG_SOURCE(
+  [[#include <valgrind/memcheck.h>
+#ifndef VALGRIND_DISCARD
+#error VALGRIND_DISCARD not defined
+#endif]])],
+  [gcc_cv_header_valgrind_memcheck_h=yes],
+  [gcc_cv_header_valgrind_memcheck_h=no])
+AC_MSG_RESULT($gcc_cv_header_valgrind_memcheck_h)
+AC_MSG_CHECKING(for VALGRIND_DISCARD in <memcheck.h>)
+AC_PREPROC_IFELSE([AC_LANG_SOURCE(
+  [[#include <memcheck.h>
+#ifndef VALGRIND_DISCARD
+#error VALGRIND_DISCARD not defined
+#endif]])],
+  [gcc_cv_header_memcheck_h=yes],
+  [gcc_cv_header_memcheck_h=no])
+AC_MSG_RESULT($gcc_cv_header_memcheck_h)
+if test $gcc_cv_header_valgrind_memcheck_h = yes; then
+  AC_DEFINE(HAVE_VALGRIND_MEMCHECK_H, 1,
+	[Define if valgrind's valgrind/memcheck.h header is installed.])
+fi
+if test $gcc_cv_header_memcheck_h = yes; then
+  AC_DEFINE(HAVE_MEMCHECK_H, 1,
+	[Define if valgrind's memcheck.h header is installed.])
+fi
+
 AC_ARG_ENABLE(valgrind-annotations,
 [AS_HELP_STRING([--enable-valgrind-annotations],
 		[enable valgrind runtime interaction])], [],
@@ -216,6 +269,7 @@ if test x$enable_valgrind_annotations != xno \
   if (test $have_valgrind_h = no \
       && test $gcc_cv_header_memcheck_h = no \
       && test $gcc_cv_header_valgrind_memcheck_h = no); then
+    AC_MSG_ERROR([*** valgrind annotations requested, but])
     AC_MSG_ERROR([*** Can't find valgrind/memcheck.h, memcheck.h or valgrind.h])
   fi
   AC_DEFINE(ENABLE_VALGRIND_ANNOTATIONS, 1,

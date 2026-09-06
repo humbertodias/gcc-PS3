@@ -1,4 +1,4 @@
-/* { dg-options "-fdiagnostics-show-caret -Wc++-compat -std=c11" } */
+/* { dg-options "-fdiagnostics-show-caret -Wc++-compat -std=c11 -pedantic" } */
 
 /* Verify that various diagnostics show source code ranges.  */
 
@@ -8,12 +8,11 @@ long double nanl (const char *);
 
 void undeclared_identifier (void)
 {
-  name; /* { dg-error "'name' undeclared .first use in this function.; did you mean .nanl." } */
+  name; /* { dg-error "'name' undeclared" } */
 /*
 { dg-begin-multiline-output "" }
    name;
    ^~~~
-   nanl
 { dg-end-multiline-output "" }
 */
 }
@@ -49,7 +48,7 @@ void test_identifier_conflicts_with_cplusplus (void)
 }
 
 extern void
-bogus_varargs (...); /* { dg-error "ISO C requires a named argument before '...'" } */
+bogus_varargs (...); /* { dg-warning "ISO C requires a named argument before '...'" } */
 /*
 { dg-begin-multiline-output "" }
  bogus_varargs (...);
@@ -68,7 +67,7 @@ foo (unknown_type param); /* { dg-error "unknown type name 'unknown_type'" } */
 
 void wide_string_literal_in_asm (void)
 {
-  __asm (L"nop"); /* { dg-error "wide string literal in 'asm'" } */
+  __asm (L"nop"); /* { dg-error "a wide string is invalid in this context" } */
 /*
 { dg-begin-multiline-output "" }
    __asm (L"nop");

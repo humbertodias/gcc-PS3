@@ -1,6 +1,6 @@
 /* Definitions of target machine for GNU compiler, for HPs running
    HPUX using the 64bit runtime model.
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -102,12 +102,6 @@ along with GCC; see the file COPYING3.  If not see
 		%{!mt:%{!pthread:-a shared -lc -a archive}}}}}\
    %{shared:%{mt|pthread:-lpthread}}"
 #endif
-
-/* The libgcc_stub.a and milli.a libraries need to come last.  */
-#undef LINK_GCC_C_SEQUENCE_SPEC
-#define LINK_GCC_C_SEQUENCE_SPEC "\
-  %G %L %G %{!nostdlib:%{!nodefaultlibs:%{!shared:-lgcc_stub}\
-  milli.a%s}}"
 
 /* Under hpux11, the normal location of the `ld' and `as' programs is the
    /usr/ccs/bin directory.  */
@@ -245,8 +239,18 @@ do {								\
 
 /* We need to use the HP style for internal labels.  */
 #undef ASM_GENERATE_INTERNAL_LABEL
-#define ASM_GENERATE_INTERNAL_LABEL(LABEL, PREFIX, NUM)	\
-  sprintf (LABEL, "*%c$%s%04ld", (PREFIX)[0], (PREFIX) + 1, (long)(NUM))
+#define ASM_GENERATE_INTERNAL_LABEL(LABEL, PREFIX, NUM)		\
+  do								\
+    {								\
+      char *__p;						\
+      (LABEL)[0] = '*';						\
+      (LABEL)[1] = (PREFIX)[0];					\
+      (LABEL)[2] = '$';						\
+      __p = stpcpy (&(LABEL)[3], &(PREFIX)[1]);			\
+      sprint_ul (__p, (unsigned long) (NUM));			\
+    }								\
+  while (0)
+
 
 #else /* USING_ELFOS_H */
 
@@ -262,7 +266,6 @@ do {								\
 /* It looks like DWARF2 will be the easiest debug format to handle on this
    platform.  */
 #define DWARF2_DEBUGGING_INFO 1
-#define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
 
 /* This target uses the ELF object file format.  */
 #define OBJECT_FORMAT_ELF
@@ -325,8 +328,12 @@ do {								\
    %{static:crtbeginT%O%s} %{!static:%{!shared:crtbegin%O%s} \
    %{shared:crtbeginS%O%s}}"
 #endif
+
+/* The libgcc_stub.a and milli.a libraries must come last.  We need
+   to link with these libraries whenever start files are needed.  */
 #undef ENDFILE_SPEC
-#define ENDFILE_SPEC "%{!shared:crtend%O%s} %{shared:crtendS%O%s}"
+#define ENDFILE_SPEC \
+  "%{!shared:crtend%O%s libgcc_stub.a%s} %{shared:crtendS%O%s} milli.a%s"
 
 /* Since HP uses the .init and .fini sections for array initializers
    and finalizers, we need different defines for INIT_SECTION_ASM_OP

@@ -1,6 +1,6 @@
 // <experimental/propagate_const> -*- C++ -*-
 
-// Copyright (C) 2015-2017 Free Software Foundation, Inc.
+// Copyright (C) 2015-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -24,6 +24,7 @@
 
 /** @file experimental/propagate_const
  *  This is a TS C++ Library header.
+ *  @ingroup libfund-ts
  */
 
 #ifndef _GLIBCXX_EXPERIMENTAL_PROPAGATE_CONST
@@ -31,9 +32,9 @@
 
 #pragma GCC system_header
 
-#if __cplusplus <= 201103L
-# include <bits/c++14_warning.h>
-#else
+#include <bits/requires_hosted.h> // experimental is currently omitted
+
+#if __cplusplus >= 201402L
 
 #include <type_traits>
 #include <bits/functional_hash.h>
@@ -43,15 +44,57 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace experimental
 {
 inline namespace fundamentals_v2
 {
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+  template<typename _Tp>
+    using __propagate_const_elem_type
+      = remove_reference_t<decltype(*std::declval<_Tp&>())>;
+
+  template<typename _Tp,
+	   typename _Elem = __propagate_const_elem_type<_Tp>,
+	   bool = is_convertible<const _Tp, const _Elem*>::value>
+    struct __propagate_const_conversion_c
+    { };
+
+  template<typename _Tp, typename _Elem>
+    struct __propagate_const_conversion_c<_Tp, _Elem, true>
+    {
+      constexpr operator const _Elem*() const;
+    };
+
+  template<typename _Tp,
+	   typename _Elem = __propagate_const_elem_type<_Tp>,
+	   bool = is_convertible<_Tp, _Elem*>::value>
+    struct __propagate_const_conversion_nc
+    { };
+
+  template<typename _Tp, typename _Elem>
+    struct __propagate_const_conversion_nc<_Tp, _Elem, true>
+    {
+      constexpr operator _Elem*();
+    };
+
+  // Base class of propagate_const<T> when T is a class type.
+  template <typename _Tp>
+    struct __propagate_const_conversions
+    : __propagate_const_conversion_c<_Tp>, __propagate_const_conversion_nc<_Tp>
+    { };
+
+  // Base class of propagate_const<T> when T is a pointer type.
+  template<typename _Tp>
+    struct __propagate_const_conversions<_Tp*>
+    {
+      constexpr operator const _Tp*() const noexcept;
+      constexpr operator _Tp*() noexcept;
+    };
 
   /**
    * @defgroup propagate_const Const-propagating wrapper
-   * @ingroup experimental
+   * @ingroup libfund-ts
    *
    * A const-propagating wrapper that propagates const to pointer-like members,
    * as described in n4388 "A Proposal to Add a Const-Propagating Wrapper
@@ -60,12 +103,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * @{
    */
 
-/// Const-propagating wrapper.
+  /// Const-propagating wrapper.
   template <typename _Tp>
-    class propagate_const
+    class propagate_const : public __propagate_const_conversions<_Tp>
     {
     public:
-      typedef remove_reference_t<decltype(*std::declval<_Tp&>())> element_type;
+      using element_type = __propagate_const_elem_type<_Tp>;
 
     private:
       template <typename _Up>
@@ -114,6 +157,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr propagate_const() = default;
       propagate_const(const propagate_const& __p) = delete;
       constexpr propagate_const(propagate_const&& __p) = default;
+
       template <typename _Up, typename
 		enable_if<__and_<is_constructible<_Tp, _Up&&>,
 				 is_convertible<_Up&&, _Tp>>::value, bool
@@ -121,6 +165,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr propagate_const(propagate_const<_Up>&& __pu)
 	: _M_t(std::move(get_underlying(__pu)))
       {}
+
       template <typename _Up, typename
 		enable_if<__and_<is_constructible<_Tp, _Up&&>,
 				 __not_<is_convertible<_Up&&, _Tp>>>::value,
@@ -128,6 +173,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr explicit propagate_const(propagate_const<_Up>&& __pu)
 	: _M_t(std::move(get_underlying(__pu)))
       {}
+
       template <typename _Up, typename
 		enable_if<__and_<is_constructible<_Tp, _Up&&>,
 				 is_convertible<_Up&&, _Tp>,
@@ -137,6 +183,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr propagate_const(_Up&& __u)
 	: _M_t(std::forward<_Up>(__u))
       {}
+
       template <typename _Up, typename
 		enable_if<__and_<is_constructible<_Tp, _Up&&>,
 				 __not_<is_convertible<_Up&&, _Tp>>,
@@ -181,16 +228,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return get();
       }
 
-      template <typename _Up = _Tp,
-		typename enable_if<__or_<is_pointer<_Up>,
-					 is_convertible<_Up,
-							const element_type*>
-					 >::value, bool>::type = true>
-      constexpr operator const element_type*() const
-      {
-	return get();
-      }
-
       constexpr const element_type& operator*() const
       {
 	return *get();
@@ -203,16 +240,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       // [propagate_const.non_const_observers], non-const observers
       constexpr element_type* operator->()
-      {
-	return get();
-      }
-
-      template <typename _Up = _Tp,
-		typename enable_if<__or_<is_pointer<_Up>,
-					 is_convertible<_Up,
-						        const element_type*>
-					 >::value, bool>::type = true>
-      constexpr operator element_type*()
       {
 	return get();
       }
@@ -400,8 +427,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     }
 
   // [propagate_const.algorithms], specialized algorithms
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 3413. propagate_const's swap [...] needs to be constrained and use a trait
   template <typename _Tp>
-    constexpr void
+    constexpr enable_if_t<__is_swappable<_Tp>::value, void>
     swap(propagate_const<_Tp>& __pt, propagate_const<_Tp>& __pt2)
       noexcept(__is_nothrow_swappable<_Tp>::value)
     {
@@ -423,8 +452,29 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __pt._M_t;
     }
 
-  // @} group propagate_const
-  _GLIBCXX_END_NAMESPACE_VERSION
+  template<typename _Tp>
+    constexpr
+    __propagate_const_conversions<_Tp*>::operator const _Tp*() const noexcept
+    { return static_cast<const propagate_const<_Tp*>*>(this)->get(); }
+
+  template<typename _Tp>
+    constexpr
+    __propagate_const_conversions<_Tp*>::operator _Tp*() noexcept
+    { return static_cast<propagate_const<_Tp*>*>(this)->get(); }
+
+  template<typename _Tp, typename _Elem>
+    constexpr
+    __propagate_const_conversion_c<_Tp, _Elem, true>::
+    operator const _Elem*() const
+    { return static_cast<const propagate_const<_Tp>*>(this)->get(); }
+
+  template<typename _Tp, typename _Elem>
+    constexpr
+    __propagate_const_conversion_nc<_Tp, _Elem, true>::
+    operator _Elem*()
+    { return static_cast<propagate_const<_Tp>*>(this)->get(); }
+
+  /// @} group propagate_const
 } // namespace fundamentals_v2
 } // namespace experimental
 
@@ -533,6 +583,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
      typedef experimental::propagate_const<_Tp> second_argument_type;
      typedef bool result_type;
    };
+
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // C++14

@@ -24,3 +24,5 @@ main ()
 	}
     }
 }
+
+// { dg-prune-output "\\\[-Wswitch-unreachable]" }

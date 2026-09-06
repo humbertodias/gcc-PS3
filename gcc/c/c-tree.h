@@ -1,5 +1,5 @@
 /* Definitions for C parsing and type checking.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -23,8 +23,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/c-common.h"
 #include "diagnostic.h"
 
-/* struct lang_identifier is private to c-decl.c, but langhooks.c needs to
-   know how big it is.  This is sanity-checked in c-decl.c.  */
+/* struct lang_identifier is private to c-decl.cc, but langhooks.cc needs to
+   know how big it is.  This is sanity-checked in c-decl.cc.  */
 #define C_SIZEOF_STRUCT_LANG_IDENTIFIER \
   (sizeof (struct c_common_identifier) + 3 * sizeof (void *))
 
@@ -34,13 +34,21 @@ along with GCC; see the file COPYING3.  If not see
 /* In a RECORD_TYPE or UNION_TYPE, nonzero if any component is volatile.  */
 #define C_TYPE_FIELDS_VOLATILE(TYPE) TREE_LANG_FLAG_2 (TYPE)
 
+/* In a RECORD_TYPE or UNION_TYPE, nonzero if any component is
+   volatile, restrict-qualified or atomic; that is, has a type not
+   permitted for a constexpr object.  */
+#define C_TYPE_FIELDS_NON_CONSTEXPR(TYPE) TREE_LANG_FLAG_4 (TYPE)
+
 /* In a RECORD_TYPE or UNION_TYPE or ENUMERAL_TYPE
    nonzero if the definition of the type has already started.  */
 #define C_TYPE_BEING_DEFINED(TYPE) TYPE_LANG_FLAG_0 (TYPE)
 
-/* In an incomplete RECORD_TYPE or UNION_TYPE, a list of variable
-   declarations whose type would be completed by completing that type.  */
-#define C_TYPE_INCOMPLETE_VARS(TYPE) TYPE_VFIELD (TYPE)
+/* In an incomplete RECORD_TYPE, UNION_TYPE or ENUMERAL_TYPE, a list of
+   variable declarations whose type would be completed by completing
+   that type.  */
+#define C_TYPE_INCOMPLETE_VARS(TYPE) \
+  TYPE_LANG_SLOT_1 (TREE_CHECK4 (TYPE, RECORD_TYPE, UNION_TYPE, \
+				 QUAL_UNION_TYPE, ENUMERAL_TYPE))
 
 /* In an IDENTIFIER_NODE, nonzero if this identifier is actually a
    keyword.  C_RID_CODE (node) is then the RID_* value of the keyword.  */
@@ -51,12 +59,13 @@ along with GCC; see the file COPYING3.  If not see
 #define C_TYPE_VARIABLE_SIZE(TYPE) TYPE_LANG_FLAG_1 (TYPE)
 #define C_DECL_VARIABLE_SIZE(TYPE) DECL_LANG_FLAG_0 (TYPE)
 
+/* Record whether a type is variably modified. */
+#define C_TYPE_VARIABLY_MODIFIED(TYPE) TYPE_LANG_FLAG_6 (TYPE)
+
+
 /* Record whether a type is defined inside a struct or union type.
    This is used for -Wc++-compat. */
 #define C_TYPE_DEFINED_IN_STRUCT(TYPE) TYPE_LANG_FLAG_2 (TYPE)
-
-/* Record whether an "incomplete type" error was given for the type.  */
-#define C_TYPE_ERROR_REPORTED(TYPE) TYPE_LANG_FLAG_3 (TYPE)
 
 /* Record whether a typedef for type `int' was actually `signed int'.  */
 #define C_TYPEDEF_EXPLICITLY_SIGNED(EXP) DECL_LANG_FLAG_1 (EXP)
@@ -96,22 +105,47 @@ along with GCC; see the file COPYING3.  If not see
    #pragma omp threadprivate.  */
 #define C_DECL_THREADPRIVATE_P(DECL) DECL_LANG_FLAG_3 (VAR_DECL_CHECK (DECL))
 
+/* Set on VAR_DECLs for compound literals.  */
+#define C_DECL_COMPOUND_LITERAL_P(DECL) \
+  DECL_LANG_FLAG_5 (VAR_DECL_CHECK (DECL))
+
+/* Set on decls used as placeholders for a C2x underspecified object
+   definition.  */
+#define C_DECL_UNDERSPECIFIED(DECL) DECL_LANG_FLAG_7 (DECL)
+
+/* Set on VAR_DECLs declared as 'constexpr'.  */
+#define C_DECL_DECLARED_CONSTEXPR(DECL) \
+  DECL_LANG_FLAG_8 (VAR_DECL_CHECK (DECL))
+
 /* Nonzero for a decl which either doesn't exist or isn't a prototype.
    N.B. Could be simplified if all built-in decls had complete prototypes
    (but this is presently difficult because some of them need FILE*).  */
 #define C_DECL_ISNT_PROTOTYPE(EXP)			\
        (EXP == 0					\
 	|| (!prototype_p (TREE_TYPE (EXP))	\
-	    && !DECL_BUILT_IN (EXP)))
+	    && !fndecl_built_in_p (EXP)))
 
 /* For FUNCTION_TYPE, a hidden list of types of arguments.  The same as
    TYPE_ARG_TYPES for functions with prototypes, but created for functions
    without prototypes.  */
-#define TYPE_ACTUAL_ARG_TYPES(NODE) TYPE_LANG_SLOT_1 (NODE)
+#define TYPE_ACTUAL_ARG_TYPES(NODE) \
+  TYPE_LANG_SLOT_1 (FUNCTION_TYPE_CHECK (NODE))
 
 /* For a CONSTRUCTOR, whether some initializer contains a
    subexpression meaning it is not a constant expression.  */
 #define CONSTRUCTOR_NON_CONST(EXPR) TREE_LANG_FLAG_1 (CONSTRUCTOR_CHECK (EXPR))
+
+/* For a SAVE_EXPR, nonzero if the operand of the SAVE_EXPR has already
+   been folded.  */
+#define SAVE_EXPR_FOLDED_P(EXP)	TREE_LANG_FLAG_1 (SAVE_EXPR_CHECK (EXP))
+
+/* Whether a type has boolean semantics: either a boolean type or an
+   enumeration type with a boolean type as its underlying type.  */
+#define C_BOOLEAN_TYPE_P(TYPE)						\
+  (TREE_CODE (TYPE) == BOOLEAN_TYPE					\
+   || (TREE_CODE (TYPE) == ENUMERAL_TYPE				\
+       && ENUM_UNDERLYING_TYPE (TYPE) != NULL_TREE			\
+       && TREE_CODE (ENUM_UNDERLYING_TYPE (TYPE)) == BOOLEAN_TYPE))
 
 /* Record parser information about an expression that is irrelevant
    for code generation alongside a tree representing its value.  */
@@ -138,18 +172,30 @@ struct c_expr
      etc), so we stash a copy here.  */
   source_range src_range;
 
+  /* True if this was directly from a decimal constant token.  */
+  bool m_decimal : 1;
+
   /* Access to the first and last locations within the source spelling
      of this expression.  */
   location_t get_start () const { return src_range.m_start; }
   location_t get_finish () const { return src_range.m_finish; }
 
+  location_t get_location () const
+  {
+    if (EXPR_HAS_LOCATION (value))
+      return EXPR_LOCATION (value);
+    else
+      return make_location (get_start (), get_start (), get_finish ());
+  }
+
   /* Set the value to error_mark_node whilst ensuring that src_range
-     is initialized.  */
+     and m_decimal are initialized.  */
   void set_error ()
   {
     value = error_mark_node;
     src_range.m_start = UNKNOWN_LOCATION;
     src_range.m_finish = UNKNOWN_LOCATION;
+    m_decimal = 0;
   }
 };
 
@@ -170,9 +216,13 @@ enum c_typespec_kind {
      kind of tag, in which case this is only valid if shadowing that
      tag in an inner scope.  */
   ctsk_tagref,
+  /* Likewise, with standard attributes present in the reference.  */
+  ctsk_tagref_attrs,
   /* A reference to a tag, not previously declared in a visible
      scope.  */
   ctsk_tagfirstref,
+  /* Likewise, with standard attributes present in the reference.  */
+  ctsk_tagfirstref_attrs,
   /* A definition of a tag such as "struct foo { int a; }".  */
   ctsk_tagdef,
   /* A typedef name.  */
@@ -191,6 +241,10 @@ struct c_typespec {
   /* Whether the expression has operands suitable for use in constant
      expressions.  */
   bool expr_const_operands;
+  /* Whether the type specifier includes an enum type specifier (that
+     is, ": specifier-qualifier-list" in a declaration using
+     "enum").  */
+  bool has_enum_type_specifier;
   /* The specifier itself.  */
   tree spec;
   /* An expression to be evaluated before the type specifier, in the
@@ -272,11 +326,19 @@ enum c_declspec_word {
 			    enumerator.  */
 };
 
+enum c_declspec_il {
+  cdil_none,
+  cdil_gimple,		/* __GIMPLE  */
+  cdil_gimple_cfg,	/* __GIMPLE(cfg)  */
+  cdil_gimple_ssa,	/* __GIMPLE(ssa)  */
+  cdil_rtl		/* __RTL  */
+};
+
 /* A sequence of declaration specifiers in C.  When a new declaration
    specifier is added, please update the enum c_declspec_word above
    accordingly.  */
 struct c_declspecs {
-  source_location locations[cdw_number_of_elements];
+  location_t locations[cdw_number_of_elements];
   /* The type specified, if a single type specifier such as a struct,
      union or enum specifier, typedef name or typeof specifies the
      whole type, or NULL_TREE if none or a keyword such as "void" or
@@ -287,12 +349,19 @@ struct c_declspecs {
   tree expr;
   /* The attributes from a typedef decl.  */
   tree decl_attr;
-  /* When parsing, the attributes.  Outside the parser, this will be
-     NULL; attributes (possibly from multiple lists) will be passed
-     separately.  */
+  /* When parsing, the GNU attributes and prefix standard attributes.
+     Outside the parser, this will be NULL; attributes (possibly from
+     multiple lists) will be passed separately.  */
   tree attrs;
+  /* When parsing, postfix standard attributes (which appertain to the
+     type specified by the preceding declaration specifiers, unlike
+     prefix standard attributes which appertain to the declaration or
+     declarations as a whole).  */
+  tree postfix_attrs;
   /* The pass to start compiling a __GIMPLE or __RTL function with.  */
   char *gimple_or_rtl_pass;
+  /* ENTRY BB count.  */
+  profile_count entry_bb_count;
   /* The base-2 log of the greatest alignment required by an _Alignas
      specifier, in bytes, or -1 if no such specifiers with nonzero
      alignment.  */
@@ -309,12 +378,17 @@ struct c_declspecs {
   ENUM_BITFIELD (c_typespec_keyword) typespec_word : 8;
   /* The kind of type specifier if one has been seen, ctsk_none
      otherwise.  */
-  ENUM_BITFIELD (c_typespec_kind) typespec_kind : 3;
+  ENUM_BITFIELD (c_typespec_kind) typespec_kind : 4;
+  ENUM_BITFIELD (c_declspec_il) declspec_il : 3;
   /* Whether any expressions in typeof specifiers may appear in
      constant expressions.  */
   BOOL_BITFIELD expr_const_operands : 1;
   /* Whether any declaration specifiers have been seen at all.  */
   BOOL_BITFIELD declspecs_seen_p : 1;
+  /* Whether any declaration specifiers other than standard attributes
+     have been seen at all.  If only standard attributes have been
+     seen, this is an attribute-declaration.  */
+  BOOL_BITFIELD non_std_attrs_seen_p : 1;
   /* Whether something other than a storage class specifier or
      attribute has been seen.  This is used to warn for the
      obsolescent usage of storage class specifiers other than at the
@@ -329,6 +403,8 @@ struct c_declspecs {
   BOOL_BITFIELD explicit_signed_p : 1;
   /* Whether the specifiers include a deprecated typedef.  */
   BOOL_BITFIELD deprecated_p : 1;
+  /* Whether the specifiers include an unavailable typedef.  */
+  BOOL_BITFIELD unavailable_p : 1;
   /* Whether the type defaulted to "int" because there were no type
      specifiers.  */
   BOOL_BITFIELD default_int_p : 1;
@@ -365,10 +441,19 @@ struct c_declspecs {
   /* Whether any alignment specifier (even with zero alignment) was
      specified.  */
   BOOL_BITFIELD alignas_p : 1;
-  /* Whether any __GIMPLE specifier was specified.  */
-  BOOL_BITFIELD gimple_p : 1;
-  /* Whether any __RTL specifier was specified.  */
-  BOOL_BITFIELD rtl_p : 1;
+  /* Whether an enum type specifier (": specifier-qualifier-list") was
+     specified other than in a definition of that enum (if so, this is
+     invalid unless it is an empty declaration "enum identifier
+     enum-type-specifier;", but such an empty declaration is valid in
+     C2x when "enum identifier;" would not be).  */
+  BOOL_BITFIELD enum_type_specifier_ref_p : 1;
+  /* Whether "auto" was specified in C2X (or later) mode and means the
+     type is to be deduced from an initializer, or would mean that if
+     no type specifier appears later in these declaration
+     specifiers.  */
+  BOOL_BITFIELD c2x_auto_p : 1;
+  /* Whether "constexpr" was specified.  */
+  BOOL_BITFIELD constexpr_p : 1;
   /* The address space that the declaration belongs to.  */
   addr_space_t address_space;
 };
@@ -414,6 +499,8 @@ struct c_arg_info {
   tree pending_sizes;
   /* True when these arguments had [*].  */
   BOOL_BITFIELD had_vla_unspec : 1;
+  /* True when the arguments are a (...) prototype.  */
+  BOOL_BITFIELD no_named_args_stdarg_p : 1;
 };
 
 /* A declarator.  */
@@ -424,9 +511,15 @@ struct c_declarator {
   /* Except for cdk_id, the contained declarator.  For cdk_id, NULL.  */
   struct c_declarator *declarator;
   union {
-    /* For identifiers, an IDENTIFIER_NODE or NULL_TREE if an abstract
-       declarator.  */
-    tree id;
+    /* For identifiers.  */
+    struct {
+      /* An IDENTIFIER_NODE, or NULL_TREE if an abstract
+	 declarator.  */
+      tree id;
+      /* Any attributes (which apply to the declaration rather than to
+	 the type described by the outer declarators).  */
+      tree attrs;
+    } id;
     /* For functions.  */
     struct c_arg_info *arg_info;
     /* For arrays.  */
@@ -465,6 +558,8 @@ struct c_parm {
   tree attrs;
   /* The declarator.  */
   struct c_declarator *declarator;
+  /* The location of the parameter.  */
+  location_t loc;
 };
 
 /* Used when parsing an enum.  Initialized by start_enum.  */
@@ -473,6 +568,9 @@ struct c_enum_contents
   /* While defining an enum type, this is 1 plus the last enumerator
      constant value.  */
   tree enum_next_value;
+
+  /* The enumeration type itself.  */
+  tree enum_type;
 
   /* Nonzero means that there was overflow computing enum_next_value.  */
   int enum_overflow;
@@ -491,21 +589,35 @@ enum c_inline_static_type {
 };
 
 
-/* in c-parser.c */
+/* in c-parser.cc */
 extern void c_parse_init (void);
 extern bool c_keyword_starts_typename (enum rid keyword);
 
-/* in c-aux-info.c */
+/* in c-aux-info.cc */
 extern void gen_aux_info_record (tree, int, int, int);
 
-/* in c-decl.c */
+/* in c-decl.cc */
 struct c_spot_bindings;
-struct c_struct_parse_info;
+class c_struct_parse_info;
 extern struct obstack parser_obstack;
-extern tree c_break_label;
-extern tree c_cont_label;
+/* Set to IN_ITERATION_STMT if parsing an iteration-statement,
+   to IN_OMP_BLOCK if parsing OpenMP structured block and
+   IN_OMP_FOR if parsing OpenMP loop.  If parsing a switch statement,
+   this is bitwise ORed with IN_SWITCH_STMT, unless parsing an
+   iteration-statement, OpenMP block or loop within that switch.  */
+#define IN_SWITCH_STMT		1
+#define IN_ITERATION_STMT	2
+#define IN_OMP_BLOCK		4
+#define IN_OMP_FOR		8
+#define IN_OBJC_FOREACH		16
+extern unsigned char in_statement;
+
+extern bool switch_statement_break_seen_p;
 
 extern bool global_bindings_p (void);
+extern tree pushdecl (tree);
+extern unsigned int start_underspecified_init (location_t, tree);
+extern void finish_underspecified_init (tree, unsigned int);
 extern void push_scope (void);
 extern tree pop_scope (void);
 extern void c_bindings_start_stmt_expr (struct c_spot_bindings *);
@@ -534,9 +646,13 @@ extern bool c_check_switch_jump_warnings (struct c_spot_bindings *,
 					  location_t, location_t);
 extern void finish_decl (tree, location_t, tree, tree, tree);
 extern tree finish_enum (tree, tree, tree);
-extern void finish_function (void);
+extern void finish_function (location_t = input_location);
 extern tree finish_struct (location_t, tree, tree, tree,
-			   struct c_struct_parse_info *);
+			   class c_struct_parse_info *);
+extern tree c_simulate_enum_decl (location_t, const char *,
+				  vec<string_int_pair> *);
+extern tree c_simulate_record_decl (location_t, const char *,
+				    array_slice<const tree>);
 extern struct c_arg_info *build_arg_info (void);
 extern struct c_arg_info *get_parm_info (bool, tree);
 extern tree grokfield (location_t, struct c_declarator *,
@@ -553,22 +669,26 @@ extern struct c_declarator *set_array_declarator_inner (struct c_declarator *,
 							struct c_declarator *);
 extern tree c_builtin_function (tree);
 extern tree c_builtin_function_ext_scope (tree);
+extern tree c_simulate_builtin_function_decl (tree);
+extern void c_warn_unused_attributes (tree);
+extern tree c_warn_type_attributes (tree);
 extern void shadow_tag (const struct c_declspecs *);
 extern void shadow_tag_warned (const struct c_declspecs *, int);
-extern tree start_enum (location_t, struct c_enum_contents *, tree);
-extern int  start_function (struct c_declspecs *, struct c_declarator *, tree);
+extern tree start_enum (location_t, struct c_enum_contents *, tree, tree);
+extern bool start_function (struct c_declspecs *, struct c_declarator *, tree);
 extern tree start_decl (struct c_declarator *, struct c_declspecs *, bool,
-			tree);
+			tree, bool = true, location_t * = NULL);
 extern tree start_struct (location_t, enum tree_code, tree,
-			  struct c_struct_parse_info **);
+			  class c_struct_parse_info **);
 extern void store_parm_decls (void);
 extern void store_parm_decls_from (struct c_arg_info *);
 extern void temp_store_parm_decls (tree, tree);
 extern void temp_pop_parm_decls (void);
 extern tree xref_tag (enum tree_code, tree);
-extern struct c_typespec parser_xref_tag (location_t, enum tree_code, tree);
+extern struct c_typespec parser_xref_tag (location_t, enum tree_code, tree,
+					  bool, tree, bool);
 extern struct c_parm *build_c_parm (struct c_declspecs *, tree,
-				    struct c_declarator *);
+				    struct c_declarator *, location_t);
 extern struct c_declarator *build_attrs_declarator (tree,
 						    struct c_declarator *);
 extern struct c_declarator *build_function_declarator (struct c_arg_info *,
@@ -577,44 +697,58 @@ extern struct c_declarator *build_id_declarator (tree);
 extern struct c_declarator *make_pointer_declarator (struct c_declspecs *,
 						     struct c_declarator *);
 extern struct c_declspecs *build_null_declspecs (void);
-extern struct c_declspecs *declspecs_add_qual (source_location,
+extern struct c_declspecs *declspecs_add_qual (location_t,
 					       struct c_declspecs *, tree);
 extern struct c_declspecs *declspecs_add_type (location_t,
 					       struct c_declspecs *,
 					       struct c_typespec);
-extern struct c_declspecs *declspecs_add_scspec (source_location,
+extern struct c_declspecs *declspecs_add_scspec (location_t,
 						 struct c_declspecs *, tree);
-extern struct c_declspecs *declspecs_add_attrs (source_location,
+extern struct c_declspecs *declspecs_add_attrs (location_t,
 						struct c_declspecs *, tree);
-extern struct c_declspecs *declspecs_add_addrspace (source_location,
+extern struct c_declspecs *declspecs_add_addrspace (location_t,
 						    struct c_declspecs *,
 						    addr_space_t);
-extern struct c_declspecs *declspecs_add_alignas (source_location,
+extern struct c_declspecs *declspecs_add_alignas (location_t,
 						  struct c_declspecs *, tree);
 extern struct c_declspecs *finish_declspecs (struct c_declspecs *);
 
-/* in c-objc-common.c */
+/* in c-objc-common.cc */
 extern bool c_objc_common_init (void);
 extern bool c_missing_noreturn_ok_p (tree);
 extern bool c_warn_unused_global_decl (const_tree);
 extern void c_initialize_diagnostics (diagnostic_context *);
-extern bool c_vla_unspec_p (tree x, tree fn);
+extern bool c_var_mod_p (tree x, tree fn);
+extern alias_set_type c_get_alias_set (tree);
 
-/* in c-typeck.c */
+/* in c-typeck.cc */
 extern int in_alignof;
 extern int in_sizeof;
 extern int in_typeof;
+extern bool c_in_omp_for;
 
 extern tree c_last_sizeof_arg;
+extern location_t c_last_sizeof_loc;
 
 extern struct c_switch *c_switch_stack;
 
+extern bool null_pointer_constant_p (const_tree);
+
+
+inline
+bool c_type_variably_modified_p (tree t)
+{
+  return error_mark_node != t && C_TYPE_VARIABLY_MODIFIED (t);
+}
+
+
+extern bool char_type_p (tree);
 extern tree c_objc_common_truthvalue_conversion (location_t, tree);
 extern tree require_complete_type (location_t, tree);
-extern int same_translation_unit_p (const_tree, const_tree);
+extern bool same_translation_unit_p (const_tree, const_tree);
 extern int comptypes (tree, tree);
 extern int comptypes_check_different_types (tree, tree, bool *);
-extern bool c_vla_type_p (const_tree);
+extern int comptypes_check_enum_int (tree, tree, bool *);
 extern bool c_mark_addressable (tree, bool = false);
 extern void c_incomplete_type_error (location_t, const_tree, const_tree);
 extern tree c_type_promotes_to (tree);
@@ -623,12 +757,14 @@ extern struct c_expr default_function_array_conversion (location_t,
 extern struct c_expr default_function_array_read_conversion (location_t,
 							     struct c_expr);
 extern struct c_expr convert_lvalue_to_rvalue (location_t, struct c_expr,
-					       bool, bool);
+					       bool, bool, bool = false);
+extern tree decl_constant_value_1 (tree, bool);
 extern void mark_exp_read (tree);
 extern tree composite_type (tree, tree);
-extern tree build_component_ref (location_t, tree, tree, location_t);
+extern tree build_component_ref (location_t, tree, tree, location_t,
+				 location_t);
 extern tree build_array_ref (location_t, tree, tree);
-extern tree build_external_ref (location_t, tree, int, tree *);
+extern tree build_external_ref (location_t, tree, bool, tree *);
 extern void pop_maybe_used (bool);
 extern struct c_expr c_expr_sizeof_expr (location_t, struct c_expr);
 extern struct c_expr c_expr_sizeof_type (location_t, struct c_type_name *);
@@ -638,13 +774,13 @@ extern struct c_expr parser_build_binary_op (location_t,
     					     enum tree_code, struct c_expr,
 					     struct c_expr);
 extern tree build_conditional_expr (location_t, tree, bool, tree, tree,
-				    tree, tree);
+				    location_t, tree, tree, location_t);
 extern tree build_compound_expr (location_t, tree, tree);
 extern tree c_cast_expr (location_t, struct c_type_name *, tree);
 extern tree build_c_cast (location_t, tree, tree);
 extern void store_init_value (location_t, tree, tree, tree);
 extern void maybe_warn_string_init (location_t, tree, struct c_expr);
-extern void start_init (tree, tree, int, rich_location *);
+extern void start_init (tree, tree, bool, bool, rich_location *);
 extern void finish_init (void);
 extern void really_start_incremental_init (tree);
 extern void finish_implicit_inits (location_t, struct obstack *);
@@ -655,25 +791,28 @@ extern void set_init_index (location_t, tree, tree, struct obstack *);
 extern void set_init_label (location_t, tree, location_t, struct obstack *);
 extern void process_init_element (location_t, struct c_expr, bool,
 				  struct obstack *);
-extern tree build_compound_literal (location_t, tree, tree, bool);
+extern tree build_compound_literal (location_t, tree, tree, bool,
+				    unsigned int, struct c_declspecs *);
 extern void check_compound_literal_type (location_t, struct c_type_name *);
-extern tree c_start_case (location_t, location_t, tree, bool);
-extern void c_finish_case (tree, tree);
-extern tree build_asm_expr (location_t, tree, tree, tree, tree, tree, bool);
-extern tree build_asm_stmt (tree, tree);
+extern tree c_start_switch (location_t, location_t, tree, bool);
+extern void c_finish_switch (tree, tree);
+extern tree build_asm_expr (location_t, tree, tree, tree, tree, tree, bool,
+			    bool);
+extern tree build_asm_stmt (bool, tree);
 extern int c_types_compatible_p (tree, tree);
 extern tree c_begin_compound_stmt (bool);
 extern tree c_end_compound_stmt (location_t, tree, bool);
 extern void c_finish_if_stmt (location_t, tree, tree, tree);
-extern void c_finish_loop (location_t, tree, tree, tree, tree, tree, bool);
+extern void c_finish_loop (location_t, location_t, tree, location_t, tree,
+			   tree, tree, tree, bool);
 extern tree c_begin_stmt_expr (void);
 extern tree c_finish_stmt_expr (location_t, tree);
 extern tree c_process_expr_stmt (location_t, tree);
 extern tree c_finish_expr_stmt (location_t, tree);
 extern tree c_finish_return (location_t, tree, tree);
-extern tree c_finish_bc_stmt (location_t, tree *, bool);
+extern tree c_finish_bc_stmt (location_t, tree, bool);
 extern tree c_finish_goto_label (location_t, tree);
-extern tree c_finish_goto_ptr (location_t, tree);
+extern tree c_finish_goto_ptr (location_t, c_expr val);
 extern tree c_expr_to_decl (tree, bool *, bool *);
 extern tree c_finish_omp_construct (location_t, enum tree_code, tree, tree);
 extern tree c_finish_oacc_data (location_t, tree, tree);
@@ -688,8 +827,9 @@ extern tree c_finish_omp_clauses (tree, enum c_omp_region_type);
 extern tree c_build_va_arg (location_t, tree, location_t, tree);
 extern tree c_finish_transaction (location_t, tree, int);
 extern bool c_tree_equal (tree, tree);
-extern tree c_build_function_call_vec (location_t, vec<location_t>, tree,
-				       vec<tree, va_gc> *, vec<tree, va_gc> *);
+extern tree c_build_function_call_vec (location_t, const vec<location_t>&,
+				       tree, vec<tree, va_gc> *,
+				       vec<tree, va_gc> *);
 extern tree c_omp_clause_copy_ctor (tree, tree, tree);
 
 /* Set to 0 at beginning of a function definition, set to 1 if
@@ -707,7 +847,7 @@ extern int current_function_returns_null;
 
 extern int current_function_returns_abnormally;
 
-/* In c-decl.c */
+/* In c-decl.cc */
 
 /* Tell the binding oracle what kind of binding we are looking for.  */
 
@@ -722,7 +862,7 @@ enum c_oracle_request
    create bindings when needed by the C compiler.  The oracle is told
    the name and type of the binding to create.  It can call pushdecl
    or the like to ensure the binding is visible; or do nothing,
-   leaving the binding untouched.  c-decl.c takes note of when the
+   leaving the binding untouched.  c-decl.cc takes note of when the
    oracle has been called and will not call it again if it fails to
    create a given binding.  */
 
@@ -735,14 +875,17 @@ extern tree c_omp_reduction_id (enum tree_code, tree);
 extern tree c_omp_reduction_decl (tree);
 extern tree c_omp_reduction_lookup (tree, tree);
 extern tree c_check_omp_declare_reduction_r (tree *, int *, void *);
+extern bool c_check_in_current_scope (tree);
 extern void c_pushtag (location_t, tree, tree);
 extern void c_bind (location_t, tree, bool);
 extern bool tag_exists_p (enum tree_code, tree);
 
-/* In c-errors.c */
+/* In c-errors.cc */
 extern bool pedwarn_c90 (location_t, int opt, const char *, ...)
     ATTRIBUTE_GCC_DIAG(3,4);
 extern bool pedwarn_c99 (location_t, int opt, const char *, ...)
+    ATTRIBUTE_GCC_DIAG(3,4);
+extern bool pedwarn_c11 (location_t, int opt, const char *, ...)
     ATTRIBUTE_GCC_DIAG(3,4);
 
 extern void
@@ -753,9 +896,16 @@ extern void
 set_c_expr_source_range (c_expr *expr,
 			 source_range src_range);
 
-/* In c-fold.c */
-extern tree decl_constant_value_for_optimization (tree);
-
+/* In c-fold.cc */
 extern vec<tree> incomplete_record_decls;
+
+extern const char *c_get_sarif_source_language (const char *filename);
+
+#if CHECKING_P
+namespace selftest {
+  extern void run_c_tests (void);
+} // namespace selftest
+#endif /* #if CHECKING_P */
+
 
 #endif /* ! GCC_C_TREE_H */

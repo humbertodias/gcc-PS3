@@ -1,5 +1,5 @@
 /* Define control flow data structures for the CFG.
-   Copyright (C) 1987-2017 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -20,15 +20,11 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_BASIC_BLOCK_H
 #define GCC_BASIC_BLOCK_H
 
-
-/* Use gcov_type to hold basic block counters.  Should be at least
-   64bit.  Although a counter cannot be negative, we use a signed
-   type, because erroneous negative counts can be generated when the
-   flow graph is manipulated by various optimizations.  A signed type
-   makes those easy to detect.  */
+#include <profile-count.h>
 
 /* Control flow edge information.  */
-struct GTY((user)) edge_def {
+class GTY((user)) edge_def {
+public:
   /* The two blocks at the ends of the edge.  */
   basic_block src;
   basic_block dest;
@@ -40,7 +36,7 @@ struct GTY((user)) edge_def {
   } insns;
 
   /* Auxiliary info specific to a pass.  */
-  PTR aux;
+  void *aux;
 
   /* Location of any goto implicit in the edge.  */
   location_t goto_locus;
@@ -50,9 +46,10 @@ struct GTY((user)) edge_def {
   unsigned int dest_idx;
 
   int flags;			/* see cfg-flags.def */
-  int probability;		/* biased by REG_BR_PROB_BASE */
-  gcov_type count;		/* Expected number of executions calculated
-				   in profile.c  */
+  profile_probability probability;
+
+  /* Return count of edge E.  */
+  inline profile_count count () const;
 };
 
 /* Masks for edge.flags.  */
@@ -123,10 +120,10 @@ struct GTY((chain_next ("%h.next_bb"), chain_prev ("%h.prev_bb"))) basic_block_d
   vec<edge, va_gc> *succs;
 
   /* Auxiliary info specific to a pass.  */
-  PTR GTY ((skip (""))) aux;
+  void *GTY ((skip (""))) aux;
 
   /* Innermost loop containing the block.  */
-  struct loop *loop_father;
+  class loop *loop_father;
 
   /* The dominance and postdominance information node.  */
   struct et_node * GTY ((skip (""))) dom[2];
@@ -149,25 +146,14 @@ struct GTY((chain_next ("%h.next_bb"), chain_prev ("%h.prev_bb"))) basic_block_d
   /* The index of this block.  */
   int index;
 
-  /* Expected number of executions: calculated in profile.c.  */
-  gcov_type count;
-
-  /* Expected frequency.  Normalized to be in range 0 to BB_FREQ_MAX.  */
-  int frequency;
-
-  /* The discriminator for this block.  The discriminator distinguishes
-     among several basic blocks that share a common locus, allowing for
-     more accurate sample-based profiling.  */
-  int discriminator;
+  /* Expected number of executions: calculated in profile.cc.  */
+  profile_count count;
 };
 
 /* This ensures that struct gimple_bb_info is smaller than
    struct rtl_bb_info, so that inlining the former into basic_block_def
    is the better choice.  */
-typedef int __assert_gimple_bb_smaller_rtl_bb
-              [(int) sizeof (struct rtl_bb_info)
-               - (int) sizeof (struct gimple_bb_info)];
-
+STATIC_ASSERT (sizeof (rtl_bb_info) >= sizeof (gimple_bb_info));
 
 #define BB_FREQ_MAX 10000
 
@@ -278,9 +264,6 @@ enum cfg_bb_flags
 /* The two blocks that are always in the cfg.  */
 #define NUM_FIXED_BLOCKS (2)
 
-/* The base value for branch probability notes and edge probabilities.  */
-#define REG_BR_PROB_BASE  10000
-
 /* This is the value which indicates no edge is present.  */
 #define EDGE_INDEX_NO_EDGE	-1
 
@@ -307,10 +290,8 @@ enum cfg_bb_flags
 #define BRANCH_EDGE(bb)			(EDGE_SUCC ((bb), 0)->flags & EDGE_FALLTHRU \
 					 ? EDGE_SUCC ((bb), 1) : EDGE_SUCC ((bb), 0))
 
-#define RDIV(X,Y) (((X) + (Y) / 2) / (Y))
 /* Return expected execution frequency of the edge E.  */
-#define EDGE_FREQUENCY(e)		RDIV ((e)->src->frequency * (e)->probability, \
-					      REG_BR_PROB_BASE)
+#define EDGE_FREQUENCY(e)		e->count ().to_frequency (cfun)
 
 /* Compute a scale factor (or probability) suitable for scaling of
    gcov_type values via apply_probability() and apply_scale().  */
@@ -328,7 +309,7 @@ enum cfg_bb_flags
 
 /* Returns true if BB has precisely one successor.  */
 
-static inline bool
+inline bool
 single_succ_p (const_basic_block bb)
 {
   return EDGE_COUNT (bb->succs) == 1;
@@ -336,7 +317,7 @@ single_succ_p (const_basic_block bb)
 
 /* Returns true if BB has precisely one predecessor.  */
 
-static inline bool
+inline bool
 single_pred_p (const_basic_block bb)
 {
   return EDGE_COUNT (bb->preds) == 1;
@@ -345,7 +326,7 @@ single_pred_p (const_basic_block bb)
 /* Returns the single successor edge of basic block BB.  Aborts if
    BB does not have exactly one successor.  */
 
-static inline edge
+inline edge
 single_succ_edge (const_basic_block bb)
 {
   gcc_checking_assert (single_succ_p (bb));
@@ -355,7 +336,7 @@ single_succ_edge (const_basic_block bb)
 /* Returns the single predecessor edge of basic block BB.  Aborts
    if BB does not have exactly one predecessor.  */
 
-static inline edge
+inline edge
 single_pred_edge (const_basic_block bb)
 {
   gcc_checking_assert (single_pred_p (bb));
@@ -365,7 +346,7 @@ single_pred_edge (const_basic_block bb)
 /* Returns the single successor block of basic block BB.  Aborts
    if BB does not have exactly one successor.  */
 
-static inline basic_block
+inline basic_block
 single_succ (const_basic_block bb)
 {
   return single_succ_edge (bb)->dest;
@@ -374,7 +355,7 @@ single_succ (const_basic_block bb)
 /* Returns the single predecessor block of basic block BB.  Aborts
    if BB does not have exactly one predecessor.*/
 
-static inline basic_block
+inline basic_block
 single_pred (const_basic_block bb)
 {
   return single_pred_edge (bb)->src;
@@ -387,7 +368,7 @@ struct edge_iterator {
   vec<edge, va_gc> **container;
 };
 
-static inline vec<edge, va_gc> *
+inline vec<edge, va_gc> *
 ei_container (edge_iterator i)
 {
   gcc_checking_assert (i.container);
@@ -398,7 +379,7 @@ ei_container (edge_iterator i)
 #define ei_last(iter) ei_last_1 (&(iter))
 
 /* Return an iterator pointing to the start of an edge vector.  */
-static inline edge_iterator
+inline edge_iterator
 ei_start_1 (vec<edge, va_gc> **ev)
 {
   edge_iterator i;
@@ -411,7 +392,7 @@ ei_start_1 (vec<edge, va_gc> **ev)
 
 /* Return an iterator pointing to the last element of an edge
    vector.  */
-static inline edge_iterator
+inline edge_iterator
 ei_last_1 (vec<edge, va_gc> **ev)
 {
   edge_iterator i;
@@ -423,7 +404,7 @@ ei_last_1 (vec<edge, va_gc> **ev)
 }
 
 /* Is the iterator `i' at the end of the sequence?  */
-static inline bool
+inline bool
 ei_end_p (edge_iterator i)
 {
   return (i.index == EDGE_COUNT (ei_container (i)));
@@ -431,14 +412,14 @@ ei_end_p (edge_iterator i)
 
 /* Is the iterator `i' at one position before the end of the
    sequence?  */
-static inline bool
+inline bool
 ei_one_before_end_p (edge_iterator i)
 {
   return (i.index + 1 == EDGE_COUNT (ei_container (i)));
 }
 
 /* Advance the iterator to the next element.  */
-static inline void
+inline void
 ei_next (edge_iterator *i)
 {
   gcc_checking_assert (i->index < EDGE_COUNT (ei_container (*i)));
@@ -446,7 +427,7 @@ ei_next (edge_iterator *i)
 }
 
 /* Move the iterator to the previous element.  */
-static inline void
+inline void
 ei_prev (edge_iterator *i)
 {
   gcc_checking_assert (i->index > 0);
@@ -454,7 +435,7 @@ ei_prev (edge_iterator *i)
 }
 
 /* Return the edge pointed to by the iterator `i'.  */
-static inline edge
+inline edge
 ei_edge (edge_iterator i)
 {
   return EDGE_I (ei_container (i), i.index);
@@ -463,7 +444,7 @@ ei_edge (edge_iterator i)
 /* Return an edge pointed to by the iterator.  Do it safely so that
    NULL is returned when the iterator is pointing at the end of the
    sequence.  */
-static inline edge
+inline edge
 ei_safe_edge (edge_iterator i)
 {
   return !ei_end_p (i) ? ei_edge (i) : NULL;
@@ -473,7 +454,7 @@ ei_safe_edge (edge_iterator i)
    *Edge P is set to the next edge if we are to continue to iterate
    and NULL otherwise.  */
 
-static inline bool
+inline bool
 ei_cond (edge_iterator ei, edge *p)
 {
   if (!ei_end_p (ei))
@@ -518,17 +499,20 @@ ei_cond (edge_iterator ei, edge *p)
 					   insns.  */
 #define CLEANUP_CFGLAYOUT	32	/* Do cleanup in cfglayout mode.  */
 #define CLEANUP_CFG_CHANGED	64      /* The caller changed the CFG.  */
+#define CLEANUP_NO_PARTITIONING	128     /* Do not try to fix partitions.  */
+#define CLEANUP_FORCE_FAST_DCE	0x100	/* Force run_fast_dce to be called
+					   at least once.  */
 
 /* Return true if BB is in a transaction.  */
 
-static inline bool
+inline bool
 bb_in_transaction (basic_block bb)
 {
   return bb->flags & BB_IN_TRANSACTION;
 }
 
 /* Return true when one of the predecessor edges of BB is marked with EDGE_EH.  */
-static inline bool
+inline bool
 bb_has_eh_pred (basic_block bb)
 {
   edge e;
@@ -543,7 +527,7 @@ bb_has_eh_pred (basic_block bb)
 }
 
 /* Return true when one of the predecessor edges of BB is marked with EDGE_ABNORMAL.  */
-static inline bool
+inline bool
 bb_has_abnormal_pred (basic_block bb)
 {
   edge e;
@@ -558,7 +542,7 @@ bb_has_abnormal_pred (basic_block bb)
 }
 
 /* Return the fallthru edge in EDGES if it exists, NULL otherwise.  */
-static inline edge
+inline edge
 find_fallthru_edge (vec<edge, va_gc> *edges)
 {
   edge e;
@@ -573,7 +557,7 @@ find_fallthru_edge (vec<edge, va_gc> *edges)
 
 /* Check tha probability is sane.  */
 
-static inline void
+inline void
 check_probability (int prob)
 {
   gcc_checking_assert (prob >= 0 && prob <= REG_BR_PROB_BASE);
@@ -582,7 +566,7 @@ check_probability (int prob)
 /* Given PROB1 and PROB2, return PROB1*PROB2/REG_BR_PROB_BASE. 
    Used to combine BB probabilities.  */
 
-static inline int
+inline int
 combine_probabilities (int prob1, int prob2)
 {
   check_probability (prob1);
@@ -594,7 +578,7 @@ combine_probabilities (int prob1, int prob2)
    interface when potentially scaling up, so that SCALE is not
    constrained to be < REG_BR_PROB_BASE.  */
 
-static inline gcov_type
+inline gcov_type
 apply_scale (gcov_type freq, gcov_type scale)
 {
   return RDIV (freq * scale, REG_BR_PROB_BASE);
@@ -602,7 +586,7 @@ apply_scale (gcov_type freq, gcov_type scale)
 
 /* Apply probability PROB on frequency or count FREQ.  */
 
-static inline gcov_type
+inline gcov_type
 apply_probability (gcov_type freq, int prob)
 {
   check_probability (prob);
@@ -611,7 +595,7 @@ apply_probability (gcov_type freq, int prob)
 
 /* Return inverse probability for PROB.  */
 
-static inline int
+inline int
 inverse_probability (int prob1)
 {
   check_probability (prob1);
@@ -620,7 +604,7 @@ inverse_probability (int prob1)
 
 /* Return true if BB has at least one abnormal outgoing edge.  */
 
-static inline bool
+inline bool
 has_abnormal_or_eh_outgoing_edge_p (basic_block bb)
 {
   edge e;
@@ -636,7 +620,7 @@ has_abnormal_or_eh_outgoing_edge_p (basic_block bb)
 /* Return true when one of the predecessor edges of BB is marked with
    EDGE_ABNORMAL_CALL or EDGE_EH.  */
 
-static inline bool
+inline bool
 has_abnormal_call_or_eh_pred_edge_p (basic_block bb)
 {
   edge e;
@@ -647,6 +631,12 @@ has_abnormal_call_or_eh_pred_edge_p (basic_block bb)
       return true;
 
   return false;
+}
+
+/* Return count of edge E.  */
+inline profile_count edge_def::count () const
+{
+  return src->count.apply_probability (probability);
 }
 
 #endif /* GCC_BASIC_BLOCK_H */

@@ -54,7 +54,7 @@ constexpr complex I(0, 1);  // OK -- literal complex
 
 
 // 2 invoked with non-const args
-double x5 = 1.0;	       // { dg-message "not declared .constexpr" }
+double x5 = 1.0;	       // { dg-message "not declared .constexpr." }
 constexpr complex unit(x5, 0);	// { dg-error "x5|argument" } error: x5 non-constant
 const complex one(x5, 0);   // OK, ‘‘ordinary const’’ -- dynamic
                            //   initialization
@@ -87,7 +87,8 @@ struct resource {
   }
 };
 constexpr resource f(resource d)
-{ return d; }                  // { dg-error "non-constexpr" }
-constexpr resource d = f(9);   // { dg-message "constexpr" }
+{ return d; }                  // { dg-error "non-.constexpr." "" { target { { { ! implicit_constexpr } && c++20_down } || c++11_only } } }
+// { dg-error "non-.constexpr." "" { target { c++23 && { ! implicit_constexpr } } } .-2 }
+constexpr resource d = f(9);   // { dg-message ".constexpr." "" { target { { ! implicit_constexpr } || c++11_only } } }
 
 // 4.4 floating-point constant expressions

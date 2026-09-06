@@ -1,5 +1,5 @@
-/* Declarations for objc-act.c.
-   Copyright (C) 1990-2017 Free Software Foundation, Inc.
+/* Declarations for objc-act.cc.
+   Copyright (C) 1990-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -27,9 +27,10 @@ bool objc_init (void);
 const char *objc_printable_name (tree, int);
 int objc_gimplify_expr (tree *, gimple_seq *, gimple_seq *);
 void objc_common_init_ts (void);
+const char *objc_get_sarif_source_language (const char *);
 
 /* NB: The remaining public functions are prototyped in c-common.h, for the
-   benefit of stub-objc.c and objc-act.c.  */
+   benefit of stub-objc.cc and objc-act.cc.  */
 
 /* Objective-C structures */
 
@@ -137,6 +138,20 @@ enum objc_property_assign_semantics {
 #define PROPERTY_OPTIONAL(DECL) \
   DECL_LANG_FLAG_5 (PROPERTY_DECL_CHECK (DECL))
 
+/* PROPERTY_CLASS can be 0 or 1.  */
+#define PROPERTY_CLASS(DECL) \
+   DECL_LANG_FLAG_6 (PROPERTY_DECL_CHECK (DECL))
+
+/* PROPERTY_NULLABILITY attributes added to the decl attributes.
+   effectively, __attribute__((objc_nullability(kind))),   */
+enum objc_property_nullability {
+  OBJC_PROPERTY_NULL_UNSPECIFIED = 0,
+  OBJC_PROPERTY_NULLABLE,
+  OBJC_PROPERTY_NONNULL,
+  OBJC_PROPERTY_NULL_RESETTABLE,
+  OBJC_PROPERTY_NULL_UNSET
+};
+
 /* PROPERTY_REF.  A PROPERTY_REF represents an 'object.property'
    expression.  It is normally used for property access, but when
    the Objective-C 2.0 "dot-syntax" (object.component) is used
@@ -179,8 +194,8 @@ enum objc_property_assign_semantics {
 #define CLASS_SUPER_NAME(CLASS) (TYPE_CONTEXT (CLASS))
 #define CLASS_IVARS(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 0)
 #define CLASS_RAW_IVARS(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 1)
-#define CLASS_NST_METHODS(CLASS) (TYPE_MINVAL (CLASS))
-#define CLASS_CLS_METHODS(CLASS) (TYPE_MAXVAL (CLASS))
+#define CLASS_NST_METHODS(CLASS) (TYPE_MIN_VALUE_RAW (CLASS))
+#define CLASS_CLS_METHODS(CLASS) (TYPE_MAX_VALUE_RAW (CLASS))
 #define CLASS_STATIC_TEMPLATE(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 2)
 #define CLASS_CATEGORY_LIST(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 3)
 #define CLASS_PROTOCOL_LIST(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 4)
@@ -189,8 +204,8 @@ enum objc_property_assign_semantics {
 
 #define PROTOCOL_NAME(CLASS) (TYPE_NAME (CLASS))
 #define PROTOCOL_LIST(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 0)
-#define PROTOCOL_NST_METHODS(CLASS) (TYPE_MINVAL (CLASS))
-#define PROTOCOL_CLS_METHODS(CLASS) (TYPE_MAXVAL (CLASS))
+#define PROTOCOL_NST_METHODS(CLASS) (TYPE_MIN_VALUE_RAW (CLASS))
+#define PROTOCOL_CLS_METHODS(CLASS) (TYPE_MAX_VALUE_RAW (CLASS))
 #define PROTOCOL_FORWARD_DECL(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 1)
 #define PROTOCOL_DEFINED(CLASS) TREE_USED (CLASS)
 #define PROTOCOL_OPTIONAL_CLS_METHODS(CLASS) TREE_VEC_ELT (TYPE_LANG_SLOT_1 (CLASS), 2)
@@ -313,6 +328,7 @@ enum objc_tree_index
     OCTI_SUPER_TYPE,
     OCTI_SEL_TYPE,
     OCTI_ID_TYPE,
+    OCTI_INSTANCE_TYPE,
     OCTI_CLS_TYPE,
     OCTI_NST_TYPE,
     OCTI_PROTO_TYPE,
@@ -368,7 +384,9 @@ enum objc_tree_index
     OCTI_OBJ_ID,
     OCTI_CLS_ID,
     OCTI_ID_NAME,
+    OCTI_INSTANCETYPE_NAME,
     OCTI_CLASS_NAME,
+    OCTI_SEL_NAME,
     OCTI_CNST_STR_ID,
     OCTI_CNST_STR_TYPE,
     OCTI_CNST_STR_GLOB_ID,
@@ -443,6 +461,7 @@ extern GTY(()) tree objc_global_trees[OCTI_MAX];
 #define objc_super_type		objc_global_trees[OCTI_SUPER_TYPE]
 #define objc_selector_type		objc_global_trees[OCTI_SEL_TYPE]
 #define objc_object_type	objc_global_trees[OCTI_ID_TYPE]
+#define objc_instancetype_type	objc_global_trees[OCTI_INSTANCE_TYPE]
 #define objc_class_type		objc_global_trees[OCTI_CLS_TYPE]
 #define objc_instance_type	objc_global_trees[OCTI_NST_TYPE]
 #define objc_protocol_type	objc_global_trees[OCTI_PROTO_TYPE]
@@ -570,8 +589,10 @@ extern GTY(()) tree objc_global_trees[OCTI_MAX];
 
 #define objc_object_id		objc_global_trees[OCTI_OBJ_ID]
 #define objc_class_id		objc_global_trees[OCTI_CLS_ID]
-#define objc_object_name		objc_global_trees[OCTI_ID_NAME]
+#define objc_object_name        objc_global_trees[OCTI_ID_NAME]
+#define objc_instancetype_name	objc_global_trees[OCTI_INSTANCETYPE_NAME]
 #define objc_class_name		objc_global_trees[OCTI_CLASS_NAME]
+#define objc_selector_name	objc_global_trees[OCTI_SEL_NAME]
 
 /* Constant string classes.  */
 #define constant_string_id	objc_global_trees[OCTI_CNST_STR_ID]
@@ -608,7 +629,9 @@ extern GTY(()) tree objc_global_trees[OCTI_MAX];
 /* Reserved tag definitions.  */
 
 #define OBJECT_TYPEDEF_NAME		"id"
+#define INSTANCE_TYPEDEF_NAME		"instancetype"
 #define CLASS_TYPEDEF_NAME		"Class"
+#define SEL_TYPEDEF_NAME		"SEL"
 
 #define TAG_OBJECT			"objc_object"
 #define TAG_CLASS			"objc_class"
@@ -722,7 +745,7 @@ size_t objc_common_tree_size (enum tree_code code);
 #define objc_is_class_id(TYPE) (OBJC_TYPE_NAME (TYPE) == objc_class_id)
 
 /* Retrieve category interface CAT_NAME (if any) associated with CLASS.  */
-static inline tree
+inline tree
 lookup_category (tree klass, tree cat_name)
 {
   tree category = CLASS_CATEGORY_LIST (klass);
@@ -733,7 +756,7 @@ lookup_category (tree klass, tree cat_name)
 }
 
 /* Count only the fields occurring in T.  */
-static inline int
+inline int
 ivar_list_length (tree t)
 {
   int count = 0;
@@ -745,7 +768,7 @@ ivar_list_length (tree t)
   return count;
 }
 
-static inline tree
+inline tree
 is_ivar (tree decl_chain, tree ident)
 {
   for ( ; decl_chain; decl_chain = DECL_CHAIN (decl_chain))

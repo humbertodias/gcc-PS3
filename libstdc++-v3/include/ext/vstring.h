@@ -1,6 +1,6 @@
 // Versatile string -*- C++ -*-
 
-// Copyright (C) 2005-2017 Free Software Foundation, Inc.
+// Copyright (C) 2005-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,6 +31,8 @@
 
 #pragma GCC system_header
 
+#include <bits/requires_hosted.h> // GNU extensions are currently omitted
+
 #if __cplusplus >= 201103L
 #include <initializer_list>
 #endif
@@ -38,6 +40,7 @@
 #include <ext/vstring_util.h>
 #include <ext/rc_string_base.h>
 #include <ext/sso_string_base.h>
+#include <bits/stl_algobase.h> // std::min
 
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
@@ -58,6 +61,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       typedef _Base<_CharT, _Traits, _Alloc>                __vstring_base;    
       typedef typename __vstring_base::_CharT_alloc_type    _CharT_alloc_type;
+      typedef __alloc_traits<_CharT_alloc_type> _CharT_alloc_traits;
 
       // Types:
     public:
@@ -68,8 +72,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef typename _CharT_alloc_type::difference_type   difference_type;
       typedef value_type&               	            reference;
       typedef const value_type&                             const_reference;
-      typedef typename _CharT_alloc_type::pointer	    pointer;
-      typedef typename _CharT_alloc_type::const_pointer	    const_pointer;
+      typedef typename _CharT_alloc_traits::pointer	    pointer;
+      typedef typename _CharT_alloc_traits::const_pointer   const_pointer;
       typedef __gnu_cxx::__normal_iterator<pointer, __versa_string>  iterator;
       typedef __gnu_cxx::__normal_iterator<const_pointer, __versa_string>
                                                             const_iterator;
@@ -518,7 +522,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  Returns true if the %string is empty.  Equivalent to 
        *  <code>*this == ""</code>.
        */
-      bool
+      _GLIBCXX_NODISCARD bool
       empty() const _GLIBCXX_NOEXCEPT
       { return this->size() == 0; }
 
@@ -2336,31 +2340,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline bool
     operator==(const __versa_string<_CharT, _Traits, _Alloc, _Base>& __lhs,
 	       const __versa_string<_CharT, _Traits, _Alloc, _Base>& __rhs)
-    { return __lhs.compare(__rhs) == 0; }
-
-  template<typename _CharT,
-	   template <typename, typename, typename> class _Base>
-    inline typename __enable_if<std::__is_char<_CharT>::__value, bool>::__type
-    operator==(const __versa_string<_CharT, std::char_traits<_CharT>,
-	       std::allocator<_CharT>, _Base>& __lhs,
-	       const __versa_string<_CharT, std::char_traits<_CharT>,
-	       std::allocator<_CharT>, _Base>& __rhs)
-    { return (__lhs.size() == __rhs.size()
-	      && !std::char_traits<_CharT>::compare(__lhs.data(), __rhs.data(),
-						    __lhs.size())); }
-
-  /**
-   *  @brief  Test equivalence of C string and string.
-   *  @param __lhs  C string.
-   *  @param __rhs  String.
-   *  @return  True if @a __rhs.compare(@a __lhs) == 0.  False otherwise.
-   */
-  template<typename _CharT, typename _Traits, typename _Alloc,
-	   template <typename, typename, typename> class _Base>
-    inline bool
-    operator==(const _CharT* __lhs,
-	       const __versa_string<_CharT, _Traits, _Alloc, _Base>& __rhs)
-    { return __rhs.compare(__lhs) == 0; }
+    {
+      return __lhs.size() == __rhs.size()
+	       && !_Traits::compare(__lhs.data(), __rhs.data(), __lhs.size());
+    }
 
   /**
    *  @brief  Test equivalence of string and C string.
@@ -2373,7 +2356,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline bool
     operator==(const __versa_string<_CharT, _Traits, _Alloc, _Base>& __lhs,
 	       const _CharT* __rhs)
-    { return __lhs.compare(__rhs) == 0; }
+    {
+      return __lhs.size() == _Traits::length(__rhs)
+	       && !_Traits::compare(__lhs.data(), __rhs, __lhs.size());
+    }
+
+  /**
+   *  @brief  Test equivalence of C string and string.
+   *  @param __lhs  C string.
+   *  @param __rhs  String.
+   *  @return  True if @a __rhs.compare(@a __lhs) == 0.  False otherwise.
+   */
+  template<typename _CharT, typename _Traits, typename _Alloc,
+	   template <typename, typename, typename> class _Base>
+    inline bool
+    operator==(const _CharT* __lhs,
+	       const __versa_string<_CharT, _Traits, _Alloc, _Base>& __rhs)
+    { return __rhs == __lhs; }
 
   // operator !=
   /**
@@ -2400,7 +2399,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline bool
     operator!=(const _CharT* __lhs,
 	       const __versa_string<_CharT, _Traits, _Alloc, _Base>& __rhs)
-    { return !(__lhs == __rhs); }
+    { return !(__rhs == __lhs); }
 
   /**
    *  @brief  Test difference of string and C string.
@@ -2920,7 +2919,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return std::_Hash_impl::hash(__s.data(), __s.length()); }
     };
 
-#ifdef _GLIBCXX_USE_WCHAR_T
   /// std::hash specialization for __wvstring.
   template<>
     struct hash<__gnu_cxx::__wvstring>
@@ -2931,9 +2929,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return std::_Hash_impl::hash(__s.data(),
                                      __s.length() * sizeof(wchar_t)); }
     };
-#endif
 
-#ifdef _GLIBCXX_USE_C99_STDINT_TR1
   /// std::hash specialization for __u16vstring.
   template<>
     struct hash<__gnu_cxx::__u16vstring>
@@ -2955,13 +2951,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return std::_Hash_impl::hash(__s.data(),
                                      __s.length() * sizeof(char32_t)); }
     };
-#endif
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
 
 #endif // C++11
 
-#include "vstring.tcc" 
+#include <ext/vstring.tcc>
 
 #endif /* _VSTRING_H */

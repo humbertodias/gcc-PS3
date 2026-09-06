@@ -1,6 +1,6 @@
 // TR1 cstdio -*- C++ -*-
 
-// Copyright (C) 2006-2017 Free Software Foundation, Inc.
+// Copyright (C) 2006-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -31,12 +31,16 @@
 
 #pragma GCC system_header
 
+#include <bits/requires_hosted.h> // TR1
+
 #include <cstdio>
 
 #if _GLIBCXX_USE_C99_STDIO
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
 namespace tr1
 {
   using std::snprintf;
@@ -46,6 +50,8 @@ namespace tr1
   using std::vscanf;
   using std::vsscanf;
 }
+
+_GLIBCXX_END_NAMESPACE_VERSION
 }
 
 #endif

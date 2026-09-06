@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Design</title><meta name="generator" content="DocBook XSL-NS Stylesheets V1.78.1" /><meta name="keywords" content="C++, library, debug" /><meta name="keywords" content="ISO C++, library" /><meta name="keywords" content="ISO C++, runtime, library" /><link rel="home" href="../index.html" title="The GNU C++ Library" /><link rel="up" href="debug_mode.html" title="Chapter 17. Debug Mode" /><link rel="prev" href="debug_mode_using.html" title="Using" /><link rel="next" href="parallel_mode.html" title="Chapter 18. Parallel Mode" /></head><body><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Design</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="debug_mode_using.html">Prev</a> </td><th width="60%" align="center">Chapter 17. Debug Mode</th><td width="20%" align="right"> <a accesskey="n" href="parallel_mode.html">Next</a></td></tr></table><hr /></div><div class="section"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="manual.ext.debug_mode.design"></a>Design</h2></div></div></div><p>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Design</title><meta name="generator" content="DocBook XSL Stylesheets Vsnapshot" /><meta name="keywords" content="C++, library, debug" /><meta name="keywords" content="ISO C++, library" /><meta name="keywords" content="ISO C++, runtime, library" /><link rel="home" href="../index.html" title="The GNU C++ Library" /><link rel="up" href="debug_mode.html" title="Chapter 17. Debug Mode" /><link rel="prev" href="debug_mode_using.html" title="Using" /><link rel="next" href="parallel_mode.html" title="Chapter 18. Parallel Mode" /></head><body><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Design</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="debug_mode_using.html">Prev</a> </td><th width="60%" align="center">Chapter 17. Debug Mode</th><td width="20%" align="right"> <a accesskey="n" href="parallel_mode.html">Next</a></td></tr></table><hr /></div><div class="section"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="manual.ext.debug_mode.design"></a>Design</h2></div></div></div><p>
   </p><div class="section"><div class="titlepage"><div><div><h3 class="title"><a id="debug_mode.design.goals"></a>Goals</h3></div></div></div><p>
     </p><p> The libstdc++ debug mode replaces unsafe (but efficient) standard
   containers and iterators with semantically equivalent safe standard
@@ -38,25 +38,25 @@
     higher-numbered conformance levels are more usable (i.e., require
     less recompilation) but are more complicated to implement than
     the lower-numbered conformance levels.
-      </p><div class="orderedlist"><ol class="orderedlist" type="1"><li class="listitem"><p><span class="emphasis"><em>Full recompilation</em></span>: The user must recompile his or
-	her entire application and all C++ libraries it depends on,
+      </p><div class="orderedlist"><ol class="orderedlist" type="1"><li class="listitem"><p><span class="emphasis"><em>Full recompilation</em></span>: The user must recompile
+	their entire application and all C++ libraries it depends on,
 	including the C++ standard library that ships with the
 	compiler. This must be done even if only a small part of the
 	program can use debugging features.</p></li><li class="listitem"><p><span class="emphasis"><em>Full user recompilation</em></span>: The user must recompile
-	his or her entire application and all C++ libraries it depends
+	their entire application and all C++ libraries it depends
 	on, but not the C++ standard library itself. This must be done
 	even if only a small part of the program can use debugging
 	features. This can be achieved given a full recompilation
 	system by compiling two versions of the standard library when
 	the compiler is installed and linking against the appropriate
 	one, e.g., a multilibs approach.</p></li><li class="listitem"><p><span class="emphasis"><em>Partial recompilation</em></span>: The user must recompile the
-	parts of his or her application and the C++ libraries it
+	parts of their application and the C++ libraries it
 	depends on that will use the debugging facilities
 	directly. This means that any code that uses the debuggable
 	standard containers would need to be recompiled, but code
 	that does not use them (but may, for instance, use IOStreams)
 	would not have to be recompiled.</p></li><li class="listitem"><p><span class="emphasis"><em>Per-use recompilation</em></span>: The user must recompile the
-	parts of his or her application and the C++ libraries it
+	parts of their application and the C++ libraries it
 	depends on where debugging should occur, and any other code
 	that interacts with those containers. This means that a set of
 	translation units that accesses a particular standard
@@ -391,7 +391,7 @@ test02()
   Hewlett-Packard STL. Though it inspired much work in this area, it
   has not been kept up-to-date for use with modern compilers or C++
   standard library implementations.</p></li><li class="listitem"><p><a class="link" href="http://www.stlport.org/" target="_top">STLport</a>: STLport is a free
-  implementation of the C++ standard library derived from the <a class="link" href="http://www.sgi.com/tech/stl/" target="_top">SGI implementation</a>, and
+  implementation of the C++ standard library derived from the <a class="link" href="https://web.archive.org/web/20171225062613/http://www.sgi.com/tech/stl/" target="_top">SGI implementation</a>, and
   ported to many other platforms. It includes a debug mode that uses a
   wrapper model (that in some ways inspired the libstdc++ debug mode
   design), although at the time of this writing the debug mode is

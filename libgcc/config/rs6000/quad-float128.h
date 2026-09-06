@@ -1,6 +1,6 @@
 /* Software floating-point emulation.
    Definitions for IEEE Quad Precision on the PowerPC.
-   Copyright (C) 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2016-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Michael Meissner (meissner@linux.vnet.ibm.com).
 
@@ -27,29 +27,48 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* quad.h defines the TFtype type by:
-   typedef float TFtype __attribute__ ((mode (TF)));
+/* Override the types for IEEE 128-bit scalar and complex.  We need to use the
+   same IEEE 128-bit type (either long double or _Float128) for both the
+   128-bit scalar type and for the base type in _Complex.  Otherwise, if
+   different types are used, there may be problems in mixing _Complex values
+   with the scalar value.
 
-   This define forces it to use KFmode (aka, ieee 128-bit floating point).  */
-#define TF KF
+   We can't use _Compelx _float128 since GCC doesn't allow it.  It only allows
+   _Complex for _Float128 or for long double.
 
-/* We also need TCtype to represent complex ieee 128-bit float for
-   __mulkc3 and __divkc3.  */
-typedef __complex float TCtype __attribute__ ((mode (KC)));
+   We use _Float128 when long double is IBM double-double or 64-bit, and long
+   double when long double uses the IEEE 128-bit type.  We need to do this
+   because the compiler has a built-in prototype for __mulkc3 and __divkc3
+   using those types.  Since we are declaring these functions here, we need to
+   use the same type that the compiler uses (i.e. we can't just always use
+   _Float128).
+
+   Even though the type _Float128 and long double (when long double uses IEEE
+   128-bits) both hold IEEE 128-bit values, the front ends treat these as two
+   separate types.
+
+   The extension keyword __float128 is currently problematical because it can
+   either be a synonym for _Float128 (when long double is IBM) or for long
+   double (when long double is IEEE).  */
+
+#ifdef __LONG_DOUBLE_IEEE128__
+#define TFtype long double
+#define TCtype _Complex long double
+
+#else
+#define TFtype _Float128
+#define TCtype _Complex _Float128
+#endif
 
 /* Force the use of the VSX instruction set.  */
 #if defined(_ARCH_PPC) && (!defined(__VSX__) || !defined(__FLOAT128__))
 #pragma GCC target ("vsx,float128")
 #endif
 
+#include <stddef.h>
 #include <quad.h>
 
-#ifdef __LONG_DOUBLE_IEEE128__
-#define IBM128_TYPE		__ibm128
-
-#else
-#define IBM128_TYPE		long double
-#endif
+#define IBM128_TYPE	__ibm128
 
 /* Add prototypes of the library functions created.  In case the appropriate
    int/long types are not declared in scope by the time quad.h is included,
@@ -70,6 +89,7 @@ extern TFtype __subkf3_sw (TFtype, TFtype);
 extern TFtype __mulkf3_sw (TFtype, TFtype);
 extern TFtype __divkf3_sw (TFtype, TFtype);
 extern TFtype __negkf2_sw (TFtype);
+extern TFtype __powikf2_sw (TFtype, SItype_ppc);
 extern CMPtype __eqkf2_sw (TFtype, TFtype);
 extern CMPtype __gekf2_sw (TFtype, TFtype);
 extern CMPtype __lekf2_sw (TFtype, TFtype);
@@ -84,17 +104,22 @@ extern USItype_ppc __fixunskfsi_sw (TFtype);
 extern UDItype_ppc __fixunskfdi_sw (TFtype);
 extern TFtype __floatsikf_sw (SItype_ppc);
 extern TFtype __floatdikf_sw (DItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floattikf_sw (TItype_ppc);
+#endif
 extern TFtype __floatunsikf_sw (USItype_ppc);
 extern TFtype __floatundikf_sw (UDItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floatuntikf_sw (UTItype_ppc);
+extern TItype_ppc __fixkfti_sw (TFtype);
+extern UTItype_ppc __fixunskfti_sw (TFtype);
+#endif
 extern IBM128_TYPE __extendkftf2_sw (TFtype);
 extern TFtype __trunctfkf2_sw (IBM128_TYPE);
+extern TCtype __mulkc3_sw (TFtype, TFtype, TFtype, TFtype);
+extern TCtype __divkc3_sw (TFtype, TFtype, TFtype, TFtype);
 
 #ifdef _ARCH_PPC64
-/* We do not provide ifunc resolvers for __fixkfti, __fixunskfti, __floattikf,
-   and __floatuntikf.  There is no ISA 3.0 instruction that converts between
-   128-bit integer types and 128-bit IEEE floating point, or vice versa.  So
-   use the emulator functions for these conversions.  */
-
 extern TItype_ppc __fixkfti (TFtype);
 extern UTItype_ppc __fixunskfti (TFtype);
 extern TFtype __floattikf (TItype_ppc);
@@ -110,6 +135,7 @@ extern TFtype __subkf3_hw (TFtype, TFtype);
 extern TFtype __mulkf3_hw (TFtype, TFtype);
 extern TFtype __divkf3_hw (TFtype, TFtype);
 extern TFtype __negkf2_hw (TFtype);
+extern TFtype __powikf2_hw (TFtype, SItype_ppc);
 extern CMPtype __eqkf2_hw (TFtype, TFtype);
 extern CMPtype __gekf2_hw (TFtype, TFtype);
 extern CMPtype __lekf2_hw (TFtype, TFtype);
@@ -124,10 +150,20 @@ extern USItype_ppc __fixunskfsi_hw (TFtype);
 extern UDItype_ppc __fixunskfdi_hw (TFtype);
 extern TFtype __floatsikf_hw (SItype_ppc);
 extern TFtype __floatdikf_hw (DItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floattikf_hw (TItype_ppc);
+#endif
 extern TFtype __floatunsikf_hw (USItype_ppc);
 extern TFtype __floatundikf_hw (UDItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floatuntikf_hw (UTItype_ppc);
+extern TItype_ppc __fixkfti_hw (TFtype);
+extern UTItype_ppc __fixunskfti_hw (TFtype);
+#endif
 extern IBM128_TYPE __extendkftf2_hw (TFtype);
 extern TFtype __trunctfkf2_hw (IBM128_TYPE);
+extern TCtype __mulkc3_hw (TFtype, TFtype, TFtype, TFtype);
+extern TCtype __divkc3_hw (TFtype, TFtype, TFtype, TFtype);
 
 /* Ifunc function declarations, to automatically switch between software
    emulation and hardware support.  */
@@ -136,6 +172,7 @@ extern TFtype __subkf3 (TFtype, TFtype);
 extern TFtype __mulkf3 (TFtype, TFtype);
 extern TFtype __divkf3 (TFtype, TFtype);
 extern TFtype __negkf2 (TFtype);
+extern TFtype __powikf2 (TFtype, SItype_ppc);
 extern CMPtype __eqkf2 (TFtype, TFtype);
 extern CMPtype __nekf2 (TFtype, TFtype);
 extern CMPtype __gekf2 (TFtype, TFtype);
@@ -153,14 +190,29 @@ extern USItype_ppc __fixunskfsi (TFtype);
 extern UDItype_ppc __fixunskfdi (TFtype);
 extern TFtype __floatsikf (SItype_ppc);
 extern TFtype __floatdikf (DItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floattikf (TItype_ppc);
+#endif
 extern TFtype __floatunsikf (USItype_ppc);
 extern TFtype __floatundikf (UDItype_ppc);
+#ifdef _ARCH_PPC64
+extern TFtype __floatuntikf (UTItype_ppc);
+extern TItype_ppc __fixkfti (TFtype);
+extern UTItype_ppc __fixunskfti (TFtype);
+#endif
 extern IBM128_TYPE __extendkftf2 (TFtype);
 extern TFtype __trunctfkf2 (IBM128_TYPE);
 
 /* Complex __float128 built on __float128 interfaces.  */
 extern TCtype __mulkc3 (TFtype, TFtype, TFtype, TFtype);
 extern TCtype __divkc3 (TFtype, TFtype, TFtype, TFtype);
+
+/* Convert IEEE 128-bit floating point to/from string.  We explicitly use
+   _Float128 instead of TFmode because _strtokf and _strfromkf must be compiled
+   with long double being IBM 128.  */
+extern _Float128 __strtokf (const char *, char **);
+extern int __strfromkf (char *restrict, size_t, const char *restrict,
+			_Float128);
 
 /* Implementation of conversions between __ibm128 and __float128, to allow the
    same code to be used on systems with IEEE 128-bit emulation and with IEEE
@@ -174,7 +226,7 @@ union ibm128_union {
 #define CVT_FLOAT128_TO_IBM128(RESULT, VALUE)				\
 {									\
   double __high, __low;							\
-  __float128 __value = (VALUE);						\
+  TFtype __value = (VALUE);						\
   union ibm128_union u;							\
 									\
   __high = (double) __value;						\
@@ -185,7 +237,7 @@ union ibm128_union {
     {									\
       double __high_temp;						\
 									\
-      __low = (double) (__value - (__float128) __high);			\
+      __low = (double) (__value - (TFtype) __high);			\
       /* Renormalize low/high and move them into canonical IBM long	\
 	 double form.  */						\
       __high_temp = __high + __low;					\
@@ -209,13 +261,13 @@ union ibm128_union {
 									\
   /* Handle the special cases of NAN and infinity.  */			\
   if (__builtin_isnan (__high) || __builtin_isinf (__high))		\
-    RESULT = (__float128) __high;					\
+    RESULT = (TFtype) __high;						\
 									\
   /* If low is 0.0, there no need to do the add.  In addition,		\
      avoiding the add produces the correct sign if high is -0.0.  */	\
   else if (__low == 0.0)						\
-    RESULT = (__float128) __high;					\
+    RESULT = (TFtype) __high;						\
 									\
   else									\
-    RESULT = ((__float128) __high) + ((__float128) __low);		\
+    RESULT = ((TFtype) __high) + ((TFtype) __low);			\
 }

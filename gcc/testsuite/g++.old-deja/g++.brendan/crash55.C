@@ -4,9 +4,10 @@
 
       int& f(int x)  // { dg-error "new declaration" }
       {
-          int local; // { dg-warning "reference to local" }
+          int local;
 
           local = x+2;
       
-          return local;
+          return local; // { dg-warning "reference to local" "" { target c++20_down } }
+// { dg-error "non-const lvalue" "" { target c++23 } .-1 }
       }

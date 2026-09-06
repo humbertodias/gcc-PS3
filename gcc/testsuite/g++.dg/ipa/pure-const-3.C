@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -fno-ipa-vrp -fdump-tree-optimized"  } */
+/* { dg-options "-O2 -fno-ipa-vrp -fdump-tree-optimized -fno-tree-ccp -fdisable-tree-evrp"  } */
 int *ptr;
 static int barvar;
 static int b(int a);
@@ -21,7 +21,7 @@ static int b(int p)
     return a(p+1);
   return 1;
 }
-main()
+int main()
 {
   int aa;
   ptr = &barvar;

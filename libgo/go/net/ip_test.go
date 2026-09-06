@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !js
+
 package net
 
 import (
 	"bytes"
+	"math/rand"
 	"reflect"
 	"runtime"
 	"testing"
@@ -17,9 +20,7 @@ var parseIPTests = []struct {
 }{
 	{"127.0.1.2", IPv4(127, 0, 1, 2)},
 	{"127.0.0.1", IPv4(127, 0, 0, 1)},
-	{"127.001.002.003", IPv4(127, 1, 2, 3)},
 	{"::ffff:127.1.2.3", IPv4(127, 1, 2, 3)},
-	{"::ffff:127.001.002.003", IPv4(127, 1, 2, 3)},
 	{"::ffff:7f01:0203", IPv4(127, 1, 2, 3)},
 	{"0:0:0:0:0000:ffff:127.1.2.3", IPv4(127, 1, 2, 3)},
 	{"0:0:0:0:000000:ffff:127.1.2.3", IPv4(127, 1, 2, 3)},
@@ -39,6 +40,11 @@ var parseIPTests = []struct {
 	{"fe80::1%911", nil},
 	{"", nil},
 	{"a1:a2:a3:a4::b1:b2:b3:b4", nil}, // Issue 6628
+	{"127.001.002.003", nil},
+	{"::ffff:127.001.002.003", nil},
+	{"123.000.000.000", nil},
+	{"1.2..4", nil},
+	{"0123.0.0.1", nil},
 }
 
 func TestParseIP(t *testing.T) {
@@ -128,7 +134,7 @@ func TestMarshalEmptyIP(t *testing.T) {
 	}
 }
 
-var ipStringTests = []struct {
+var ipStringTests = []*struct {
 	in  IP     // see RFC 791 and RFC 4291
 	str string // see RFC 791, RFC 4291 and RFC 5952
 	byt []byte
@@ -251,9 +257,21 @@ var sink string
 func BenchmarkIPString(b *testing.B) {
 	testHookUninstaller.Do(uninstallTestHooks)
 
+	b.Run("IPv4", func(b *testing.B) {
+		benchmarkIPString(b, IPv4len)
+	})
+
+	b.Run("IPv6", func(b *testing.B) {
+		benchmarkIPString(b, IPv6len)
+	})
+}
+
+func benchmarkIPString(b *testing.B, size int) {
+	b.ReportAllocs()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, tt := range ipStringTests {
-			if tt.in != nil {
+			if tt.in != nil && len(tt.in) == size {
 				sink = tt.in.String()
 			}
 		}
@@ -342,6 +360,7 @@ var parseCIDRTests = []struct {
 	{"0.0.-2.0/32", nil, nil, &ParseError{Type: "CIDR address", Text: "0.0.-2.0/32"}},
 	{"0.0.0.-3/32", nil, nil, &ParseError{Type: "CIDR address", Text: "0.0.0.-3/32"}},
 	{"0.0.0.0/-0", nil, nil, &ParseError{Type: "CIDR address", Text: "0.0.0.0/-0"}},
+	{"127.000.000.001/32", nil, nil, &ParseError{Type: "CIDR address", Text: "127.000.000.001/32"}},
 	{"", nil, nil, &ParseError{Type: "CIDR address", Text: ""}},
 }
 
@@ -388,6 +407,7 @@ var ipNetStringTests = []struct {
 	{&IPNet{IP: IPv4(192, 168, 1, 0), Mask: IPv4Mask(255, 0, 255, 0)}, "192.168.1.0/ff00ff00"},
 	{&IPNet{IP: ParseIP("2001:db8::"), Mask: CIDRMask(55, 128)}, "2001:db8::/55"},
 	{&IPNet{IP: ParseIP("2001:db8::"), Mask: IPMask(ParseIP("8000:f123:0:cafe::"))}, "2001:db8::/8000f1230000cafe0000000000000000"},
+	{nil, "<nil>"},
 }
 
 func TestIPNetString(t *testing.T) {
@@ -468,61 +488,77 @@ func TestNetworkNumberAndMask(t *testing.T) {
 	}
 }
 
-var splitJoinTests = []struct {
-	host string
-	port string
-	join string
-}{
-	{"www.google.com", "80", "www.google.com:80"},
-	{"127.0.0.1", "1234", "127.0.0.1:1234"},
-	{"::1", "80", "[::1]:80"},
-	{"fe80::1%lo0", "80", "[fe80::1%lo0]:80"},
-	{"localhost%lo0", "80", "[localhost%lo0]:80"},
-	{"", "0", ":0"},
-
-	{"google.com", "https%foo", "google.com:https%foo"}, // Go 1.0 behavior
-	{"127.0.0.1", "", "127.0.0.1:"},                     // Go 1.0 behavior
-	{"www.google.com", "", "www.google.com:"},           // Go 1.0 behavior
-}
-
-var splitFailureTests = []struct {
-	hostPort string
-	err      string
-}{
-	{"www.google.com", "missing port in address"},
-	{"127.0.0.1", "missing port in address"},
-	{"[::1]", "missing port in address"},
-	{"[fe80::1%lo0]", "missing port in address"},
-	{"[localhost%lo0]", "missing port in address"},
-	{"localhost%lo0", "missing port in address"},
-
-	{"::1", "too many colons in address"},
-	{"fe80::1%lo0", "too many colons in address"},
-	{"fe80::1%lo0:80", "too many colons in address"},
-
-	{"localhost%lo0:80", "missing brackets in address"},
-
-	// Test cases that didn't fail in Go 1.0
-
-	{"[foo:bar]", "missing port in address"},
-	{"[foo:bar]baz", "missing port in address"},
-	{"[foo]bar:baz", "missing port in address"},
-
-	{"[foo]:[bar]:baz", "too many colons in address"},
-
-	{"[foo]:[bar]baz", "unexpected '[' in address"},
-	{"foo[bar]:baz", "unexpected '[' in address"},
-
-	{"foo]bar:baz", "unexpected ']' in address"},
-}
-
 func TestSplitHostPort(t *testing.T) {
-	for _, tt := range splitJoinTests {
-		if host, port, err := SplitHostPort(tt.join); host != tt.host || port != tt.port || err != nil {
-			t.Errorf("SplitHostPort(%q) = %q, %q, %v; want %q, %q, nil", tt.join, host, port, err, tt.host, tt.port)
+	for _, tt := range []struct {
+		hostPort string
+		host     string
+		port     string
+	}{
+		// Host name
+		{"localhost:http", "localhost", "http"},
+		{"localhost:80", "localhost", "80"},
+
+		// Go-specific host name with zone identifier
+		{"localhost%lo0:http", "localhost%lo0", "http"},
+		{"localhost%lo0:80", "localhost%lo0", "80"},
+		{"[localhost%lo0]:http", "localhost%lo0", "http"}, // Go 1 behavior
+		{"[localhost%lo0]:80", "localhost%lo0", "80"},     // Go 1 behavior
+
+		// IP literal
+		{"127.0.0.1:http", "127.0.0.1", "http"},
+		{"127.0.0.1:80", "127.0.0.1", "80"},
+		{"[::1]:http", "::1", "http"},
+		{"[::1]:80", "::1", "80"},
+
+		// IP literal with zone identifier
+		{"[::1%lo0]:http", "::1%lo0", "http"},
+		{"[::1%lo0]:80", "::1%lo0", "80"},
+
+		// Go-specific wildcard for host name
+		{":http", "", "http"}, // Go 1 behavior
+		{":80", "", "80"},     // Go 1 behavior
+
+		// Go-specific wildcard for service name or transport port number
+		{"golang.org:", "golang.org", ""}, // Go 1 behavior
+		{"127.0.0.1:", "127.0.0.1", ""},   // Go 1 behavior
+		{"[::1]:", "::1", ""},             // Go 1 behavior
+
+		// Opaque service name
+		{"golang.org:https%foo", "golang.org", "https%foo"}, // Go 1 behavior
+	} {
+		if host, port, err := SplitHostPort(tt.hostPort); host != tt.host || port != tt.port || err != nil {
+			t.Errorf("SplitHostPort(%q) = %q, %q, %v; want %q, %q, nil", tt.hostPort, host, port, err, tt.host, tt.port)
 		}
 	}
-	for _, tt := range splitFailureTests {
+
+	for _, tt := range []struct {
+		hostPort string
+		err      string
+	}{
+		{"golang.org", "missing port in address"},
+		{"127.0.0.1", "missing port in address"},
+		{"[::1]", "missing port in address"},
+		{"[fe80::1%lo0]", "missing port in address"},
+		{"[localhost%lo0]", "missing port in address"},
+		{"localhost%lo0", "missing port in address"},
+
+		{"::1", "too many colons in address"},
+		{"fe80::1%lo0", "too many colons in address"},
+		{"fe80::1%lo0:80", "too many colons in address"},
+
+		// Test cases that didn't fail in Go 1
+
+		{"[foo:bar]", "missing port in address"},
+		{"[foo:bar]baz", "missing port in address"},
+		{"[foo]bar:baz", "missing port in address"},
+
+		{"[foo]:[bar]:baz", "too many colons in address"},
+
+		{"[foo]:[bar]baz", "unexpected '[' in address"},
+		{"foo[bar]:baz", "unexpected '[' in address"},
+
+		{"foo]bar:baz", "unexpected ']' in address"},
+	} {
 		if host, port, err := SplitHostPort(tt.hostPort); err == nil {
 			t.Errorf("SplitHostPort(%q) should have failed", tt.hostPort)
 		} else {
@@ -538,9 +574,43 @@ func TestSplitHostPort(t *testing.T) {
 }
 
 func TestJoinHostPort(t *testing.T) {
-	for _, tt := range splitJoinTests {
-		if join := JoinHostPort(tt.host, tt.port); join != tt.join {
-			t.Errorf("JoinHostPort(%q, %q) = %q; want %q", tt.host, tt.port, join, tt.join)
+	for _, tt := range []struct {
+		host     string
+		port     string
+		hostPort string
+	}{
+		// Host name
+		{"localhost", "http", "localhost:http"},
+		{"localhost", "80", "localhost:80"},
+
+		// Go-specific host name with zone identifier
+		{"localhost%lo0", "http", "localhost%lo0:http"},
+		{"localhost%lo0", "80", "localhost%lo0:80"},
+
+		// IP literal
+		{"127.0.0.1", "http", "127.0.0.1:http"},
+		{"127.0.0.1", "80", "127.0.0.1:80"},
+		{"::1", "http", "[::1]:http"},
+		{"::1", "80", "[::1]:80"},
+
+		// IP literal with zone identifier
+		{"::1%lo0", "http", "[::1%lo0]:http"},
+		{"::1%lo0", "80", "[::1%lo0]:80"},
+
+		// Go-specific wildcard for host name
+		{"", "http", ":http"}, // Go 1 behavior
+		{"", "80", ":80"},     // Go 1 behavior
+
+		// Go-specific wildcard for service name or transport port number
+		{"golang.org", "", "golang.org:"}, // Go 1 behavior
+		{"127.0.0.1", "", "127.0.0.1:"},   // Go 1 behavior
+		{"::1", "", "[::1]:"},             // Go 1 behavior
+
+		// Opaque service name
+		{"golang.org", "https%foo", "golang.org:https%foo"}, // Go 1 behavior
+	} {
+		if hostPort := JoinHostPort(tt.host, tt.port); hostPort != tt.hostPort {
+			t.Errorf("JoinHostPort(%q, %q) = %q; want %q", tt.host, tt.port, hostPort, tt.hostPort)
 		}
 	}
 }
@@ -625,9 +695,31 @@ var ipAddrScopeTests = []struct {
 	{IP.IsGlobalUnicast, IP{0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, false},
 	{IP.IsGlobalUnicast, IP{0xff, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, false},
 	{IP.IsGlobalUnicast, nil, false},
+	{IP.IsPrivate, nil, false},
+	{IP.IsPrivate, IPv4(1, 1, 1, 1), false},
+	{IP.IsPrivate, IPv4(9, 255, 255, 255), false},
+	{IP.IsPrivate, IPv4(10, 0, 0, 0), true},
+	{IP.IsPrivate, IPv4(10, 255, 255, 255), true},
+	{IP.IsPrivate, IPv4(11, 0, 0, 0), false},
+	{IP.IsPrivate, IPv4(172, 15, 255, 255), false},
+	{IP.IsPrivate, IPv4(172, 16, 0, 0), true},
+	{IP.IsPrivate, IPv4(172, 16, 255, 255), true},
+	{IP.IsPrivate, IPv4(172, 23, 18, 255), true},
+	{IP.IsPrivate, IPv4(172, 31, 255, 255), true},
+	{IP.IsPrivate, IPv4(172, 31, 0, 0), true},
+	{IP.IsPrivate, IPv4(172, 32, 0, 0), false},
+	{IP.IsPrivate, IPv4(192, 167, 255, 255), false},
+	{IP.IsPrivate, IPv4(192, 168, 0, 0), true},
+	{IP.IsPrivate, IPv4(192, 168, 255, 255), true},
+	{IP.IsPrivate, IPv4(192, 169, 0, 0), false},
+	{IP.IsPrivate, IP{0xfb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, false},
+	{IP.IsPrivate, IP{0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, true},
+	{IP.IsPrivate, IP{0xfc, 0xff, 0x12, 0, 0, 0, 0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0}, true},
+	{IP.IsPrivate, IP{0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, true},
+	{IP.IsPrivate, IP{0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, false},
 }
 
-func name(f interface{}) string {
+func name(f any) string {
 	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
 }
 
@@ -643,5 +735,34 @@ func TestIPAddrScope(t *testing.T) {
 		if ok := tt.scope(ip); ok != tt.ok {
 			t.Errorf("%s(%q) = %v, want %v", name(tt.scope), ip, ok, tt.ok)
 		}
+	}
+}
+
+func BenchmarkIPEqual(b *testing.B) {
+	b.Run("IPv4", func(b *testing.B) {
+		benchmarkIPEqual(b, IPv4len)
+	})
+	b.Run("IPv6", func(b *testing.B) {
+		benchmarkIPEqual(b, IPv6len)
+	})
+}
+
+func benchmarkIPEqual(b *testing.B, size int) {
+	ips := make([]IP, 1000)
+	for i := range ips {
+		ips[i] = make(IP, size)
+		rand.Read(ips[i])
+	}
+	// Half of the N are equal.
+	for i := 0; i < b.N/2; i++ {
+		x := ips[i%len(ips)]
+		y := ips[i%len(ips)]
+		x.Equal(y)
+	}
+	// The other half are not equal.
+	for i := 0; i < b.N/2; i++ {
+		x := ips[i%len(ips)]
+		y := ips[(i+1)%len(ips)]
+		x.Equal(y)
 	}
 }

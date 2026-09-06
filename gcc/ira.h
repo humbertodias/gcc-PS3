@@ -1,6 +1,6 @@
 /* Communication between the Integrated Register Allocator (IRA) and
    the rest of the compiler.
-   Copyright (C) 2006-2017 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -109,14 +109,19 @@ struct target_ira
      index [CL][M] gives the number of that register, otherwise it is -1.  */
   short x_ira_class_singleton[N_REG_CLASSES][MAX_MACHINE_MODE];
 
-  /* Function specific hard registers can not be used for the register
+  /* Function specific hard registers cannot be used for the register
      allocation.  */
   HARD_REG_SET x_ira_no_alloc_regs;
 
   /* Array whose values are hard regset of hard registers available for
-     the allocation of given register class whose HARD_REGNO_MODE_OK
-     values for given mode are zero.  */
+     the allocation of given register class whose targetm.hard_regno_mode_ok
+     values for given mode are false.  */
   HARD_REG_SET x_ira_prohibited_class_mode_regs[N_REG_CLASSES][NUM_MACHINE_MODES];
+
+  /* When an allocatable hard register in given mode can not be placed in given
+     register class, it is in the set of the following array element.  It can
+     happen only when given mode requires more one hard register.  */
+  HARD_REG_SET x_ira_exclude_class_mode_regs[N_REG_CLASSES][NUM_MACHINE_MODES];
 };
 
 extern struct target_ira default_target_ira;
@@ -164,12 +169,17 @@ extern struct target_ira *this_target_ira;
   (this_target_ira->x_ira_no_alloc_regs)
 #define ira_prohibited_class_mode_regs \
   (this_target_ira->x_ira_prohibited_class_mode_regs)
+#define ira_exclude_class_mode_regs \
+  (this_target_ira->x_ira_exclude_class_mode_regs)
 
 /* Major structure describing equivalence info for a pseudo.  */
 struct ira_reg_equiv_s
 {
-  /* True if we can use this equivalence.  */
+  /* True if we can use this as a general equivalence.  */
   bool defined_p;
+  /* True if we can use this equivalence only for caller save/restore
+     location.  */
+  bool caller_save_p;
   /* True if the usage of the equivalence is profitable.  */
   bool profitable_p;
   /* Equiv. memory, constant, invariant, and initializing insns of
@@ -195,26 +205,37 @@ extern void ira_set_pseudo_classes (bool, FILE *);
 extern void ira_expand_reg_equiv (void);
 extern void ira_update_equiv_info_by_shuffle_insn (int, int, rtx_insn *);
 
-extern void ira_sort_regnos_for_alter_reg (int *, int, unsigned int *);
+extern void ira_sort_regnos_for_alter_reg (int *, int, machine_mode *);
 extern void ira_mark_allocation_change (int);
 extern void ira_mark_memory_move_deletion (int, int);
 extern bool ira_reassign_pseudos (int *, int, HARD_REG_SET, HARD_REG_SET *,
 				  HARD_REG_SET *, bitmap);
-extern rtx ira_reuse_stack_slot (int, unsigned int, unsigned int);
-extern void ira_mark_new_stack_slot (rtx, int, unsigned int);
+extern rtx ira_reuse_stack_slot (int, poly_uint64, poly_uint64);
+extern void ira_mark_new_stack_slot (rtx, int, poly_uint64);
 extern bool ira_better_spill_reload_regno_p (int *, int *, rtx, rtx, rtx_insn *);
 extern bool ira_bad_reload_regno (int, rtx, rtx);
 
 extern void ira_adjust_equiv_reg_cost (unsigned, int);
 
-/* ira-costs.c */
-extern void ira_costs_c_finalize (void);
+extern bool ira_former_scratch_p (int regno);
+extern bool ira_former_scratch_operand_p (rtx_insn *insn, int nop);
+extern void ira_register_new_scratch_op (rtx_insn *insn, int nop, int icode);
+extern bool ira_remove_insn_scratches (rtx_insn *insn, bool all_p, FILE *dump_file,
+				       rtx (*get_reg) (rtx original));
+extern void ira_restore_scratches (FILE *dump_file);
+extern void ira_nullify_asm_goto (rtx_insn *insn);
+
+/* ira-costs.cc */
+extern void ira_costs_cc_finalize (void);
+
+/* ira-lives.cc */
+extern rtx non_conflicting_reg_copy_p (rtx_insn *);
 
 /* Spilling static chain pseudo may result in generation of wrong
    non-local goto code using frame-pointer to address saved stack
    pointer value after restoring old frame pointer value.  The
    function returns TRUE if REGNO is such a static chain pseudo.  */
-static inline bool
+inline bool
 non_spilled_static_chain_regno_p (int regno)
 {
   return (cfun->static_chain_decl && crtl->has_nonlocal_goto

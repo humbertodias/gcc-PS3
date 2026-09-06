@@ -13,7 +13,7 @@ PROGRAM main
 
   ASSOCIATE (a => 1) 5 ! { dg-error "Junk after ASSOCIATE" }
 
-  ASSOCIATE (x =>) ! { dg-error "Expected association" }
+  ASSOCIATE (x =>) ! { dg-error "Invalid association target" }
 
   ASSOCIATE (=> 5) ! { dg-error "Expected association" }
 
@@ -34,4 +34,4 @@ PROGRAM main
     INTEGER :: b ! { dg-error "Unexpected data declaration statement" }
   END ASSOCIATE
 END PROGRAM main ! { dg-error "Expecting END ASSOCIATE" }
-! { dg-excess-errors "Unexpected end of file" }
+! { dg-error "Unexpected end of file" "" { target "*-*-*" } 0 }

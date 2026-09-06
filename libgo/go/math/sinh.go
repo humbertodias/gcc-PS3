@@ -23,6 +23,13 @@ package math
 //	Sinh(±Inf) = ±Inf
 //	Sinh(NaN) = NaN
 func Sinh(x float64) float64 {
+	if haveArchSinh {
+		return archSinh(x)
+	}
+	return sinh(x)
+}
+
+func sinh(x float64) float64 {
 	// The coefficients are #2029 from Hart & Cheney. (20.36D)
 	const (
 		P0 = -0.6307673640497716991184787251e+6
@@ -41,12 +48,13 @@ func Sinh(x float64) float64 {
 	}
 
 	var temp float64
-	switch true {
+	switch {
 	case x > 21:
-		temp = Exp(x) / 2
+		temp = Exp(x) * 0.5
 
 	case x > 0.5:
-		temp = (Exp(x) - Exp(-x)) / 2
+		ex := Exp(x)
+		temp = (ex - 1/ex) * 0.5
 
 	default:
 		sq := x * x
@@ -67,11 +75,17 @@ func Sinh(x float64) float64 {
 //	Cosh(±Inf) = +Inf
 //	Cosh(NaN) = NaN
 func Cosh(x float64) float64 {
-	if x < 0 {
-		x = -x
+	if haveArchCosh {
+		return archCosh(x)
 	}
+	return cosh(x)
+}
+
+func cosh(x float64) float64 {
+	x = Abs(x)
 	if x > 21 {
-		return Exp(x) / 2
+		return Exp(x) * 0.5
 	}
-	return (Exp(x) + Exp(-x)) / 2
+	ex := Exp(x)
+	return (ex + 1/ex) * 0.5
 }

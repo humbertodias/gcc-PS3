@@ -1,5 +1,5 @@
 ;; Constraint definitions for ATMEL AVR micro controllers.
-;; Copyright (C) 2006-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -224,26 +224,31 @@
 (define_constraint "Y01"
   "Fixed-point or integer constant with bit representation 0x1"
   (ior (and (match_code "const_fixed")
-            (match_test "1 == INTVAL (avr_to_int_mode (op))"))
+	    (match_test "INTVAL (avr_to_int_mode (op)) == 1"))
        (match_test "satisfies_constraint_P (op)")))
 
 (define_constraint "Ym1"
   "Fixed-point or integer constant with bit representation -0x1"
   (ior (and (match_code "const_fixed")
-            (match_test "-1 == INTVAL (avr_to_int_mode (op))"))
+	    (match_test "INTVAL (avr_to_int_mode (op)) == -1"))
        (match_test "satisfies_constraint_N (op)")))
 
 (define_constraint "Y02"
   "Fixed-point or integer constant with bit representation 0x2"
   (ior (and (match_code "const_fixed")
-            (match_test "2 == INTVAL (avr_to_int_mode (op))"))
+	    (match_test "INTVAL (avr_to_int_mode (op)) == 2"))
        (match_test "satisfies_constraint_K (op)")))
 
 (define_constraint "Ym2"
   "Fixed-point or integer constant with bit representation -0x2"
   (ior (and (match_code "const_fixed")
-            (match_test "-2 == INTVAL (avr_to_int_mode (op))"))
+	    (match_test "INTVAL (avr_to_int_mode (op)) == -2"))
        (match_test "satisfies_constraint_Cm2 (op)")))
+
+;; Constraint that's the empty set.  Useful with mode and code iterators.
+(define_constraint "Yxx"
+  "A constraints that is always false"
+  (match_test "false"))
 
 (define_constraint "Yx2"
   "Fixed-point or integer constant not in the range @minus{}2 @dots{} 2"

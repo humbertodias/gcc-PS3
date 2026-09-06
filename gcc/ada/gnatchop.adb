@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1998-2014, Free Software Foundation, Inc.         --
+--          Copyright (C) 1998-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -599,7 +599,7 @@ procedure Gnatchop is
       Chop_Name   : constant String_Access   := File.Table (Num).Name;
       Save_Stdout : constant File_Descriptor := dup (Standout);
       Offset_Name : Temp_File_Name;
-      Offset_FD   : File_Descriptor;
+      Offset_FD   : File_Descriptor := Invalid_FD;
       Buffer      : String_Access;
       Success     : Boolean;
       Failure     : exception;
@@ -685,10 +685,12 @@ procedure Gnatchop is
 
    exception
       when Failure | Types.Terminate_Program =>
-         Close (Offset_FD);
+         if Offset_FD /= Invalid_FD then
+            Close (Offset_FD);
+         end if;
+
          Delete_File (Offset_Name'Address, Success);
          return False;
-
    end Parse_File;
 
    -----------------------
@@ -719,7 +721,7 @@ procedure Gnatchop is
       begin
          Parse_Token (Source, Parse_Ptr, Token_Ptr);
 
-         if Source'Last  + 1 - Token_Ptr < Literal'Length
+         if Source'Last + 1 - Token_Ptr < Literal'Length
            or else
              Source (Token_Ptr .. Token_Ptr + Literal'Length - 1) /= Literal
          then
@@ -993,9 +995,8 @@ procedure Gnatchop is
 
       Buffer (Read_Ptr) := EOF;
 
-      --  Comment needed for the following ???
-      --  Under what circumstances can the test fail ???
-      --  What is copy doing in that case???
+      --  The following test can fail if there was an I/O error, in which case
+      --  Success will be set to False.
 
       if Read_Ptr = Length then
          Contents := Buffer;
@@ -1424,7 +1425,7 @@ procedure Gnatchop is
 
       --  Test for presence of BOM
 
-      Read_BOM (Buffer.all, BOM_Length, BOM, False);
+      Read_BOM (Buffer.all, BOM_Length, BOM, XML_Support => False);
       BOM_Present := BOM /= Unknown;
 
       --  Only chop those units that come from this file

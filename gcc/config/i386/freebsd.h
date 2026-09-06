@@ -1,5 +1,5 @@
 /* Definitions for Intel 386 running FreeBSD with ELF format
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Contributed by Eric Youngdale.
    Modified for stabs-in-ELF by H.J. Lu.
    Adapted from GNU/Linux version by John Polstra.
@@ -32,14 +32,14 @@ along with GCC; see the file COPYING3.  If not see
 #undef  ASM_APP_OFF
 #define ASM_APP_OFF "#NO_APP\n"
 
-#undef  DBX_REGISTER_NUMBER
-#define DBX_REGISTER_NUMBER(n) \
-  (TARGET_64BIT ? dbx64_register_map[n] : svr4_dbx_register_map[n])
+#undef  DEBUGGER_REGNO
+#define DEBUGGER_REGNO(n) \
+  (TARGET_64BIT ? debugger64_register_map[n] : svr4_debugger_register_map[n])
 
 #undef  NO_PROFILE_COUNTERS
 #define NO_PROFILE_COUNTERS	1
 
-/* Tell final.c that we don't need a label passed to mcount.  */
+/* Tell final.cc that we don't need a label passed to mcount.  */
 
 #undef  MCOUNT_NAME
 #define MCOUNT_NAME ".mcount"
@@ -92,28 +92,9 @@ along with GCC; see the file COPYING3.  If not see
 
 /* A C statement to output to the stdio stream FILE an assembler
    command to advance the location counter to a multiple of 1<<LOG
-   bytes if it is within MAX_SKIP bytes.
+   bytes if it is within MAX_SKIP bytes.  */
 
-   This is used to align code labels according to Intel recommendations.  */
-
-#ifdef HAVE_GAS_MAX_SKIP_P2ALIGN
-#undef  ASM_OUTPUT_MAX_SKIP_ALIGN
-#define ASM_OUTPUT_MAX_SKIP_ALIGN(FILE,LOG,MAX_SKIP)			\
-  do {									\
-    if ((LOG) != 0) {							\
-      if ((MAX_SKIP) == 0) fprintf ((FILE), "\t.p2align %d\n", (LOG));	\
-      else {								\
-	fprintf ((FILE), "\t.p2align %d,,%d\n", (LOG), (MAX_SKIP));	\
-	/* Make sure that we have at least 8 byte alignment if > 8 byte \
-	   alignment is preferred.  */					\
-	if ((LOG) > 3							\
-	    && (1 << (LOG)) > ((MAX_SKIP) + 1)				\
-	    && (MAX_SKIP) >= 7)						\
-	  fputs ("\t.p2align 3\n", (FILE));				\
-      }									\
-    }									\
-  } while (0)
-#endif
+#define SUBALIGN_LOG 3
 
 /* Don't default to pcc-struct-return, we want to retain compatibility with
    older gcc versions AND pcc-struct-return is nonreentrant.
@@ -135,3 +116,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #define TARGET_ASM_FILE_END file_end_indicate_exec_stack
 
+/* Define the shadow offsets for asan.  */
+#undef SUBTARGET_SHADOW_OFFSET
+#define SUBTARGET_SHADOW_OFFSET	\
+  (TARGET_LP64 ? HOST_WIDE_INT_1 << 46 : HOST_WIDE_INT_1 << 30)

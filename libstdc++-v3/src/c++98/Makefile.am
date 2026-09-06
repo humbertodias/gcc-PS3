@@ -1,6 +1,6 @@
 ## Makefile for the C++03 sources of the GNU C++ Standard library.
 ##
-## Copyright (C) 1997-2017 Free Software Foundation, Inc.
+## Copyright (C) 1997-2023 Free Software Foundation, Inc.
 ##
 ## This file is part of the libstdc++ version 3 distribution.
 ## Process this file with automake to produce Makefile.in.
@@ -39,7 +39,6 @@ endif
 # particular host.
 host_sources = \
 	$(cow_string_host_sources) \
-	atomicity.cc \
 	codecvt_members.cc \
 	collate_members.cc \
 	messages_members.cc \
@@ -64,10 +63,6 @@ numeric_members.cc: ${glibcxx_srcdir}/$(CNUMERIC_CC)
 
 time_members.cc: ${glibcxx_srcdir}/$(CTIME_CC)
 	$(LN_S) ${glibcxx_srcdir}/$(CTIME_CC) . || true
-
-atomicity_file = ${glibcxx_srcdir}/$(ATOMICITY_SRCDIR)/atomicity.h
-atomicity.cc: ${atomicity_file}
-	$(LN_S) ${atomicity_file} ./atomicity.cc || true
 
 if ENABLE_DUAL_ABI
 collate_members_cow.cc: ${glibcxx_srcdir}/$(CCOLLATE_CC)
@@ -153,7 +148,11 @@ sources = \
 
 vpath % $(top_srcdir)/src/c++98
 
+if GLIBCXX_HOSTED
 libc__98convenience_la_SOURCES = $(sources)
+else
+libc__98convenience_la_SOURCES =
+endif
 
 # Use special rules to compile with -fimplicit-templates.
 c++locale.lo: c++locale.cc
@@ -184,13 +183,13 @@ endif
 
 # XXX TODO move locale_init.cc and localename.cc to src/c++11
 locale_init.lo: locale_init.cc
-	$(LTCXXCOMPILE) -std=gnu++11 -c $<
+	$(LTCXXCOMPILE) -std=gnu++11 -fchar8_t -c $<
 locale_init.o: locale_init.cc
-	$(LTCXXCOMPILE) -std=gnu++11 -c $<
+	$(CXXCOMPILE) -std=gnu++11 -fchar8_t -c $<
 localename.lo: localename.cc
-	$(LTCXXCOMPILE) -std=gnu++11 -c $<
+	$(LTCXXCOMPILE) -std=gnu++11 -fchar8_t -c $<
 localename.o: localename.cc
-	$(LTCXXCOMPILE) -std=gnu++11 -c $<
+	$(CXXCOMPILE) -std=gnu++11 -fchar8_t -c $<
 
 # Use special rules for the deprecated source files so that they find
 # deprecated include files.

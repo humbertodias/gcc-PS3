@@ -1,5 +1,5 @@
 ;; Predicate definitions for ATMEL AVR micro controllers.
-;; Copyright (C) 2006-2017 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -26,6 +26,11 @@
 (define_predicate "d_register_operand"
   (and (match_code "reg")
        (match_test "REGNO (op) >= 16 && REGNO (op) <= 31")))
+
+(define_predicate "scratch_or_d_register_operand"
+  (ior (match_operand 0 "d_register_operand")
+       (and (match_code ("scratch"))
+            (match_operand 0 "scratch_operand"))))
 
 (define_predicate "even_register_operand"
   (and (match_code "reg")
@@ -221,7 +226,7 @@
 ;; 8 or 16 or 24.
 (define_predicate "const_8_16_24_operand"
   (and (match_code "const_int")
-       (match_test "8 == INTVAL(op) || 16 == INTVAL(op) || 24 == INTVAL(op)")))
+       (match_test "INTVAL(op) == 8 || INTVAL(op) == 16 || INTVAL(op) == 24")))
 
 ;; Unsigned CONST_INT that fits in 8 bits, i.e. 0..255.
 (define_predicate "u8_operand"

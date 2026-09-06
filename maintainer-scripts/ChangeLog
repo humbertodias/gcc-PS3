@@ -1,6 +1,275 @@
-2017-08-14  Release Manager
+2023-07-27  Release Manager
 
-	* GCC 7.2.0 released.
+	* GCC 13.2.0 released.
+
+2023-04-26  Release Manager
+
+	* GCC 13.1.0 released.
+
+2023-03-21  Arsen Arsenović  <arsen@aarsen.me>
+
+	* update_web_docs_git: Set CONTENTS_OUTPUT_LOCATION=inline in
+	order to put @shortcontents above contents.
+
+2023-03-21  Arsen Arsenović  <arsen@aarsen.me>
+
+	* update_web_docs_git (CSS): Update CSS reference to point to
+	/texinfo-manuals.css.
+
+2023-03-16  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	* update_web_docs_git (MANUALS): Add gm2.
+	Add include path for gm2 manual.
+
+2023-03-16  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* update_web_docs_git (BUGURL): Introduce and use throughout.
+
+2022-11-30  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR web/107749
+	* update_web_docs_git: Add gdc to MANUALS.
+
+2022-11-23  Sam James  <sam@gentoo.org>
+
+	* gcc_release (XZ): Add -T0.
+
+2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: New file.
+
+2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: Simplify.
+
+2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* crontab: Use new script for documentation of master branch.
+
+2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: Create sources tarball.
+
+2022-11-14  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2022-11-10  Martin Liska  <mliska@suse.cz>
+
+	* crontab: Fix superfluous 'sh' for Python script.
+
+2022-11-10  Martin Liska  <mliska@suse.cz>
+
+	* crontab: Fix superfluous 'sh' for Python script.
+
+2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: Create sources tarball.
+
+2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* crontab: Use new script for documentation of master branch.
+
+2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: Simplify.
+
+2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git.py: New file.
+
+2022-07-28  Martin Liska  <mliska@suse.cz>
+
+	* update_web_docs_git: Use sphinx-build from a venv so that
+	we can use a recent version.
+
+2022-05-20  Richard Biener  <rguenther@suse.de>
+
+	* crontab: Disable snapshots from the gcc-9 branch.
+
+2022-04-28  Jakub Jelinek  <jakub@redhat.com>
+
+	* crontab: Snapshots from trunk are now GCC 13 related.
+	Add GCC 12 snapshots from the respective branch.
+
+2021-05-14  Jakub Jelinek  <jakub@redhat.com>
+
+	* crontab: Stop doing gcc-8 snapshots.
+
+2021-04-20  Jakub Jelinek  <jakub@redhat.com>
+
+	* crontab: Snapshots from trunk are now GCC 12 related.
+	Add GCC 11 snapshots from the respective branch.
+
+2021-04-09  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Generate URL only when emitting
+	to terminal.
+
+2021-04-09  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Mention closing candidates and emit
+	console links to bugzilla.
+
+2021-04-09  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Document more how the script behaves.
+
+2021-04-09  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Fix usage of Version class.
+
+2021-04-09  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Use new version scheme in --help output.
+
+2021-04-08  Jonathan Wakely  <jwakely@redhat.com>
+
+	* generate_libstdcxx_web_docs: Add --disable-multilib to
+	configure command.
+
+2021-04-08  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Fix wrongly converted assert.
+
+2021-04-08  Martin Liska  <mliska@suse.cz>
+
+	* branch_changer.py: Modernize and fix flake8 issues.
+	* setup.cfg: New file.
+
+2020-12-16  Jakub Jelinek  <jakub@redhat.com>
+
+	* update_version_git: Put BASEDIR into /sourceware/snapshot-tmp/gcc
+	if it exist.
+
+2020-05-29  Martin Liska  <mliska@suse.cz>
+
+	* bugzilla-close-candidate.py: Fix sorting of branches.
+
+2020-05-29  Martin Liska  <mliska@suse.cz>
+
+	* bugzilla-close-candidate.py: Fix parsing of SVN revisions.
+	Fix skipping of PRs that contain Can be closed message.
+
+2020-05-29  Martin Liska  <mliska@suse.cz>
+
+	* bugzilla-close-candidate.py: Support both SVN and GIT messages
+	in PRs. Remove need of usage of the bugzilla API key.
+
+2020-05-27  Jakub Jelinek  <jakub@redhat.com>
+
+	* update_version_git: Rewrite using
+	contrib/gcc-changelog/git_update_version.py.
+
+2020-04-30  Jakub Jelinek  <jakub@redhat.com>
+
+	* crontab: Snapshots from trunk are now GCC 11 related.
+	Add GCC 10 snapshots from the respective branch.
+
+2020-03-12  Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc_release (upload_files): Without -l, pass -m 755 to the mkdir
+	command invoked through ssh.
+
+	* update_web_docs_git: Drop SPHINXBUILD=/usr/bin/sphinx-1.0-build.
+
+2020-02-27  Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc_release: Add support for -b local-git-repo argument.
+
+2020-01-13  Jonathan Wakely  <jwakely@redhat.com>
+
+	* update_web_docs_libstdcxx_git: New file.
+	* update_web_docs_libstdcxx_svn: Remove.
+	* crontab: Use update_web_docs_libstdcxx_git.
+
+2020-01-13  Joseph Myers  <joseph@codesourcery.com>
+
+	* update_web_docs_git: New file.
+	* update_web_docs_svn: Remove.
+	* crontab: Use update_web_docs_svn.
+
+2020-01-13  Joseph Myers  <joseph@codesourcery.com>
+
+	* gcc_release: Use git instead of SVN.
+	* crontab: Update gcc_release calls.
+
+2020-01-13  Joseph Myers  <joseph@codesourcery.com>
+
+	* update_version_git: New file.
+	* update_version:svn: Remove.
+	* crontab: Use update_version_git.
+
+2019-11-20  Janne Blomqvist  <jb@gcc.gnu.org>
+
+	* gcc_release: Use https for gcc.gnu.org.
+
+2019-11-14  Richard Biener  <rguenther@suse.de>
+
+	* update_version_svn (IGNORE_BRANCHES): Add 7.
+
+2019-10-05  Richard Biener  <rguenther@suse.de>
+
+	* crontab: Disable snapshots from gcc-7-branch.
+
+2019-08-05  David Malcolm  <dmalcolm@redhat.com>
+
+	* update_web_docs_svn: Proceed even if the invocation of
+	sphinx fails.
+
+2019-05-04  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* crontab: Snapshots from trunk are now GCC 10 related.
+	Add GCC 9 snapshots from the respective branch.
+
+2019-02-23  Jonathan Wakely  <jwakely@redhat.com>
+
+	* generate_libstdcxx_web_docs: Improve error output.
+
+2018-11-22  Martin Liska  <mliska@suse.cz>
+
+	* bugzilla-close-candidate.py: New file.
+
+2018-10-26  Jakub Jelinek  <jakub@redhat.com>
+
+	* update_version_svn (IGNORE_BRANCHES): Add gcc-6-branch.
+	* crontab: Remove gcc-6-branch entry.
+
+	* gcc_release (error, inform): Use $@ instead of $1.
+	(build_sources): Check for ^[[:blank:]]*GCC in both index.html
+	and changes.html, rather than for GCC in one and ^GCC in another one.
+
+2018-05-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR other/85622
+	* gcc_release: For -f, verify contrib/gennews has the major version
+	pages listed and both index.html and changes.html have been updated
+	for the new release.
+
+2018-04-25  Jakub Jelinek  <jakub@redhat.com>
+
+	* crontab: Enable snapshots from gcc-8-branch.
+
+2018-01-25  Richard Biener  <rguenther@suse.de>
+
+	* gcc_release (build_sources): Use getconf to get at the number
+	of cores in the system and pass -jN to gcc_build.
+
+2017-10-10  Jakub Jelinek  <jakub@redhat.com>
+
+	* update_version_svn: Ignore the GCC 5 branch.
+	* crontab: Remove entry for the GCC 5 branch.
 
 2017-05-23  Matthias Klose  <doko@ubuntu.com>
 
@@ -17,9 +286,9 @@
 	(XZ): New definition.
 	(<toplevel>): Look for both bz2 and xz compressed old tarballs.
 
-2017-05-02  Release Manager
+2017-04-20  Jakub Jelinek  <jakub@redhat.com>
 
-	* GCC 7.1.0 released.
+	* crontab: Enable snapshots from gcc-7-branch.
 
 2017-03-03  Gerald Pfeifer  <gerald@pfeifer.com>
 

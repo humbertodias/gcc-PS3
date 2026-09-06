@@ -1,6 +1,6 @@
 /* Xtensa Linux configuration.
    Derived from the configuration for GCC for Intel i386 running Linux.
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -44,7 +44,9 @@ along with GCC; see the file COPYING3.  If not see
   %{mlongcalls:--longcalls} \
   %{mno-longcalls:--no-longcalls} \
   %{mauto-litpools:--auto-litpools} \
-  %{mno-auto-litpools:--no-auto-litpools}"
+  %{mno-auto-litpools:--no-auto-litpools} \
+  %{mabi=windowed:--abi-windowed} \
+  %{mabi=call0:--abi-call0}"
 
 #define GLIBC_DYNAMIC_LINKER "/lib/ld.so.1"
 
@@ -52,10 +54,13 @@ along with GCC; see the file COPYING3.  If not see
 #define LINK_SPEC \
  "%{shared:-shared} \
   %{!shared: \
-    %{!static: \
+    %{!static:%{!static-pie: \
       %{rdynamic:-export-dynamic} \
-      -dynamic-linker " GNU_USER_DYNAMIC_LINKER "} \
-    %{static:-static}}"
+      -dynamic-linker " GNU_USER_DYNAMIC_LINKER "}} \
+    %{static-pie:-static -pie --no-dynamic-linker -z text} \
+    %{static:-static}} \
+  %{mabi=windowed:--abi-windowed} \
+  %{mabi=call0:--abi-call0}"
 
 #undef LOCAL_LABEL_PREFIX
 #define LOCAL_LABEL_PREFIX	"."
@@ -63,5 +68,6 @@ along with GCC; see the file COPYING3.  If not see
 /* Always enable "-fpic" for Xtensa Linux.  */
 #define XTENSA_ALWAYS_PIC 1
 
-#undef DBX_REGISTER_NUMBER
+#undef DEBUGGER_REGNO
 
+#define TARGET_ASM_FILE_END file_end_indicate_exec_stack

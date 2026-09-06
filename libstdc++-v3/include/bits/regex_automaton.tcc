@@ -1,6 +1,6 @@
 // class template regex -*- C++ -*-
 
-// Copyright (C) 2013-2017 Free Software Foundation, Inc.
+// Copyright (C) 2013-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -30,40 +30,40 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
-namespace __detail
-{
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
+namespace __detail
+{
 #ifdef _GLIBCXX_DEBUG
   inline std::ostream&
-  _State_base::_M_print(std::ostream& ostr) const
+  _State_base::_M_print(std::ostream& __ostr) const
   {
     switch (_M_opcode)
     {
       case _S_opcode_alternative:
       case _S_opcode_repeat:
-	ostr << "alt next=" << _M_next << " alt=" << _M_alt;
+	__ostr << "alt next=" << _M_next << " alt=" << _M_alt;
 	break;
       case _S_opcode_subexpr_begin:
-	ostr << "subexpr begin next=" << _M_next << " index=" << _M_subexpr;
+	__ostr << "subexpr begin next=" << _M_next << " index=" << _M_subexpr;
 	break;
       case _S_opcode_subexpr_end:
-	ostr << "subexpr end next=" << _M_next << " index=" << _M_subexpr;
+	__ostr << "subexpr end next=" << _M_next << " index=" << _M_subexpr;
 	break;
       case _S_opcode_backref:
-	ostr << "backref next=" << _M_next << " index=" << _M_backref_index;
+	__ostr << "backref next=" << _M_next << " index=" << _M_backref_index;
 	break;
       case _S_opcode_match:
-	ostr << "match next=" << _M_next;
+	__ostr << "match next=" << _M_next;
 	break;
       case _S_opcode_accept:
-	ostr << "accept next=" << _M_next;
+	__ostr << "accept next=" << _M_next;
 	break;
       default:
-	ostr << "unknown next=" << _M_next;
+	__ostr << "unknown next=" << _M_next;
 	break;
     }
-    return ostr;
+    return __ostr;
   }
 
   // Prints graphviz dot commands for state.
@@ -194,8 +194,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     _StateSeq<_TraitsT>
     _StateSeq<_TraitsT>::_M_clone()
     {
-      std::map<_StateIdT, _StateIdT> __m;
-      std::stack<_StateIdT> __stack;
+      _GLIBCXX_STD_C::map<_StateIdT, _StateIdT> __m;
+      std::stack<_StateIdT, _GLIBCXX_STD_C::deque<_StateIdT>> __stack;
       __stack.push(_M_start);
       while (!__stack.empty())
 	{
@@ -220,20 +220,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  auto __v = __it.second;
 	  auto& __ref = _M_nfa[__v];
 	  if (__ref._M_next != _S_invalid_state_id)
-	    {
-	      __glibcxx_assert(__m.count(__ref._M_next) > 0);
-	      __ref._M_next = __m[__ref._M_next];
-	    }
-	  if (__ref._M_has_alt())
-	    if (__ref._M_alt != _S_invalid_state_id)
-	      {
-		__glibcxx_assert(__m.count(__ref._M_alt) > 0);
-		__ref._M_alt = __m[__ref._M_alt];
-	      }
+	    __ref._M_next = __m.find(__ref._M_next)->second;
+	  if (__ref._M_has_alt() && __ref._M_alt != _S_invalid_state_id)
+	    __ref._M_alt = __m.find(__ref._M_alt)->second;
 	}
       return _StateSeq(_M_nfa, __m[_M_start], __m[_M_end]);
     }
+} // namespace __detail
 
 _GLIBCXX_END_NAMESPACE_VERSION
-} // namespace __detail
 } // namespace

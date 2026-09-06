@@ -1,5 +1,5 @@
 /* Target Definitions for R8C/M16C/M32C
-   Copyright (C) 2005-2017 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -255,9 +255,6 @@ machine_function;
 
 /* How Values Fit in Registers */
 
-#define HARD_REGNO_NREGS(R,M) m32c_hard_regno_nregs (R, M)
-#define HARD_REGNO_MODE_OK(R,M) m32c_hard_regno_ok (R, M)
-#define MODES_TIEABLE_P(M1,M2) m32c_modes_tieable_p (M1, M2)
 #define AVOID_CCMODE_COPIES
 
 /* Register Classes */
@@ -414,8 +411,6 @@ enum reg_class
 
 #define TARGET_SMALL_REGISTER_CLASSES_FOR_MODE_P hook_bool_mode_true
 
-#define CANNOT_CHANGE_MODE_CLASS(F,T,C) m32c_cannot_change_mode_class(F,T,C)
-
 /* STACK AND CALLING */
 
 /* Frame Layout */
@@ -426,7 +421,6 @@ enum reg_class
 #define STACK_PUSH_CODE PRE_DEC
 #define FRAME_GROWS_DOWNWARD 1
 
-#define STARTING_FRAME_OFFSET 0
 #define FIRST_PARM_OFFSET(F) 0
 
 #define RETURN_ADDR_RTX(COUNT,FA) m32c_return_addr_rtx (COUNT)
@@ -458,7 +452,7 @@ enum reg_class
 
 #define DWARF_FRAME_REGISTERS 20
 #define DWARF_FRAME_REGNUM(N) m32c_dwarf_frame_regnum (N)
-#define DBX_REGISTER_NUMBER(N) m32c_dwarf_frame_regnum (N)
+#define DEBUGGER_REGNO(N) m32c_dwarf_frame_regnum (N)
 
 #undef ASM_PREFERRED_EH_DATA_FORMAT
 /* This is the same as the default in practice, except that by making
@@ -478,7 +472,6 @@ enum reg_class
 
 /* Passing Function Arguments on the Stack */
 
-#define PUSH_ARGS 1
 #define PUSH_ROUNDING(N) m32c_push_rounding (N)
 #define CALL_POPS_ARGS(C) 0
 
@@ -529,7 +522,7 @@ typedef struct m32c_cumulative_args
 #define MAX_REGS_PER_ADDRESS 1
 
 /* This is passed to the macros below, so that they can be implemented
-   in m32c.c.  */
+   in m32c.cc.  */
 #ifdef REG_OK_STRICT
 #define REG_OK_STRICT_V 1
 #else
@@ -634,7 +627,6 @@ typedef struct m32c_cumulative_args
 #define LOAD_EXTEND_OP(MEM) ZERO_EXTEND
 
 #define MOVE_MAX 4
-#define TRULY_NOOP_TRUNCATION(op,ip) 1
 
 #define STORE_FLAG_VALUE 1
 

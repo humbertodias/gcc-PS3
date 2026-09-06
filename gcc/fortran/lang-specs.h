@@ -1,6 +1,6 @@
 /* Contribution to the specs for the GNU Compiler Collection
    from GNU Fortran 95 compiler.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
    This file is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,10 +16,10 @@
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>.  */
 
-/* This is the contribution to the `default_compilers' array in gcc.c
+/* This is the contribution to the `default_compilers' array in gcc.cc
    for the f95 language.  */
 
-/* Identical to gcc.c (cpp_options), but omitting %(cpp_unique_options)
+/* Identical to gcc.cc (cpp_options), but omitting %(cpp_unique_options)
    and -fpch-preprocess on -save-temps.  */
 #define CPP_ONLY_OPTIONS    "%1 %{m*} %{f*} %{g*:%{!g0:%{g*} \
 			     %{!fno-working-directory:-fworking-directory}}} \
@@ -32,9 +32,15 @@
 #define F951_CPP_OPTIONS    "%{!nocpp: -cpp=%g.f90 %{E} %(cpp_unique_options) \
 			     %{E|M|MM:%(cpp_debug_options) " CPP_ONLY_OPTIONS \
 			     " -fsyntax-only};: " CPP_FORWARD_OPTIONS "}"
+
+#ifndef TARGET_F951_OPTIONS
+#define TARGET_F951_OPTIONS
+#endif
+
 #define F951_OPTIONS        "%(cc1_options) %{J*} \
-			     %{!nostdinc:-fintrinsic-modules-path finclude%s}\
-			     %{!fsyntax-only:%(invoke_as)}"
+			     %{!nostdinc:-fintrinsic-modules-path finclude%s}" \
+			     TARGET_F951_OPTIONS \
+			     "%{!fsyntax-only:%(invoke_as)}"
 #define F951_SOURCE_FORM    "%{!ffree-form:-ffixed-form}"
 
 

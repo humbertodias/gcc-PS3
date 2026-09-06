@@ -1,6 +1,6 @@
 /* PowerPC asm definitions for GNU C.
 
-Copyright (C) 2002-2017 Free Software Foundation, Inc.
+Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -120,7 +120,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #define f47	47
 #define f48	48
 #define f49	49
-#define f50	30
+#define f50	50
 #define f51	51
 #define f52	52
 #define f53	53
@@ -222,7 +222,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #define vs47	47
 #define vs48	48
 #define vs49	49
-#define vs50	30
+#define vs50	50
 #define vs51	51
 #define vs52	52
 #define vs53	53
@@ -262,6 +262,14 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #undef toc
 
 #define FUNC_NAME(name) GLUE(__USER_LABEL_PREFIX__,name)
+#ifdef __PCREL__
+#define JUMP_TARGET(name) GLUE(FUNC_NAME(name),@notoc)
+#define FUNC_START(name) \
+	.type FUNC_NAME(name),@function; \
+	.globl FUNC_NAME(name); \
+FUNC_NAME(name): \
+	.localentry FUNC_NAME(name),1
+#else
 #define JUMP_TARGET(name) FUNC_NAME(name)
 #define FUNC_START(name) \
 	.type FUNC_NAME(name),@function; \
@@ -270,6 +278,7 @@ FUNC_NAME(name): \
 0:	addis 2,12,(.TOC.-0b)@ha; \
 	addi 2,2,(.TOC.-0b)@l; \
 	.localentry FUNC_NAME(name),.-FUNC_NAME(name)
+#endif /* !__PCREL__ */
 
 #define HIDDEN_FUNC(name) \
   FUNC_START(name) \

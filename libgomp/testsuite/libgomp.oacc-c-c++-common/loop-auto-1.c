@@ -1,11 +1,14 @@
-/* This code uses nvptx inline assembly guarded with acc_on_device, which is
-   not optimized away at -O0, and then confuses the target assembler.
-   { dg-skip-if "" { *-*-* } { "-O0" } { "" } } */
+/* AMD GCN does not use 32-lane vectors.
+   { dg-skip-if "unsuitable dimensions" { openacc_radeon_accel_selected } { "*" } { "" } } */
 
 /* { dg-additional-options "-fopenacc-dim=32" } */
 
+/* { dg-additional-options "-Wopenacc-parallelism" } for testing/documenting
+   aspects of that functionality.  */
+
 #include <stdio.h>
 #include <openacc.h>
+#include <gomp-constants.h>
 
 int check (const int *ary, int size, int gp, int wp, int vp)
 {
@@ -79,15 +82,12 @@ static int __attribute__((noinline)) place ()
 {
   int r = 0;
 
-  if (acc_on_device (acc_device_nvidia))
-    {
-      int g = 0, w = 0, v = 0;
+  int g = 0, w = 0, v = 0;
+  g = __builtin_goacc_parlevel_id (GOMP_DIM_GANG);
+  w = __builtin_goacc_parlevel_id (GOMP_DIM_WORKER);
+  v = __builtin_goacc_parlevel_id (GOMP_DIM_VECTOR);
+  r = (g << 16) | (w << 8) | v;
 
-      __asm__ volatile ("mov.u32 %0,%%ctaid.x;" : "=r" (g));
-      __asm__ volatile ("mov.u32 %0,%%tid.y;" : "=r" (w));
-      __asm__ volatile ("mov.u32 %0,%%tid.x;" : "=r" (v));
-      r = (g << 16) | (w << 8) | v;
-    }
   return r;
 }
 
@@ -154,6 +154,7 @@ int gang_1 (int *ary, int size)
   clear (ary, size);
   
 #pragma acc parallel num_gangs (32) num_workers (32) vector_length(32) copy(ary[0:size]) firstprivate (size)
+  /* { dg-warning "region is vector partitioned but does not contain vector partitioned code" "" { target *-*-* } .-1 } */
   {
 #pragma acc loop auto
     for (int jx = 0; jx <  size  / 64; jx++)

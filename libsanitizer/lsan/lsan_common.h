@@ -1,7 +1,8 @@
 //=-- lsan_common.h -------------------------------------------------------===//
 //
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -17,18 +18,42 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_platform.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stoptheworld.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
 
-#if (SANITIZER_LINUX && !SANITIZER_ANDROID) && (SANITIZER_WORDSIZE == 64) \
-     && (defined(__x86_64__) ||  defined(__mips64) ||  defined(__aarch64__))
-#define CAN_SANITIZE_LEAKS 1
+// LeakSanitizer relies on some Glibc's internals (e.g. TLS machinery) on Linux.
+// Also, LSan doesn't like 32 bit architectures
+// because of "small" (4 bytes) pointer size that leads to high false negative
+// ratio on large leaks. But we still want to have it for some 32 bit arches
+// (e.g. x86), see https://github.com/google/sanitizers/issues/403.
+// To enable LeakSanitizer on a new architecture, one needs to implement the
+// internal_clone function as well as (probably) adjust the TLS machinery for
+// the new architecture inside the sanitizer library.
+// Exclude leak-detection on arm32 for Android because `__aeabi_read_tp`
+// is missing. This caused a link error.
+#if SANITIZER_ANDROID && (__ANDROID_API__ < 28 || defined(__arm__))
+#  define CAN_SANITIZE_LEAKS 0
+#elif (SANITIZER_LINUX || SANITIZER_APPLE) && (SANITIZER_WORDSIZE == 64) && \
+    (defined(__x86_64__) || defined(__mips64) || defined(__aarch64__) ||  \
+     defined(__powerpc64__) || defined(__s390x__))
+#  define CAN_SANITIZE_LEAKS 1
+#elif defined(__i386__) && (SANITIZER_LINUX || SANITIZER_APPLE)
+#  define CAN_SANITIZE_LEAKS 1
+#elif defined(__arm__) && SANITIZER_LINUX
+#  define CAN_SANITIZE_LEAKS 1
+#elif SANITIZER_RISCV64 && SANITIZER_LINUX
+#  define CAN_SANITIZE_LEAKS 1
+#elif SANITIZER_NETBSD || SANITIZER_FUCHSIA
+#  define CAN_SANITIZE_LEAKS 1
 #else
-#define CAN_SANITIZE_LEAKS 0
+#  define CAN_SANITIZE_LEAKS 0
 #endif
 
 namespace __sanitizer {
 class FlagParser;
+class ThreadRegistry;
+class ThreadContextBase;
 struct DTLS;
 }
 
@@ -57,6 +82,15 @@ extern Flags lsan_flags;
 inline Flags *flags() { return &lsan_flags; }
 void RegisterLsanFlags(FlagParser *parser, Flags *f);
 
+struct LeakedChunk {
+  uptr chunk;
+  u32 stack_trace_id;
+  uptr leaked_size;
+  ChunkTag tag;
+};
+
+using LeakedChunks = InternalMmapVector<LeakedChunk>;
+
 struct Leak {
   u32 id;
   uptr hit_count;
@@ -75,20 +109,19 @@ struct LeakedObject {
 // Aggregates leaks by stack trace prefix.
 class LeakReport {
  public:
-  LeakReport() : next_id_(0), leaks_(1), leaked_objects_(1) {}
-  void AddLeakedChunk(uptr chunk, u32 stack_trace_id, uptr leaked_size,
-                      ChunkTag tag);
+  LeakReport() {}
+  void AddLeakedChunks(const LeakedChunks &chunks);
   void ReportTopLeaks(uptr max_leaks);
   void PrintSummary();
-  void ApplySuppressions();
+  uptr ApplySuppressions();
   uptr UnsuppressedLeakCount();
-
+  uptr IndirectUnsuppressedLeakCount();
 
  private:
   void PrintReportForLeak(uptr index);
   void PrintLeakedObjectsForLeak(uptr index);
 
-  u32 next_id_;
+  u32 next_id_ = 0;
   InternalMmapVector<Leak> leaks_;
   InternalMmapVector<LeakedObject> leaked_objects_;
 };
@@ -99,12 +132,38 @@ typedef InternalMmapVector<uptr> Frontier;
 void InitializePlatformSpecificModules();
 void ProcessGlobalRegions(Frontier *frontier);
 void ProcessPlatformSpecificAllocations(Frontier *frontier);
-// Run stoptheworld while holding any platform-specific locks.
-void DoStopTheWorld(StopTheWorldCallback callback, void* argument);
+
+struct RootRegion {
+  uptr begin;
+  uptr size;
+};
+
+// LockStuffAndStopTheWorld can start to use Scan* calls to collect into
+// this Frontier vector before the StopTheWorldCallback actually runs.
+// This is used when the OS has a unified callback API for suspending
+// threads and enumerating roots.
+struct CheckForLeaksParam {
+  Frontier frontier;
+  LeakedChunks leaks;
+  tid_t caller_tid;
+  uptr caller_sp;
+  bool success = false;
+};
+
+InternalMmapVectorNoCtor<RootRegion> const *GetRootRegions();
+void ScanRootRegion(Frontier *frontier, RootRegion const &region,
+                    uptr region_begin, uptr region_end, bool is_readable);
+void ForEachExtraStackRangeCb(uptr begin, uptr end, void* arg);
+void GetAdditionalThreadContextPtrs(ThreadContextBase *tctx, void *ptrs);
+// Run stoptheworld while holding any platform-specific locks, as well as the
+// allocator and thread registry locks.
+void LockStuffAndStopTheWorld(StopTheWorldCallback callback,
+                              CheckForLeaksParam* argument);
 
 void ScanRangeForPointers(uptr begin, uptr end,
                           Frontier *frontier,
                           const char *region_type, ChunkTag tag);
+void ScanGlobalRange(uptr begin, uptr end, Frontier *frontier);
 
 enum IgnoreObjectResult {
   kIgnoreObjectSuccess,
@@ -113,8 +172,11 @@ enum IgnoreObjectResult {
 };
 
 // Functions called from the parent tool.
+const char *MaybeCallLsanDefaultOptions();
 void InitCommonLsan();
 void DoLeakCheck();
+void DoRecoverableLeakCheckVoid();
+void DisableCounterUnderflow();
 bool DisabledInThisThread();
 
 // Used to implement __lsan::ScopedDisabler.
@@ -127,13 +189,36 @@ struct ScopedInterceptorDisabler {
   ~ScopedInterceptorDisabler() { EnableInThisThread(); }
 };
 
-// Special case for "new T[0]" where T is a type with DTOR.
-// new T[0] will allocate one word for the array size (0) and store a pointer
-// to the end of allocated chunk.
-inline bool IsSpecialCaseOfOperatorNew0(uptr chunk_beg, uptr chunk_size,
-                                        uptr addr) {
+// According to Itanium C++ ABI array cookie is a one word containing
+// size of allocated array.
+static inline bool IsItaniumABIArrayCookie(uptr chunk_beg, uptr chunk_size,
+                                           uptr addr) {
   return chunk_size == sizeof(uptr) && chunk_beg + chunk_size == addr &&
          *reinterpret_cast<uptr *>(chunk_beg) == 0;
+}
+
+// According to ARM C++ ABI array cookie consists of two words:
+// struct array_cookie {
+//   std::size_t element_size; // element_size != 0
+//   std::size_t element_count;
+// };
+static inline bool IsARMABIArrayCookie(uptr chunk_beg, uptr chunk_size,
+                                       uptr addr) {
+  return chunk_size == 2 * sizeof(uptr) && chunk_beg + chunk_size == addr &&
+         *reinterpret_cast<uptr *>(chunk_beg + sizeof(uptr)) == 0;
+}
+
+// Special case for "new T[0]" where T is a type with DTOR.
+// new T[0] will allocate a cookie (one or two words) for the array size (0)
+// and store a pointer to the end of allocated chunk. The actual cookie layout
+// varies between platforms according to their C++ ABI implementation.
+inline bool IsSpecialCaseOfOperatorNew0(uptr chunk_beg, uptr chunk_size,
+                                        uptr addr) {
+#if defined(__arm__)
+  return IsARMABIArrayCookie(chunk_beg, chunk_size, addr);
+#else
+  return IsItaniumABIArrayCookie(chunk_beg, chunk_size, addr);
+#endif
 }
 
 // The following must be implemented in the parent tool.
@@ -147,12 +232,30 @@ void UnlockAllocator();
 // Returns true if [addr, addr + sizeof(void *)) is poisoned.
 bool WordIsPoisoned(uptr addr);
 // Wrappers for ThreadRegistry access.
-void LockThreadRegistry();
-void UnlockThreadRegistry();
-bool GetThreadRangesLocked(uptr os_id, uptr *stack_begin, uptr *stack_end,
+void LockThreadRegistry() SANITIZER_NO_THREAD_SAFETY_ANALYSIS;
+void UnlockThreadRegistry() SANITIZER_NO_THREAD_SAFETY_ANALYSIS;
+
+struct ScopedStopTheWorldLock {
+  ScopedStopTheWorldLock() {
+    LockThreadRegistry();
+    LockAllocator();
+  }
+
+  ~ScopedStopTheWorldLock() {
+    UnlockAllocator();
+    UnlockThreadRegistry();
+  }
+
+  ScopedStopTheWorldLock &operator=(const ScopedStopTheWorldLock &) = delete;
+  ScopedStopTheWorldLock(const ScopedStopTheWorldLock &) = delete;
+};
+
+ThreadRegistry *GetThreadRegistryLocked();
+bool GetThreadRangesLocked(tid_t os_id, uptr *stack_begin, uptr *stack_end,
                            uptr *tls_begin, uptr *tls_end, uptr *cache_begin,
                            uptr *cache_end, DTLS **dtls);
-void ForEachExtraStackRange(uptr os_id, RangeIteratorCallback callback,
+void GetAllThreadAllocatorCachesLocked(InternalMmapVector<uptr> *caches);
+void ForEachExtraStackRange(tid_t os_id, RangeIteratorCallback callback,
                             void *arg);
 // If called from the main thread, updates the main thread's TID in the thread
 // registry. We need this to handle processes that fork() without a subsequent
@@ -168,6 +271,16 @@ uptr PointsIntoChunk(void *p);
 uptr GetUserBegin(uptr chunk);
 // Helper for __lsan_ignore_object().
 IgnoreObjectResult IgnoreObjectLocked(const void *p);
+
+// Return the linker module, if valid for the platform.
+LoadedModule *GetLinker();
+
+// Return true if LSan has finished leak checking and reported leaks.
+bool HasReportedLeaks();
+
+// Run platform-specific leak handlers.
+void HandleLeaks();
+
 // Wrapper for chunk metadata operations.
 class LsanMetadata {
  public:
@@ -186,10 +299,20 @@ class LsanMetadata {
 
 extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
+const char *__lsan_default_options();
+
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
 int __lsan_is_turned_off();
 
 SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
 const char *__lsan_default_suppressions();
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __lsan_register_root_region(const void *p, __lsan::uptr size);
+
+SANITIZER_INTERFACE_ATTRIBUTE
+void __lsan_unregister_root_region(const void *p, __lsan::uptr size);
+
 }  // extern "C"
 
 #endif  // LSAN_COMMON_H

@@ -52,11 +52,13 @@ while (<F>) {
 	next;
     }
     # Catch globs.  Note that '{}' is not allowed in globs by this script,
-    # so only '*' and '[]' are available.
+    # so only '*' and '?' and '[]' are available.
     if (/^[ \t]*([^ \t;{}#]+);?[ \t]*$/) {
 	my $ptn = $1;
 	# Turn the glob into a regex by replacing '*' with '.*'.
-	$ptn =~ s/\*/\.\*/g;
+	$ptn =~ s/\*/.*/g;
+	# And replacing '?' with '.'.
+	$ptn =~ s/\?/./g;
 	push @$glob,$ptn;
 	next;
     }
@@ -102,6 +104,14 @@ NAME: while (<NM>) {
     next if (/:$/);
     # Ignore undefined and local symbols.
     next if (/^([^ ]+) [Ua-z] /);
+
+    # GCC does not export construction vtables from shared libraries.
+    # However the symbols are marked hidden, for Darwin that makes them
+    # also external "private_extern", which means that they show up in
+    # this list.  When ld64 encounters them it generates a warning that
+    # they cannot be exported, so trim them from the set now.
+    next if (/^construction vtable.*$/);
+    next if (/^__ZTC.*$/);
 
     # $sym is the name of the symbol, $noeh_sym is the same thing with
     # any '.eh' suffix removed.
