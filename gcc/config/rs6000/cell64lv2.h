@@ -292,11 +292,9 @@ extern int dot_symbols;
 /* PowerPC64 Linux word-aligns FP doubles when -malign-power is given.  */
 #undef  ADJUST_FIELD_ALIGN
 #define ADJUST_FIELD_ALIGN(FIELD, TYPE, COMPUTED) \
-  (rs6000_special_adjust_field_align_p ((TYPE), (COMPUTED))		\
-   ? 128								\
-   : (TARGET_64BIT							\
-      && TARGET_ALIGN_NATURAL == 0					\
-      && TYPE_MODE (strip_array_types (TYPE)) == DFmode)		\
+  ((TARGET_64BIT							\
+    && TARGET_ALIGN_NATURAL == 0					\
+    && TYPE_MODE (strip_array_types (TYPE)) == DFmode)			\
    ? MIN ((COMPUTED), 32)						\
    : (COMPUTED))
 
@@ -339,7 +337,7 @@ extern int dot_symbols;
    registers and memory.  FIRST is nonzero if this is the only
    element.  */
 #define BLOCK_REG_PADDING(MODE, TYPE, FIRST) \
-  (!(FIRST) ? upward : FUNCTION_ARG_PADDING (MODE, TYPE))
+  (!(FIRST) ? PAD_UPWARD : targetm.calls.function_arg_padding (MODE, TYPE))
 
 /* Linux doesn't support saving and restoring 64-bit regs in a 32-bit
    process.  */
