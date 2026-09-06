@@ -1179,9 +1179,7 @@ static bool rs6000_secondary_reload_move (enum rs6000_reg_type,
 rtl_opt_pass *make_pass_analyze_swaps (gcc::context*);
 
 #ifdef POWERPC_CELL64LV2
-
-static bool rs6000_cell64lv2_valid_pointer_mode(enum machine_mode);
-
+static bool rs6000_cell64lv2_valid_pointer_mode (scalar_int_mode);
 #endif
 
 /* Hash table stuff for keeping track of TOC entries.  */
@@ -29054,9 +29052,11 @@ rs6000_opaque_type_invalid_use_p (gimple *stmt)
 #undef TARGET_VALID_POINTER_MODE
 #define TARGET_VALID_POINTER_MODE rs6000_cell64lv2_valid_pointer_mode
 
-static bool rs6000_cell64lv2_valid_pointer_mode(enum machine_mode mode)
+static bool
+rs6000_cell64lv2_valid_pointer_mode (scalar_int_mode mode)
 {
-	return (mode == SImode || (TARGET_64BIT && mode == DImode) || mode == ptr_mode || mode == Pmode);
+  return (mode == SImode || (TARGET_64BIT && mode == DImode)
+	  || mode == ptr_mode || mode == Pmode);
 }
 
 #endif
