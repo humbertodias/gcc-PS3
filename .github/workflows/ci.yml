@@ -1,9 +1,5 @@
 name: CI
 
-# CI files stay in this tree. For the ps3toolchain GCC patch, use
-#   ./ci/gcc-ps3-patch.sh
-# rather than a raw git diff (easy to forget the pathspec excludes).
-
 on:
   push:
   pull_request:
